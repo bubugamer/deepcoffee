@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  body {
+    background-color: #FAF7F3;
+    color: #1C1409;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .no-scroll::-webkit-scrollbar { display: none; }
+  .no-scroll { scrollbar-width: none; }
+}
+
+@layer components {
+  /* Shared card */
+  .dc-card {
+    @apply bg-white rounded-xl border border-dc-border;
+  }
+
+  /* Primary button */
+  .btn-primary {
+    @apply bg-dc-accent text-white rounded-lg px-4 py-2.5 text-sm font-medium
+           hover:opacity-90 transition-opacity cursor-pointer;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply bg-dc-subtle text-dc-text-2 border border-dc-border rounded-lg px-4 py-2.5
+           text-sm font-medium hover:bg-dc-border transition-colors cursor-pointer;
+  }
+
+  /* Tag / Badge */
+  .dc-tag {
+    @apply bg-dc-subtle text-dc-text-2 text-xs px-2 py-0.5 rounded-md;
+  }
+
+  /* Accent tag */
+  .dc-tag-accent {
+    @apply bg-dc-accent-light text-dc-accent text-xs px-2 py-0.5 rounded-md
+           border border-dc-accent/20;
+  }
+
+  /* Section title */
+  .section-title {
+    @apply text-sm font-semibold text-dc-text-1;
+  }
+
+  /* Input field */
+  .dc-input {
+    @apply w-full bg-white border border-dc-border rounded-lg px-3 py-2.5
+           text-sm text-dc-text-1 placeholder:text-dc-text-3
+           focus:outline-none focus:ring-2 focus:ring-dc-accent/20 focus:border-dc-accent
+           transition-colors;
+  }
+}

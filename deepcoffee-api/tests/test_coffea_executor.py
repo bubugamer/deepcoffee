@@ -1,0 +1,281 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from types import SimpleNamespace
+
+from app.schemas.coffea import ActionResult, DispatchPlan
+from app.schemas.knowledge import GroundingDoc
+from app.services.coffea_executor import assemble_reply, execute_plan
+
+_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+_VALID_IMAGE_JSON = json.dumps({"image_type": "bean_card", "bean_fields": {"name": "巴拿马 瑰夏"}})
+
+
+class _FakeKB:
+    def __init__(self, *, from_kb: bool = True) -> None:
+        self.from_kb = from_kb
+
+    def answer_question(self, question: str):
+        return SimpleNamespace(
+            answer="本地知识库摘录答案",
+            from_knowledge_base=self.from_kb,
+            selected_files=[SimpleNamespace(slug="geisha")] if self.from_kb else [],
+            sources=[],
+        )
+
+    def build_grounding(self, slugs, settings):  # noqa: ANN001
+        return [GroundingDoc(slug="geisha", title="瑰夏", content="瑰夏以花香著称…")]
+
+
+class _FakeGateway:
+    enabled = True
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+    async def chat(self, **kwargs):  # noqa: ANN003
+        return SimpleNamespace(content=self.content, model="fake")
+
+
+_SETTINGS = SimpleNamespace(
+    new_api_vision_model=None, web_search_enabled=False, brave_api_key=None, brave_search_count=5
+)
+
+
+def _run(plan, **overrides):
+    kwargs = dict(
+        message="瑰夏为什么有花香",
+        attachments=None,
+        session_state={},
+        knowledge_service=_FakeKB(),
+        settings=_SETTINGS,
+        token=None,
+        model="m",
+        gateway=None,
+    )
+    kwargs.update(overrides)
+    return asyncio.run(execute_plan(plan, **kwargs))
+
+
+def test_knowledge_local_when_no_token() -> None:
+    plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
+    results = _run(plan)
+    assert len(results) == 1
+    r = results[0]
+    assert r.type == "knowledge_answer"
+    assert r.status == "done"
+    assert r.source == "local"
+    assert r.message == "本地知识库摘录答案"
+
+
+def test_knowledge_uses_model_when_token_and_gateway() -> None:
+    plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
+    results = _run(plan, token="sk-x", gateway=_FakeGateway("模型生成的更自然回答"))
+    r = results[0]
+    assert r.status == "done"
+    assert r.source == "model"
+    assert r.message == "模型生成的更自然回答"
+
+
+def test_knowledge_stays_local_when_not_from_kb() -> None:
+    plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
+    results = _run(plan, knowledge_service=_FakeKB(from_kb=False), token="sk-x", gateway=_FakeGateway("x"))
+    assert results[0].source == "local"
+
+
+def test_image_action_degraded_without_image_bytes() -> None:
+    # 附件只有文字 note、没有图片 base64 → 无图可识别 → 降级。
+    plan = DispatchPlan(
+        primary_intent="read_bean_card_image",
+        actions=[{"type": "read_bean_card_image", "input_ref": "attachment_1"}],
+    )
+    results = _run(plan, attachments=[{"type": "image", "note": "巴拿马 瑰夏 日晒"}], token="sk-x")
+    assert results[0].type == "read_bean_card_image"
+    assert results[0].status == "degraded"
+    assert results[0].message
+
+
+def test_image_action_done_with_image_and_vision() -> None:
+    plan = DispatchPlan(
+        primary_intent="read_bean_card_image",
+        actions=[{"type": "read_bean_card_image", "input_ref": "attachment_1"}],
+    )
+    results = _run(
+        plan,
+        attachments=[{"type": "image", "data_url": _IMG}],
+        token="sk-x",
+        settings=SimpleNamespace(new_api_vision_model="kimi-k2.6"),
+        gateway=_FakeGateway(_VALID_IMAGE_JSON),
+    )
+    assert results[0].status == "done"
+    assert results[0].source == "model"
+    assert results[0].output["image_type"] == "bean_card"
+
+
+def test_coach_action_local_fallback_without_token() -> None:
+    plan = DispatchPlan(primary_intent="scale_recipe", actions=[{"type": "scale_recipe"}])
+    results = _run(plan)
+    assert results[0].type == "scale_recipe"
+    assert results[0].status == "done"
+    assert results[0].source == "local"
+    assert results[0].message
+
+
+def test_coach_action_uses_model() -> None:
+    plan = DispatchPlan(primary_intent="grinder_conversion", actions=[{"type": "grinder_conversion"}])
+    results = _run(plan, token="sk-x", gateway=_FakeGateway("C40 #18 大约对应 ZP6 6.0 圈，仅近似。"))
+    assert results[0].status == "done"
+    assert results[0].source == "model"
+    assert "ZP6" in results[0].message
+
+
+def test_web_verify_degrades_to_local_knowledge() -> None:
+    plan = DispatchPlan(primary_intent="web_verify", actions=[{"type": "web_verify"}])
+    results = _run(plan)
+    assert results[0].type == "web_verify"
+    assert results[0].status == "degraded"
+    # 明确标注非联网核实。
+    assert "非联网" in results[0].message or "联网" in results[0].message
+
+
+def test_unknown_capability_is_pending() -> None:
+    plan = DispatchPlan(
+        primary_intent="recommend_brew_params",
+        actions=[{"type": "recommend_brew_params"}],
+    )
+    results = _run(plan)
+    assert results[0].status == "pending"
+
+
+def test_intent_only_yields_no_result() -> None:
+    plan = DispatchPlan(primary_intent="ask_clarification", actions=[{"type": "ask_clarification"}])
+    results = _run(plan)
+    assert results == []
+
+
+def test_coach_receives_hydrated_active_entities() -> None:
+    # 水合后的 active_context（bean/equipment/recipe）应分别进 coach 的 user 消息，
+    # 而不是把整个 session_state 当 active_bean 塞进去。
+    captured: dict = {}
+
+    class _CaptureGW:
+        enabled = True
+
+        async def chat(self, **kwargs):  # noqa: ANN003
+            captured["user"] = kwargs["messages"][1]["content"]
+            return SimpleNamespace(content="教练回复", model="fake")
+
+    plan = DispatchPlan(primary_intent="adjust_brew_params", actions=[{"type": "adjust_brew_params"}])
+    active_context = {
+        "bean": {"name": "巴拿马 瑰夏"},
+        "equipment": {"brew_method": "V60", "grinder": "C40"},
+        "recipe": {"dose_g": 15, "water_ml": 240},
+    }
+    results = _run(plan, token="sk-x", gateway=_CaptureGW(), active_context=active_context)
+    assert results[0].status == "done"
+    assert results[0].source == "model"
+    # active 实体出现在喂给教练的 user 消息里。
+    assert "巴拿马 瑰夏" in captured["user"]
+    assert "V60" in captured["user"]
+    assert "240" in captured["user"]
+
+
+def test_coach_action_receives_original_images() -> None:
+    captured: dict = {}
+
+    class _CaptureGW:
+        enabled = True
+
+        async def chat(self, **kwargs):  # noqa: ANN003
+            captured["model"] = kwargs["model"]
+            captured["user"] = kwargs["messages"][1]["content"]
+            return SimpleNamespace(content="教练看图后回复", model="fake")
+
+    plan = DispatchPlan(primary_intent="adjust_brew_params", actions=[{"type": "adjust_brew_params"}])
+    results = _run(
+        plan,
+        attachments=[{"type": "image", "data_url": _IMG}],
+        token="sk-x",
+        settings=SimpleNamespace(new_api_vision_model="kimi-k2.6"),
+        gateway=_CaptureGW(),
+    )
+    assert results[0].status == "done"
+    assert captured["model"] == "kimi-k2.6"
+    assert isinstance(captured["user"], list)
+    assert any(p.get("type") == "image_url" and p["image_url"]["url"] == _IMG for p in captured["user"])
+
+
+def test_knowledge_action_receives_original_images() -> None:
+    captured: dict = {}
+
+    class _CaptureGW:
+        enabled = True
+
+        async def chat(self, **kwargs):  # noqa: ANN003
+            captured["model"] = kwargs["model"]
+            captured["user"] = kwargs["messages"][1]["content"]
+            return SimpleNamespace(content="知识问答看图后回复", model="fake")
+
+    plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
+    results = _run(
+        plan,
+        attachments=[{"type": "image", "data_url": _IMG}],
+        token="sk-x",
+        settings=SimpleNamespace(new_api_vision_model="kimi-k2.6"),
+        gateway=_CaptureGW(),
+    )
+    assert results[0].status == "done"
+    assert results[0].message == "知识问答看图后回复"
+    assert captured["model"] == "kimi-k2.6"
+    assert isinstance(captured["user"], list)
+    assert any(p.get("type") == "image_url" and p["image_url"]["url"] == _IMG for p in captured["user"])
+
+
+def test_pending_writeback_actions_give_guidance() -> None:
+    # 写库类动作在聊天里仍 pending（不自动落库），但 message 应是明确引导语，而非"后续阶段接入"的桩。
+    for intent in ("brew_record_parse", "create_or_update_bean_card", "recommend_brew_params"):
+        plan = DispatchPlan(primary_intent=intent, actions=[{"type": intent}])
+        results = _run(plan)
+        assert results[0].status == "pending"
+        assert results[0].message and "后续阶段接入" not in results[0].message
+
+
+def test_assemble_reply_uses_direct_reply_for_intent_only() -> None:
+    plan = DispatchPlan(primary_intent="ask_clarification", direct_reply="想问豆子还是冲煮？")
+    assert assemble_reply(plan, []) == "想问豆子还是冲煮？"
+
+
+def test_assemble_reply_prefers_executed_primary_result() -> None:
+    plan = DispatchPlan(primary_intent="knowledge_answer", direct_reply="我先简单说一下。")
+    results = [
+        ActionResult(type="knowledge_answer", status="done", message="知识库答案带来源。"),
+    ]
+    assert assemble_reply(plan, results) == "知识库答案带来源。"
+
+
+def test_assemble_reply_picks_primary_result_from_multiple_actions() -> None:
+    plan = DispatchPlan(primary_intent="web_verify")
+    results = [
+        ActionResult(type="knowledge_answer", status="done", message="普通知识答案。"),
+        ActionResult(type="web_verify", status="degraded", message="联网核实降级答案。"),
+    ]
+    assert assemble_reply(plan, results) == "联网核实降级答案。"
+
+
+def test_assemble_reply_falls_back_to_first_displayable_result() -> None:
+    plan = DispatchPlan(primary_intent="web_verify")
+    results = [
+        ActionResult(type="web_verify", status="failed", message="失败内容不展示为主回复。"),
+        ActionResult(type="knowledge_answer", status="done", message="可展示的兜底答案。"),
+    ]
+    assert assemble_reply(plan, results) == "可展示的兜底答案。"
+
+
+def test_assemble_reply_returns_none_when_nothing_displayable() -> None:
+    plan = DispatchPlan(primary_intent="knowledge_answer")
+    results = [
+        ActionResult(type="knowledge_answer", status="failed", message="失败内容不展示为主回复。"),
+        ActionResult(type="recommend_brew_params", status="pending", message="待确认流程。"),
+    ]
+    assert assemble_reply(plan, results) is None

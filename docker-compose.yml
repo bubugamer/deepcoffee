@@ -1,0 +1,73 @@
+name: deepcoffee
+
+# DeepCoffee 全栈：一条 `docker compose up --build` 起 api + frontend。
+# 数据库默认使用 deepcoffee-api/.env 中的 Supabase DATABASE_URL。
+# 如需本地 Postgres，可启用 local-db profile 后再覆盖 DATABASE_URL。
+# 默认使用一组不常用宿主端口，避免撞本机常见服务：
+#   Web 3010 / API 8642 / DB 5440
+
+services:
+  db:
+    profiles: ["local-db"]
+    image: postgres:16
+    environment:
+      POSTGRES_USER: deepcoffee
+      POSTGRES_PASSWORD: deepcoffee
+      POSTGRES_DB: deepcoffee
+    ports:
+      - "${DB_PORT:-5440}:5432"
+    volumes:
+      - dcpg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepcoffee -d deepcoffee"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./deepcoffee-api
+    image: deepcoffee-api:latest
+    env_file:
+      - ./deepcoffee-api/.env
+    environment:
+      # APP_ENV 由 deepcoffee-api/.env 决定（local / production），不在此硬编码。
+      DEEPCOFFEE_KNOWLEDGE_DIR: /knowledge
+      DEEPCOFFEE_BACKEND_CORS_ORIGINS: "[\"http://localhost:${WEB_PORT:-3010}\",\"http://127.0.0.1:${WEB_PORT:-3010}\",\"http://localhost:3000\",\"http://127.0.0.1:3000\"]"
+      # 容器内 localhost 指容器自身；new-api 跑在宿主机（独立 compose，:18451），
+      # 故覆盖 .env 里的 localhost，改用 host.docker.internal 才能从 api 容器连到它。
+      NEW_API_BASE_URL: "http://host.docker.internal:${NEW_API_PORT:-18451}"
+    extra_hosts:
+      # Linux 上 host.docker.internal 需显式映射；macOS/Windows Docker Desktop 自带，加了也无害。
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 知识库 Markdown 由仓库提供，挂载进容器（只读）
+      - ./knowledge:/knowledge:ro
+    ports:
+      # DeepCoffee 固定 API 端口 8642（避开常用的 8000）
+      - "${API_PORT:-8642}:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../deploy/frontend.Dockerfile
+      args:
+        # NEXT_PUBLIC_* 在 build 时编译进浏览器产物（浏览器→宿主 API_PORT）
+        NEXT_PUBLIC_API_BASE_URL: "http://localhost:${API_PORT:-8642}"
+        # 前端 lib/supabase.ts 构建期需要（均为公开值：URL + publishable key）
+        NEXT_PUBLIC_SUPABASE_URL: https://dolldtjbbkoixuxbqgpx.supabase.co
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ByjRXAQQctZzuZnDnT_gDA_B9B4KuKC
+    image: deepcoffee-frontend:latest
+    environment:
+      # 浏览器侧用宿主地址(API_PORT)；服务端(SSR)侧用容器内网地址（前端 lib/api/client.ts 按运行环境选择）
+      NEXT_PUBLIC_API_BASE_URL: "http://localhost:${API_PORT:-8642}"
+      API_INTERNAL_URL: http://api:8000
+      NEXT_PUBLIC_SUPABASE_URL: https://dolldtjbbkoixuxbqgpx.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ByjRXAQQctZzuZnDnT_gDA_B9B4KuKC
+    ports:
+      - "${WEB_PORT:-3010}:3000"
+    depends_on:
+      - api
+
+volumes:
+  dcpg:

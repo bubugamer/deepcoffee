@@ -1,0 +1,98 @@
+site_name: Deep Coffee 知识库
+site_description: 精品咖啡知识库 —— 豆袋阅读、冲煮建议、器具选择、参数调整与公共咖啡知识
+docs_dir: knowledge
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: brown
+      accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: brown
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+  - roamlinks
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - tables
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.mark
+  - pymdownx.tilde
+  - attr_list
+  - md_in_html
+
+extra_css:
+  - stylesheets/custom.css
+
+nav:
+  - 首页: index.md
+  - 冲煮建议:
+    - 如何获得更准确的冲煮建议: guides/如何获得冲煮建议.md
+    - 手冲参数调整指南: guides/手冲参数调整指南.md
+    - 常见风味问题排查: guides/常见风味问题排查.md
+    - 器具与冲煮方法选择: guides/器具与方法选择.md
+    - 豆袋信息阅读指南: guides/豆袋信息阅读.md
+  - 认识一支豆:
+    - 产区风味地图: origins/产区风味地图.md
+    - 品种与处理法风味图谱: varietals/品种与处理法风味图谱.md
+    - 处理法概览: processing/处理法概览.md
+  - 冲煮与器具:
+    - V60 手冲冲煮指南: brewing/V60手冲冲煮指南.md
+    - 爱乐压冲煮指南: brewing/爱乐压冲煮指南.md
+    - 虹吸壶冲煮指南: brewing/虹吸壶冲煮指南.md
+    - 意式浓缩均匀萃取: brewing/意式浓缩均匀萃取.md
+    - 手冲用水科学: brewing/手冲用水科学.md
+    - 萃取率与浓度测量: brewing/萃取率与浓度测量.md
+    - 涩感的形成机制: brewing/涩感的形成机制.md
+    - 养豆与熟豆保存: brewing/养豆与保存.md
+    - Pulsar滤杯: equipment/drippers/Pulsar滤杯.md
+    - Stagg-X滤杯: equipment/drippers/Stagg-X滤杯.md
+    - 咖啡滤纸深度分析: equipment/drippers/咖啡滤纸深度分析.md
+    - 咖啡滤杯发展史: equipment/drippers/滤杯发展史.md
+    - 家用意式机选购指南: equipment/espresso-machines/家用意式机选购.md
+    - 平刀vs锥刀: equipment/grinders/平刀vs锥刀.md
+    - 手冲磨豆机选购指南: equipment/grinders/手冲磨豆机选购.md
+    - Comandante-C40: equipment/grinders/手动/Comandante-C40.md
+    - 研磨粒径分布: equipment/grinders/研磨粒径分布.md
+    - 感官评测方法论: brewing/感官评测方法论.md
+  - 背景与标准:
+    - World Coffee Research Varieties Catalog: standards/world-coffee-research-varieties-catalog.md
+    - SCA Coffee Standards: standards/sca-coffee-standards.md
+    - Cup of Excellence（COE）: competitions/cup-of-excellence.md
+    - Best of Panama（BOP）: competitions/best-of-panama.md
+    - 精品咖啡运动史: brewing/精品咖啡运动史.md
+    - 烘焙风格地域对比: brewing/烘焙风格对比-地域.md

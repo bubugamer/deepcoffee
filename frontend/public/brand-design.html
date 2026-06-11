@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepCoffee — 品牌设计方案 v2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&family=Playfair+Display:ital,wght@0,700;1,400&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#FAF7F3; --card:#FFF; --subtle:#F4EDE4; --border:#E8DDD0;
+      --accent:#9B5E1A; --acc-l:#FDF3E6; --acc-h:#C8813A; --acc-d:#7C4A12;
+      --t1:#1C1409; --t2:#6B5E52; --t3:#A89888;
+    }
+    body { font-family:'Plus Jakarta Sans',-apple-system,'PingFang SC',sans-serif; background:var(--bg); color:var(--t1); }
+
+    /* header */
+    .ph { background:var(--t1); padding:52px 48px 44px; border-bottom:3px solid var(--accent); }
+    .ph-inner { max-width:1140px; margin:0 auto; display:flex; justify-content:space-between; align-items:flex-end; }
+    .ph h1 { font-size:28px; font-weight:800; color:#FAF7F3; margin-bottom:6px; }
+    .ph h1 em { font-style:normal; color:var(--acc-h); }
+    .ph p  { font-size:13px; color:#6B5E52; }
+    .ph-date { font-size:11px; color:#4A3C30; font-family:monospace; }
+
+    /* layout */
+    .wrap { max-width:1140px; margin:0 auto; padding:60px 48px 80px; }
+    .eyebrow { font-size:10px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; color:var(--t3); margin-bottom:5px; }
+    .sh { font-size:20px; font-weight:700; color:var(--t1); margin-bottom:7px; }
+    .sd { font-size:13px; color:var(--t2); line-height:1.65; margin-bottom:32px; max-width:580px; }
+    .divider { height:1px; background:var(--border); margin:60px 0; }
+
+    /* card grid */
+    .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:22px; }
+    .card { background:var(--card); border:1.5px solid var(--border); border-radius:20px; overflow:hidden; transition:border-color .2s,box-shadow .2s; }
+    .card:hover { border-color:var(--acc-h); box-shadow:0 8px 28px rgba(155,94,26,.10); }
+
+    /* preview panes */
+    .prev { padding:38px 24px 32px; display:flex; flex-direction:column; align-items:center; gap:18px; border-bottom:1px solid var(--border); position:relative; min-height:200px; justify-content:center; }
+    .prev.dark   { background:var(--t1); }
+    .prev.cream  { background:var(--bg); }
+    .prev.accent { background:var(--accent); }
+    .prev-tag { position:absolute; top:10px; right:12px; font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:rgba(255,255,255,.3); }
+    .prev.cream .prev-tag { color:var(--t3); }
+
+    /* info */
+    .info { padding:20px 22px 22px; }
+    .badge { display:inline-block; background:var(--acc-l); color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:4px; margin-bottom:9px; }
+    .cn { font-size:15px; font-weight:700; color:var(--t1); margin-bottom:5px; }
+    .cd { font-size:12.5px; line-height:1.65; color:var(--t2); }
+    .tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+    .tag { background:var(--subtle); color:var(--t2); font-size:11px; padding:3px 8px; border-radius:20px; }
+
+    /* wordmarks */
+    .wm-row { display:flex; align-items:center; gap:9px; }
+    .wm-a-deep   { font-weight:300; font-size:17px; letter-spacing:.06em; }
+    .wm-a-coffee { font-weight:800; font-size:17px; letter-spacing:-.02em; }
+    .wm-b-brand  { font-family:'Playfair Display',serif; font-weight:700; font-size:16px; letter-spacing:.06em; }
+    .wm-c-brand  { font-weight:800; font-size:18px; letter-spacing:-.03em; }
+
+    /* palette */
+    .pal { display:flex; gap:14px; flex-wrap:wrap; }
+    .sw .dot { width:50px; height:50px; border-radius:11px; border:1px solid rgba(0,0,0,.06); margin-bottom:6px; }
+    .sw .sn  { display:block; font-size:11px; font-weight:600; color:var(--t2); }
+    .sw .sh2 { font-size:10px; color:var(--t3); font-family:monospace; }
+  </style>
+</head>
+<body>
+
+<header class="ph">
+  <div class="ph-inner">
+    <div>
+      <h1><em>Deep</em>Coffee 品牌设计 v2</h1>
+      <p>Logo 融合方案 · 动物吉祥物 · Coffea AI 形象</p>
+    </div>
+    <span class="ph-date">2026-05-27</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ══════════════ LOGO ══════════════ -->
+<div class="eyebrow">品牌标识</div>
+<div class="sh">Logo 方案——水滴 × 咖啡豆融合</div>
+<div class="sd">将水滴的「精准下落感」与咖啡豆的「折痕纹理」结合在同一个图形里，三种处理方式供选择。</div>
+
+<div class="grid3">
+
+  <!-- L1: Bean-Drop -->
+  <div class="card">
+    <div class="prev dark">
+      <span class="prev-tag">深色背景</span>
+      <svg width="62" height="64" viewBox="0 0 62 64" fill="none">
+        <!-- Bean-drop body: teardrop outer, bean crease inside -->
+        <path d="M31 6 C43 14 49 26 49 39 A18 18 0 0 1 13 39 C13 26 19 14 31 6Z" fill="white"/>
+        <!-- Highlight -->
+        <ellipse cx="24" cy="24" rx="4" ry="7" fill="white" opacity=".18" transform="rotate(-18 24 24)"/>
+        <!-- Bean crease S-curve -->
+        <path d="M31 10 C25 22 37 38 31 52" stroke="#C8813A" stroke-width="2" stroke-linecap="round" fill="none" opacity=".8"/>
+      </svg>
+      <div class="wm-row" style="color:#FAF7F3">
+        <span class="wm-a-deep" style="color:#A89888">Deep</span>
+        <span class="wm-a-coffee">Coffee</span>
+      </div>
+    </div>
+    <div class="prev cream" style="padding:22px">
+      <span class="prev-tag">浅色版</span>
+      <div class="wm-row">
+        <svg width="34" height="36" viewBox="0 0 62 64" fill="none">
+          <circle cx="31" cy="32" r="31" fill="#9B5E1A"/>
+          <path d="M31 8 C42 15 47 26 47 37 A16 16 0 0 1 15 37 C15 26 20 15 31 8Z" fill="white"/>
+          <path d="M31 11 C26 22 36 37 31 50" stroke="#C8813A" stroke-width="1.8" stroke-linecap="round" fill="none" opacity=".7"/>
+        </svg>
+        <div>
+          <span class="wm-a-deep" style="color:#A89888">Deep</span>
+          <span class="wm-a-coffee" style="color:#1C1409">Coffee</span>
+        </div>
+      </div>
+    </div>
+    <div class="info">
+      <span class="badge">方案 1 · 豆滴</span>
+      <div class="cn">水滴轮廓 + 豆纹骨</div>
+      <div class="cd">外形保留水滴的「精准下落」，内部一条 S 形折痕赋予咖啡豆的灵魂。既通用又有咖啡质感。</div>
+      <div class="tags"><span class="tag">识别度高</span><span class="tag">双重语义</span><span class="tag">App 图标友好</span></div>
+    </div>
+  </div>
+
+  <!-- L2: Round Badge -->
+  <div class="card">
+    <div class="prev accent">
+      <span class="prev-tag">品牌色背景</span>
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+        <!-- Outer ring -->
+        <circle cx="32" cy="32" r="30" fill="#7C4A12" opacity=".4"/>
+        <circle cx="32" cy="32" r="30" stroke="white" stroke-width="1.2" fill="none" opacity=".3"/>
+        <!-- Bean inside circle -->
+        <ellipse cx="32" cy="32" rx="16" ry="21" fill="white" transform="rotate(-8 32 32)"/>
+        <!-- Bean crease -->
+        <path d="M16 36 C22 35 27 28 32 32 C37 36 42 29 48 28" stroke="#9B5E1A" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <!-- Small drop above bean -->
+        <path d="M32 12 C35 15 37 18 37 21 A5 5 0 0 1 27 21 C27 18 29 15 32 12Z" fill="#C8813A" opacity=".6"/>
+      </svg>
+      <div class="wm-row">
+        <span class="wm-b-brand" style="color:white; letter-spacing:.1em">DEEP COFFEE</span>
+      </div>
+    </div>
+    <div class="prev cream" style="padding:22px">
+      <span class="prev-tag">浅色版</span>
+      <div class="wm-row">
+        <svg width="38" height="38" viewBox="0 0 64 64" fill="none">
+          <circle cx="32" cy="32" r="30" fill="#9B5E1A"/>
+          <circle cx="32" cy="32" r="30" stroke="#C8813A" stroke-width="1.5" fill="none" opacity=".4"/>
+          <ellipse cx="32" cy="32" rx="16" ry="21" fill="white" transform="rotate(-8 32 32)"/>
+          <path d="M16 36 C22 35 27 28 32 32 C37 36 42 29 48 28" stroke="#9B5E1A" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M32 12 C35 15 37 18 37 21 A5 5 0 0 1 27 21 C27 18 29 15 32 12Z" fill="#C8813A" opacity=".8"/>
+        </svg>
+        <span class="wm-b-brand" style="color:#1C1409; letter-spacing:.1em; font-size:14px">DEEP COFFEE</span>
+      </div>
+    </div>
+    <div class="info">
+      <span class="badge">方案 2 · 印记</span>
+      <div class="cn">圆形徽章 + 豆滴合体</div>
+      <div class="cd">圆形印鉴格式，内有咖啡豆完整形态，豆顶一颗液滴强调出处。衬线大写字标兼顾精品咖啡的仪式感。</div>
+      <div class="tags"><span class="tag">精品感</span><span class="tag">印章质感</span><span class="tag">仪式感强</span></div>
+    </div>
+  </div>
+
+  <!-- L3: Seed-Pod -->
+  <div class="card">
+    <div class="prev dark">
+      <span class="prev-tag">深色背景</span>
+      <svg width="52" height="68" viewBox="0 0 52 68" fill="none">
+        <!-- Elongated vertical bean-drop hybrid: both ends tapered, mid-wide -->
+        <path d="M26 5 C38 10 44 22 44 34 C44 46 38 58 26 63 C14 58 8 46 8 34 C8 22 14 10 26 5Z" fill="white"/>
+        <!-- Highlight -->
+        <ellipse cx="18" cy="22" rx="5" ry="8" fill="white" opacity=".18" transform="rotate(-10 18 22)"/>
+        <!-- Crease: S-curve -->
+        <path d="M26 9 C20 22 32 44 26 59" stroke="#C8813A" stroke-width="2" stroke-linecap="round" fill="none" opacity=".75"/>
+      </svg>
+      <div class="wm-row" style="color:#FAF7F3; flex-direction:column; gap:2px; align-items:center">
+        <span style="font-weight:800;font-size:18px;letter-spacing:-.03em">DeepCoffee</span>
+        <span style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#6B5E52">精品咖啡 AI 助手</span>
+      </div>
+    </div>
+    <div class="prev cream" style="padding:22px">
+      <span class="prev-tag">浅色版</span>
+      <div class="wm-row">
+        <svg width="28" height="38" viewBox="0 0 52 68" fill="none">
+          <path d="M26 5 C38 10 44 22 44 34 C44 46 38 58 26 63 C14 58 8 46 8 34 C8 22 14 10 26 5Z" fill="#9B5E1A"/>
+          <path d="M26 9 C20 22 32 44 26 59" stroke="white" stroke-width="2" stroke-linecap="round" fill="none" opacity=".55"/>
+        </svg>
+        <div>
+          <div style="font-weight:800;font-size:17px;letter-spacing:-.02em;color:#1C1409">DeepCoffee</div>
+          <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#A89888;margin-top:2px">精品咖啡 AI 助手</div>
+        </div>
+      </div>
+    </div>
+    <div class="info">
+      <span class="badge">方案 3 · 种子</span>
+      <div class="cn">垂直豆形 · 两端收尖</div>
+      <div class="cd">上下两端均收尖，兼具水滴的落下感与豆子的饱满感，纵向构图更具张力，搭配副标语气质最强。</div>
+      <div class="tags"><span class="tag">纵向张力</span><span class="tag">气质高级</span><span class="tag">副标搭配佳</span></div>
+    </div>
+  </div>
+
+</div><!-- /logo grid -->
+
+<div class="divider"></div>
+
+<!-- ══════════════ ANIMAL MASCOT ══════════════ -->
+<div class="eyebrow">品牌吉祥物</div>
+<div class="sh">动物形象方案</div>
+<div class="sd">三种动物代表不同品牌气质——聪明的狐、沉静的猫、温柔的兔。均为扁平插画风格头像，适配各类场景。</div>
+
+<div class="grid3">
+
+  <!-- Fox -->
+  <div class="card">
+    <div class="prev cream" style="min-height:240px">
+      <svg width="100" height="100" viewBox="0 0 100 96" fill="none">
+        <!-- Left ear outer -->
+        <path d="M20 28 L6 0 L40 18Z" fill="#C8813A"/>
+        <!-- Left ear inner -->
+        <path d="M22 26 L12 4 L37 19Z" fill="#F0A07A" opacity=".85"/>
+        <!-- Right ear outer -->
+        <path d="M80 28 L94 0 L60 18Z" fill="#C8813A"/>
+        <!-- Right ear inner -->
+        <path d="M78 26 L88 4 L63 19Z" fill="#F0A07A" opacity=".85"/>
+        <!-- Face circle -->
+        <circle cx="50" cy="54" r="38" fill="#C8813A"/>
+        <!-- Face highlight -->
+        <ellipse cx="36" cy="40" rx="13" ry="9" fill="#D4904A" opacity=".35" transform="rotate(-20 36 40)"/>
+        <!-- White muzzle area -->
+        <ellipse cx="50" cy="68" rx="22" ry="16" fill="#F8F2E8"/>
+        <!-- Left eye white -->
+        <ellipse cx="34" cy="51" rx="9" ry="10" fill="white"/>
+        <!-- Left pupil -->
+        <ellipse cx="35" cy="52" rx="5.5" ry="6.5" fill="#2A1208"/>
+        <circle cx="37" cy="50" r="2" fill="white"/>
+        <!-- Right eye white -->
+        <ellipse cx="66" cy="51" rx="9" ry="10" fill="white"/>
+        <!-- Right pupil -->
+        <ellipse cx="67" cy="52" rx="5.5" ry="6.5" fill="#2A1208"/>
+        <circle cx="69" cy="50" r="2" fill="white"/>
+        <!-- Nose -->
+        <ellipse cx="50" cy="65" rx="4.5" ry="3.5" fill="#5C2810"/>
+        <!-- Mouth lines -->
+        <path d="M50 68 L50 73" stroke="#5C2810" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+        <path d="M44 73 Q50 78 56 73" stroke="#5C2810" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+        <!-- Cheek blush -->
+        <ellipse cx="26" cy="62" rx="9" ry="6" fill="#E07040" opacity=".2"/>
+        <ellipse cx="74" cy="62" rx="9" ry="6" fill="#E07040" opacity=".2"/>
+        <!-- Forehead marking (fox typical) -->
+        <path d="M42 26 Q50 22 58 26" stroke="#9B5E1A" stroke-width="1.5" fill="none" opacity=".4" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="info">
+      <span class="badge">动物 A · 小狐</span>
+      <div class="cn">咖啡狐</div>
+      <div class="cd">毛色与品牌棕天然吻合，眼神灵动透着聪慧，最适合「AI 助手」形象延伸。在日韩字符设计中广受喜爱。</div>
+      <div class="tags"><span class="tag">聪明机敏</span><span class="tag">色系高度吻合</span><span class="tag">AI 感强</span></div>
+    </div>
+  </div>
+
+  <!-- Cat -->
+  <div class="card">
+    <div class="prev cream" style="min-height:240px">
+      <svg width="100" height="100" viewBox="0 0 100 96" fill="none">
+        <!-- Left ear outer -->
+        <path d="M18 32 L14 8 L40 24Z" fill="#BFA88C"/>
+        <!-- Left ear inner -->
+        <path d="M20 30 L17 12 L37 24Z" fill="#F4C0A0" opacity=".8"/>
+        <!-- Right ear outer -->
+        <path d="M82 32 L86 8 L60 24Z" fill="#BFA88C"/>
+        <!-- Right ear inner -->
+        <path d="M80 30 L83 12 L63 24Z" fill="#F4C0A0" opacity=".8"/>
+        <!-- Face circle — warm beige-gray -->
+        <circle cx="50" cy="54" r="38" fill="#D4C4A8"/>
+        <!-- Lighter face center -->
+        <ellipse cx="50" cy="56" rx="26" ry="30" fill="#E8D8BC" opacity=".6"/>
+        <!-- Face highlight -->
+        <ellipse cx="36" cy="40" rx="11" ry="8" fill="#EAD8C0" opacity=".5" transform="rotate(-15 36 40)"/>
+        <!-- Muzzle area -->
+        <ellipse cx="50" cy="68" rx="18" ry="13" fill="#FAF0E0"/>
+        <!-- Left eye — cat-shaped, slightly angular -->
+        <ellipse cx="34" cy="50" rx="9" ry="8" fill="white"/>
+        <ellipse cx="34" cy="51" rx="5" ry="6" fill="#4A7C5A"/>
+        <ellipse cx="34" cy="51" rx="2.5" ry="5" fill="#1C1409"/>
+        <circle cx="36" cy="49" r="1.8" fill="white"/>
+        <!-- Right eye -->
+        <ellipse cx="66" cy="50" rx="9" ry="8" fill="white"/>
+        <ellipse cx="66" cy="51" rx="5" ry="6" fill="#4A7C5A"/>
+        <ellipse cx="66" cy="51" rx="2.5" ry="5" fill="#1C1409"/>
+        <circle cx="68" cy="49" r="1.8" fill="white"/>
+        <!-- Nose (pink) -->
+        <path d="M47 64 L50 67 L53 64 Z" fill="#E08080"/>
+        <!-- Mouth -->
+        <path d="M50 67 Q46 71 42 70" stroke="#C07060" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+        <path d="M50 67 Q54 71 58 70" stroke="#C07060" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+        <!-- Whiskers -->
+        <line x1="16" y1="63" x2="40" y2="66" stroke="#A89888" stroke-width="1" opacity=".6"/>
+        <line x1="16" y1="68" x2="40" y2="68" stroke="#A89888" stroke-width="1" opacity=".6"/>
+        <line x1="60" y1="66" x2="84" y2="63" stroke="#A89888" stroke-width="1" opacity=".6"/>
+        <line x1="60" y1="68" x2="84" y2="68" stroke="#A89888" stroke-width="1" opacity=".6"/>
+        <!-- Cheek blush -->
+        <ellipse cx="28" cy="62" rx="8" ry="5" fill="#E09070" opacity=".18"/>
+        <ellipse cx="72" cy="62" rx="8" ry="5" fill="#E09070" opacity=".18"/>
+      </svg>
+    </div>
+    <div class="info">
+      <span class="badge">动物 B · 小猫</span>
+      <div class="cn">咖啡猫</div>
+      <div class="cd">猫咪与咖啡馆文化天然绑定，「猫的独立感」完美契合精品咖啡人格。绿色瞳孔增添沉静知性气质。</div>
+      <div class="tags"><span class="tag">独立沉静</span><span class="tag">咖啡馆文化</span><span class="tag">知性气质</span></div>
+    </div>
+  </div>
+
+  <!-- Rabbit -->
+  <div class="card">
+    <div class="prev cream" style="min-height:240px">
+      <svg width="100" height="112" viewBox="0 0 100 112" fill="none">
+        <!-- Left long ear -->
+        <ellipse cx="34" cy="18" rx="12" ry="22" fill="#E8D0BC"/>
+        <ellipse cx="34" cy="18" rx="7" ry="17" fill="#F4B8B0" opacity=".7"/>
+        <!-- Right long ear -->
+        <ellipse cx="66" cy="18" rx="12" ry="22" fill="#E8D0BC"/>
+        <ellipse cx="66" cy="18" rx="7" ry="17" fill="#F4B8B0" opacity=".7"/>
+        <!-- Face circle — soft warm white -->
+        <circle cx="50" cy="66" r="38" fill="#F0E4D4"/>
+        <!-- Face highlight -->
+        <ellipse cx="36" cy="52" rx="12" ry="8" fill="white" opacity=".5" transform="rotate(-15 36 52)"/>
+        <!-- Muzzle -->
+        <ellipse cx="50" cy="78" rx="16" ry="12" fill="white" opacity=".7"/>
+        <!-- Left eye — big, round, innocent -->
+        <circle cx="34" cy="62" r="10" fill="white"/>
+        <circle cx="35" cy="63" r="6.5" fill="#4A2828"/>
+        <circle cx="37" cy="61" r="2.5" fill="white"/>
+        <circle cx="34" cy="65" r="1.2" fill="white" opacity=".6"/>
+        <!-- Right eye -->
+        <circle cx="66" cy="62" r="10" fill="white"/>
+        <circle cx="67" cy="63" r="6.5" fill="#4A2828"/>
+        <circle cx="69" cy="61" r="2.5" fill="white"/>
+        <circle cx="66" cy="65" r="1.2" fill="white" opacity=".6"/>
+        <!-- Nose (cute Y-shape) -->
+        <ellipse cx="50" cy="76" rx="3.5" ry="3" fill="#F09090"/>
+        <path d="M50 79 L46 83" stroke="#D07070" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+        <path d="M50 79 L54 83" stroke="#D07070" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+        <!-- Smile -->
+        <path d="M44 84 Q50 89 56 84" stroke="#D07070" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+        <!-- Cheek blush — bigger, softer for rabbit -->
+        <ellipse cx="24" cy="70" rx="11" ry="7" fill="#F4A0A0" opacity=".22"/>
+        <ellipse cx="76" cy="70" rx="11" ry="7" fill="#F4A0A0" opacity=".22"/>
+      </svg>
+    </div>
+    <div class="info">
+      <span class="badge">动物 C · 小兔</span>
+      <div class="cn">咖啡兔</div>
+      <div class="cd">长耳、大眼、柔软轮廓，是三种动物里最亲切温柔的形象。适合引导新用户、空状态插图，让人一眼就想点击。</div>
+      <div class="tags"><span class="tag">温柔亲切</span><span class="tag">入门用户友好</span><span class="tag">空状态首选</span></div>
+    </div>
+  </div>
+
+</div><!-- /mascot grid -->
+
+<div class="divider"></div>
+
+<!-- ══════════════ COFFEA AI ══════════════ -->
+<div class="eyebrow">AI 助手形象</div>
+<div class="sh">卡菲娅 Coffea — 三种性格方向</div>
+<div class="sd">AI 助手「卡菲娅」的拟人化女性形象，三套方案代表不同性格调性——优雅知性、活力元气、神秘精灵。</div>
+
+<div class="grid3">
+
+  <!-- Coffea A: Elegant -->
+  <div class="card">
+    <div class="prev cream" style="min-height:280px; padding:24px 20px">
+      <svg width="110" height="150" viewBox="0 0 110 150" fill="none">
+        <!-- Hair back layer (flowing, long) -->
+        <path d="M18 44 Q6 72 8 110 Q12 130 20 128 Q28 126 28 110 L28 72 Q22 62 18 44Z" fill="#3D2008"/>
+        <path d="M92 44 Q104 72 102 110 Q98 130 90 128 Q82 126 82 110 L82 72 Q88 62 92 44Z" fill="#3D2008"/>
+        <!-- Hair top (crown shape) -->
+        <path d="M18 44 Q20 20 55 16 Q90 20 92 44 Q78 36 55 34 Q32 36 18 44Z" fill="#3D2008"/>
+        <!-- Face oval -->
+        <ellipse cx="55" cy="76" rx="30" ry="36" fill="#F5D5A0"/>
+        <!-- Neck -->
+        <rect x="47" y="110" width="16" height="22" rx="5" fill="#F0C888"/>
+        <!-- Shirt/collar -->
+        <path d="M18 132 Q36 124 55 127 Q74 124 92 132 L110 150 L0 150Z" fill="#9B5E1A"/>
+        <!-- Collar detail (V-neck) -->
+        <path d="M55 127 L45 150" stroke="#7C4A12" stroke-width="1.5" fill="none"/>
+        <path d="M55 127 L65 150" stroke="#7C4A12" stroke-width="1.5" fill="none"/>
+        <!-- Hair front strands framing face -->
+        <path d="M20 46 Q14 60 16 76 Q18 70 22 70 Q20 58 24 52Z" fill="#3D2008"/>
+        <path d="M90 46 Q96 60 94 76 Q92 70 88 70 Q90 58 86 52Z" fill="#3D2008"/>
+        <!-- Face highlight -->
+        <ellipse cx="44" cy="64" rx="10" ry="8" fill="#FDEAC0" opacity=".5" transform="rotate(-10 44 64)"/>
+        <!-- Left eye -->
+        <ellipse cx="41" cy="72" rx="9.5" ry="8" fill="white"/>
+        <ellipse cx="41" cy="73" rx="6" ry="6" fill="#2C1408"/>
+        <circle cx="43.5" cy="71" r="2.2" fill="white"/>
+        <!-- Eyelash upper left -->
+        <path d="M31.5 67 Q41 63 50.5 67" stroke="#1C0804" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <!-- Left lashes detail -->
+        <line x1="32" y1="67" x2="30" y2="63" stroke="#1C0804" stroke-width="1.2"/>
+        <line x1="38" y1="64" x2="37" y2="60" stroke="#1C0804" stroke-width="1.2"/>
+        <line x1="44" y1="63" x2="44" y2="59" stroke="#1C0804" stroke-width="1.2"/>
+        <!-- Right eye -->
+        <ellipse cx="69" cy="72" rx="9.5" ry="8" fill="white"/>
+        <ellipse cx="69" cy="73" rx="6" ry="6" fill="#2C1408"/>
+        <circle cx="71.5" cy="71" r="2.2" fill="white"/>
+        <!-- Eyelash upper right -->
+        <path d="M59.5 67 Q69 63 78.5 67" stroke="#1C0804" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <line x1="78" y1="67" x2="80" y2="63" stroke="#1C0804" stroke-width="1.2"/>
+        <line x1="72" y1="64" x2="73" y2="60" stroke="#1C0804" stroke-width="1.2"/>
+        <line x1="66" y1="63" x2="66" y2="59" stroke="#1C0804" stroke-width="1.2"/>
+        <!-- Nose (subtle) -->
+        <path d="M52 84 Q55 87 58 84" stroke="#C8906A" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+        <!-- Lips (refined bow shape) -->
+        <path d="M46 93 Q51 90 55 92 Q59 90 64 93" stroke="#C07050" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <path d="M46 93 Q55 99 64 93" stroke="#C07050" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <!-- Coffee bean earring left (small, elegant) -->
+        <ellipse cx="22" cy="84" rx="4.5" ry="6.5" fill="#9B5E1A" transform="rotate(-8 22 84)"/>
+        <path d="M22 78 C19 82 25 89 22 91" stroke="#7C4A12" stroke-width=".9" fill="none" opacity=".7"/>
+        <!-- Earring right -->
+        <ellipse cx="88" cy="84" rx="4.5" ry="6.5" fill="#9B5E1A" transform="rotate(8 88 84)"/>
+        <path d="M88 78 C85 82 91 89 88 91" stroke="#7C4A12" stroke-width=".9" fill="none" opacity=".7"/>
+        <!-- Blush -->
+        <ellipse cx="32" cy="80" rx="10" ry="6" fill="#E08060" opacity=".15"/>
+        <ellipse cx="78" cy="80" rx="10" ry="6" fill="#E08060" opacity=".15"/>
+        <!-- Small hair highlight -->
+        <path d="M36 24 Q55 18 68 28" stroke="#6B3A14" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".4"/>
+      </svg>
+    </div>
+    <div class="info">
+      <span class="badge">卡菲娅 A · 优雅</span>
+      <div class="cn">知性优雅型</div>
+      <div class="cd">长发飘逸、咖啡豆耳饰、V 领咖啡色上衣。杏仁眼加浓眼睫，气质偏向专业咖啡师 / 知识型 AI。深度用户最爱。</div>
+      <div class="tags"><span class="tag">优雅知性</span><span class="tag">专业感</span><span class="tag">成熟气质</span></div>
+    </div>
+  </div>
+
+  <!-- Coffea B: Energetic -->
+  <div class="card">
+    <div class="prev cream" style="min-height:280px; padding:24px 20px">
+      <svg width="110" height="150" viewBox="0 0 110 150" fill="none">
+        <!-- Hair: two buns at top -->
+        <circle cx="35" cy="26" r="16" fill="#5C2E08"/>
+        <circle cx="75" cy="26" r="16" fill="#5C2E08"/>
+        <!-- Connecting hair / top of head -->
+        <rect x="35" y="18" width="40" height="18" fill="#5C2E08"/>
+        <!-- Bandana/ribbon strip -->
+        <rect x="20" y="40" width="70" height="9" rx="4.5" fill="#9B5E1A"/>
+        <!-- Bandana bow on right -->
+        <path d="M88 40 Q96 36 96 44 Q96 48 88 48Z" fill="#C8813A"/>
+        <!-- Side hair strands -->
+        <path d="M20 46 Q12 64 14 82 Q16 76 20 76 Q18 62 22 54Z" fill="#5C2E08"/>
+        <path d="M90 46 Q98 64 96 82 Q94 76 90 76 Q92 62 88 54Z" fill="#5C2E08"/>
+        <!-- Face circle — round and cute -->
+        <circle cx="55" cy="80" r="36" fill="#F5D5A0"/>
+        <!-- Neck -->
+        <rect x="47" y="113" width="16" height="20" rx="5" fill="#F0C888"/>
+        <!-- Shirt with barista collar -->
+        <path d="M15 133 Q36 124 55 128 Q74 124 95 133 L110 150 L0 150Z" fill="#FAF7F3"/>
+        <path d="M15 133 Q36 124 55 128 Q74 124 95 133" stroke="#E8DDD0" stroke-width="1.5" fill="none"/>
+        <!-- Apron center strip -->
+        <rect x="46" y="134" width="18" height="16" rx="2" fill="#E8DDD0"/>
+        <!-- Face highlight -->
+        <ellipse cx="43" cy="68" rx="10" ry="7" fill="#FDEAC0" opacity=".55" transform="rotate(-10 43 68)"/>
+        <!-- Left eye — big round (chibi style) -->
+        <circle cx="40" cy="78" r="11" fill="white"/>
+        <circle cx="41" cy="79" r="7" fill="#2C1408"/>
+        <circle cx="43.5" cy="77" r="2.8" fill="white"/>
+        <!-- Star/sparkle in eye -->
+        <path d="M38 83 L40 81 L42 83 L40 85Z" fill="white" opacity=".5"/>
+        <!-- Eyelash (simpler, cuter) -->
+        <path d="M29 73 Q40 69 51 73" stroke="#1C0804" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        <!-- Right eye -->
+        <circle cx="70" cy="78" r="11" fill="white"/>
+        <circle cx="71" cy="79" r="7" fill="#2C1408"/>
+        <circle cx="73.5" cy="77" r="2.8" fill="white"/>
+        <path d="M68 83 L70 81 L72 83 L70 85Z" fill="white" opacity=".5"/>
+        <path d="M59 73 Q70 69 81 73" stroke="#1C0804" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        <!-- Nose -->
+        <ellipse cx="55" cy="90" rx="3" ry="2.5" fill="#D4906A"/>
+        <!-- Big smile showing teeth -->
+        <path d="M44 98 Q55 108 66 98" stroke="#C07050" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <path d="M44 98 Q55 105 66 98" fill="white" stroke="#E8C0A0" stroke-width=".5"/>
+        <!-- Cheek blush — bigger -->
+        <ellipse cx="28" cy="86" rx="12" ry="8" fill="#F49070" opacity=".25"/>
+        <ellipse cx="82" cy="86" rx="12" ry="8" fill="#F49070" opacity=".25"/>
+        <!-- Small coffee cup badge on apron -->
+        <rect x="49" y="137" width="12" height="10" rx="2" fill="#9B5E1A"/>
+        <ellipse cx="55" cy="136" rx="5" ry="3" fill="#C8813A"/>
+      </svg>
+    </div>
+    <div class="info">
+      <span class="badge">卡菲娅 B · 元气</span>
+      <div class="cn">活力元气型</div>
+      <div class="cd">双丸子头配棕色发带，围裙上有小咖啡杯徽章，大圆眼里有星星。亲切感和行动力都拉满，最适合新手引导和 onboarding。</div>
+      <div class="tags"><span class="tag">活力满满</span><span class="tag">亲切可爱</span><span class="tag">onboarding 首选</span></div>
+    </div>
+  </div>
+
+  <!-- Coffea C: Mystical -->
+  <div class="card">
+    <div class="prev cream" style="min-height:280px; padding:24px 20px">
+      <svg width="110" height="150" viewBox="0 0 110 150" fill="none">
+        <!-- Hair back — asymmetric, one side longer -->
+        <path d="M18 46 Q8 74 10 118 Q14 134 22 130 Q30 128 30 112 L30 74 Q24 62 18 46Z" fill="#1C0804"/>
+        <path d="M92 46 Q98 66 96 92 Q94 86 90 84 Q92 68 86 54Z" fill="#1C0804"/>
+        <!-- Hair top -->
+        <path d="M18 46 Q22 18 55 14 Q78 16 92 46 Q78 38 55 36 Q32 38 18 46Z" fill="#1C0804"/>
+        <!-- Low bun on left side / back -->
+        <circle cx="16" cy="104" r="12" fill="#1C0804"/>
+        <!-- Hair pin / ornament -->
+        <line x1="12" y1="98" x2="20" y2="106" stroke="#C8813A" stroke-width="1.5"/>
+        <circle cx="11" cy="97" r="3" fill="#C8813A"/>
+        <!-- Face oval — slightly narrower -->
+        <ellipse cx="55" cy="76" rx="28" ry="35" fill="#F2C890"/>
+        <!-- Neck -->
+        <rect x="47" y="109" width="16" height="24" rx="5" fill="#ECC080"/>
+        <!-- Turtleneck collar -->
+        <path d="M30 133 Q42 120 55 123 Q68 120 80 133 L90 150 L20 150Z" fill="#3D2008"/>
+        <ellipse cx="55" cy="133" rx="20" ry="7" fill="#3D2008"/>
+        <ellipse cx="55" cy="130" rx="18" ry="5" fill="#4A2C10"/>
+        <!-- Small face hair strands (left, asymmetric) -->
+        <path d="M20 48 Q14 62 16 78 Q18 72 22 70 Q20 58 24 52Z" fill="#1C0804"/>
+        <!-- Face highlight -->
+        <ellipse cx="44" cy="63" rx="9" ry="7" fill="#FDEAC0" opacity=".45" transform="rotate(-10 44 63)"/>
+        <!-- Left eye — half-closed, serene, with more detail -->
+        <ellipse cx="41" cy="72" rx="9" ry="7.5" fill="white"/>
+        <ellipse cx="41" cy="73" rx="5.5" ry="6" fill="#4A2030"/>
+        <circle cx="43.5" cy="71" r="2" fill="white"/>
+        <!-- Long upper lash -->
+        <path d="M32 67 Q41 62 50 67" stroke="#0C0408" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <line x1="33" y1="67" x2="30" y2="62" stroke="#0C0408" stroke-width="1.3"/>
+        <line x1="37" y1="64" x2="35" y2="59" stroke="#0C0408" stroke-width="1.3"/>
+        <line x1="42" y1="62" x2="41" y2="57" stroke="#0C0408" stroke-width="1.3"/>
+        <line x1="47" y1="64" x2="49" y2="59" stroke="#0C0408" stroke-width="1.3"/>
+        <!-- Lower lash (subtle) -->
+        <path d="M32 77 Q41 80 50 77" stroke="#0C0408" stroke-width=".8" fill="none" stroke-linecap="round" opacity=".5"/>
+        <!-- Right eye — similar but slightly different -->
+        <ellipse cx="69" cy="72" rx="9" ry="7.5" fill="white"/>
+        <ellipse cx="69" cy="73" rx="5.5" ry="6" fill="#4A2030"/>
+        <circle cx="71.5" cy="71" r="2" fill="white"/>
+        <path d="M60 67 Q69 62 78 67" stroke="#0C0408" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <line x1="77" y1="67" x2="80" y2="62" stroke="#0C0408" stroke-width="1.3"/>
+        <line x1="73" y1="64" x2="75" y2="59" stroke="#0C0408" stroke-width="1.3"/>
+        <line x1="68" y1="62" x2="69" y2="57" stroke="#0C0408" stroke-width="1.3"/>
+        <line x1="63" y1="64" x2="61" y2="59" stroke="#0C0408" stroke-width="1.3"/>
+        <path d="M60 77 Q69 80 78 77" stroke="#0C0408" stroke-width=".8" fill="none" stroke-linecap="round" opacity=".5"/>
+        <!-- Nose -->
+        <path d="M52 84 Q55 87 58 84" stroke="#B87840" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+        <!-- Lips — deeper color, mysterious -->
+        <path d="M46 93 Q51 90 55 92 Q59 90 64 93" stroke="#8B3A2A" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <path d="M46 93 Q55 99 64 93" stroke="#8B3A2A" stroke-width="1.5" fill="#C05540" opacity=".6" stroke-linecap="round"/>
+        <!-- Gold/coffee hair ornament -->
+        <ellipse cx="90" cy="56" rx="4" ry="6" fill="#9B5E1A" transform="rotate(12 90 56)"/>
+        <path d="M90 51 C87 54 93 61 90 63" stroke="#7C4A12" stroke-width=".8" fill="none" opacity=".7"/>
+        <!-- Subtle blush -->
+        <ellipse cx="32" cy="80" rx="9" ry="5" fill="#C07060" opacity=".12"/>
+        <ellipse cx="78" cy="80" rx="9" ry="5" fill="#C07060" opacity=".12"/>
+        <!-- Magical sparkle/star near face -->
+        <path d="M88 44 L90 40 L92 44 L88 44Z" fill="#C8813A" opacity=".6"/>
+        <path d="M90 42 L86 42" stroke="#C8813A" stroke-width=".8" opacity=".5"/>
+        <path d="M90 42 L94 42" stroke="#C8813A" stroke-width=".8" opacity=".5"/>
+      </svg>
+    </div>
+    <div class="info">
+      <span class="badge">卡菲娅 C · 神秘</span>
+      <div class="cn">神秘精灵型</div>
+      <div class="cd">黑色长发低马尾，深紫色瞳孔，深色口红，高领毛衣。来自咖啡产地深处的精灵气质，最适合品牌高端感和故事性叙述。</div>
+      <div class="tags"><span class="tag">神秘高冷</span><span class="tag">故事性强</span><span class="tag">高端品牌感</span></div>
+    </div>
+  </div>
+
+</div><!-- /coffea grid -->
+
+<div class="divider"></div>
+
+<!-- COLOR PALETTE -->
+<div class="eyebrow">品牌色彩</div>
+<div class="sh" style="margin-bottom:20px">调色盘</div>
+<div class="pal">
+  <div class="sw"><div class="dot" style="background:#9B5E1A"></div><span class="sn">Accent</span><span class="sh2">#9B5E1A</span></div>
+  <div class="sw"><div class="dot" style="background:#C8813A"></div><span class="sn">Acc Hi</span><span class="sh2">#C8813A</span></div>
+  <div class="sw"><div class="dot" style="background:#7C4A12"></div><span class="sn">Acc Dark</span><span class="sh2">#7C4A12</span></div>
+  <div class="sw"><div class="dot" style="background:#FAF7F3;border:1.5px solid #E8DDD0"></div><span class="sn">BG</span><span class="sh2">#FAF7F3</span></div>
+  <div class="sw"><div class="dot" style="background:#FDF3E6;border:1.5px solid #E8DDD0"></div><span class="sn">Acc Light</span><span class="sh2">#FDF3E6</span></div>
+  <div class="sw"><div class="dot" style="background:#1C1409"></div><span class="sn">Text 1</span><span class="sh2">#1C1409</span></div>
+  <div class="sw"><div class="dot" style="background:#6B5E52"></div><span class="sn">Text 2</span><span class="sh2">#6B5E52</span></div>
+  <div class="sw"><div class="dot" style="background:#A89888"></div><span class="sn">Text 3</span><span class="sh2">#A89888</span></div>
+</div>
+
+</div><!-- /wrap -->
+</body>
+</html>

@@ -1,0 +1,63 @@
+"""SQLAlchemy ORM models.
+
+Importing this package registers every model on ``Base.metadata`` so that
+``create_all`` / migrations can see the full schema.
+"""
+
+from app.models.tables import (
+    AiUsageEvent,
+    BrewRecord,
+    CandidateFact,
+    CoffeaSession,
+    CoffeeSource,
+    EntityAlias,
+    EntitySource,
+    GreenBeanMerchant,
+    GreenBeanProduct,
+    GreenBeanProductVarietal,
+    InviteCode,
+    KnowledgeSyncRecord,
+    NewapiBillingLink,
+    Origin,
+    ProcessMethod,
+    Proposal,
+    ProposalAuditEvent,
+    PublicEntity,
+    Roaster,
+    RoasterProduct,
+    RoasterProductVarietal,
+    UserBeanCard,
+    UserBeanCardVarietal,
+    UserEquipmentProfile,
+    UserProfile,
+    Varietal,
+)
+
+__all__ = [
+    "AiUsageEvent",
+    "BrewRecord",
+    "CandidateFact",
+    "CoffeaSession",
+    "CoffeeSource",
+    "EntityAlias",
+    "EntitySource",
+    "GreenBeanMerchant",
+    "GreenBeanProduct",
+    "GreenBeanProductVarietal",
+    "InviteCode",
+    "KnowledgeSyncRecord",
+    "NewapiBillingLink",
+    "Origin",
+    "ProcessMethod",
+    "Proposal",
+    "ProposalAuditEvent",
+    "PublicEntity",
+    "Roaster",
+    "RoasterProduct",
+    "RoasterProductVarietal",
+    "UserBeanCard",
+    "UserBeanCardVarietal",
+    "UserEquipmentProfile",
+    "UserProfile",
+    "Varietal",
+]

@@ -1,0 +1,11 @@
+# 环境与密钥（勿提交）
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/

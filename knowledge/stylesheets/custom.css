@@ -1,0 +1,36 @@
+/* Hide status icons in nav */
+.md-status {
+  display: none;
+}
+
+/* Fix footer overlapping with sidebar */
+.md-footer {
+  clear: both;
+  position: relative;
+  z-index: 1;
+}
+
+.md-sidebar {
+  z-index: 2;
+}
+
+.md-sidebar--primary {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+}
+
+.md-content {
+  margin-bottom: 2rem;
+}
+
+.md-typeset a:not(.headerlink):not(.md-button) {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.md-typeset a:not(.headerlink):not(.md-button):hover {
+  text-decoration-thickness: 0.12em;
+}
