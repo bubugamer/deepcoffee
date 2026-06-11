@@ -195,8 +195,17 @@ async def recommend_params(
     prev_status = sub_state.get("status") or "needs_input"
 
     profiles = await equipment_repository.list_for_user(session, user.id)
+    # label / is_default 一并喂给模型：label 帮模型对上「用爱乐压那套」这类指代，
+    # is_default 让模型按提示词规则 3 直接用默认套、不再追问。
     profile_dicts = [
-        {"brew_method": p.brew_method, "grinder": p.grinder, "filter_media": p.filter_media, "water": p.water}
+        {
+            "brew_method": p.brew_method,
+            "grinder": p.grinder,
+            "filter_media": p.filter_media,
+            "water": p.water,
+            "label": p.label,
+            "is_default": p.is_default,
+        }
         for p in profiles
     ]
     token = await billing_service.get_model_token(session, user.id)

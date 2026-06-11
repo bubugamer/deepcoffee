@@ -57,10 +57,18 @@ class EquipmentRepository:
             filter_media=filter_media,
             water=water,
             label=label,
+            # 用户第一套器具自动设为默认；后续新增不抢默认。
+            is_default=not existing,
         )
         session.add(profile)
         await session.flush()
         return profile
+
+    async def set_default(self, session: AsyncSession, *, user_id: str, equipment_id: str) -> None:
+        """把指定器具置为默认，其余全部取消（单默认不变量）。"""
+        for profile in await self.list_for_user(session, user_id):
+            profile.is_default = profile.id == equipment_id
+        await session.flush()
 
 
 equipment_repository = EquipmentRepository()

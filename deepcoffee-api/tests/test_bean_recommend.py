@@ -27,8 +27,10 @@ class _FakeGateway:
 
     def __init__(self, content: str) -> None:
         self.content = content
+        self.last_messages: list[dict] | None = None
 
     async def chat(self, **kwargs):  # noqa: ANN003
+        self.last_messages = kwargs.get("messages")
         return SimpleNamespace(content=self.content, model="fake")
 
 
@@ -137,3 +139,80 @@ def test_no_token_no_equipment_fallback() -> None:
     turn = _run(token=None, gateway=_FakeGateway(_COMPLETED))
     assert turn.status == "fallback"
     assert turn.missing_fields
+
+
+def test_local_prefers_default_profile() -> None:
+    # 多套齐全器具时，本地兜底优先用 is_default 那套（即使排在后面）。
+    turn = _run(
+        token=None,
+        gateway=_FakeGateway(_COMPLETED),
+        equipment_profiles=[
+            {"brew_method": "V60", "grinder": "C40", "filter_media": "纸滤", "is_default": False},
+            {"brew_method": "Orea", "grinder": "ZP6S", "filter_media": "锥形滤纸", "is_default": True},
+        ],
+    )
+    assert turn.status == "completed"
+    assert turn.source == "local"
+    assert turn.recommendation["device"] == "Orea"
+
+
+def test_local_no_default_uses_first_complete() -> None:
+    turn = _run(
+        token=None,
+        gateway=_FakeGateway(_COMPLETED),
+        equipment_profiles=[
+            {"brew_method": "V60", "grinder": "未知磨", "filter_media": "纸滤"},
+            {"brew_method": "爱乐压", "grinder": "C40", "filter_media": "金属滤网"},
+        ],
+    )
+    assert turn.status == "completed"
+    assert turn.recommendation["device"] == "V60"
+
+
+def test_local_grind_setting_from_scale_table() -> None:
+    # 磨豆机命中刻度表 → grind_setting 用表中的中度参考区间，而不是「中度」。
+    turn = _run(
+        token=None,
+        gateway=_FakeGateway(_COMPLETED),
+        equipment_draft={"brew_method": "Orea", "grinder": "1zpresso ZP6S 特调版", "filter_media": "锥形滤纸"},
+    )
+    assert turn.status == "completed"
+    assert turn.recommendation["grind_setting"] == "4.5–5.5 圈（中度偏粗）"
+
+
+def test_local_grind_setting_unknown_grinder_keeps_relative() -> None:
+    turn = _run(
+        token=None,
+        gateway=_FakeGateway(_COMPLETED),
+        equipment_draft={"brew_method": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
+    )
+    assert turn.status == "completed"
+    assert turn.recommendation["grind_setting"] == "中度"
+
+
+def test_model_prompt_includes_grinder_reference() -> None:
+    gateway = _FakeGateway(_COMPLETED)
+    _run(
+        gateway=gateway,
+        equipment_profiles=[
+            {"brew_method": "V60", "grinder": "Comandante C40", "filter_media": "纸滤", "is_default": True},
+        ],
+    )
+    user_content = gateway.last_messages[1]["content"]
+    assert "磨豆机刻度参考资料" in user_content
+    assert "Comandante C40" in user_content
+    assert "22–26 格" in user_content
+    # is_default 也注入了器具资料段
+    assert '"is_default": true' in user_content
+
+
+def test_model_prompt_unknown_grinder_no_reference() -> None:
+    gateway = _FakeGateway(_COMPLETED)
+    _run(
+        gateway=gateway,
+        equipment_profiles=[
+            {"brew_method": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
+        ],
+    )
+    user_content = gateway.last_messages[1]["content"]
+    assert "（无内置刻度资料）" in user_content

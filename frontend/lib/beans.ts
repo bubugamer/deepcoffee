@@ -10,7 +10,7 @@ export function formatBrewSeconds(seconds?: number): string | undefined {
 export function recommendedParamRows(params?: BeanRecommendedParams | null): [string, string][] {
   if (!params) return []
   return [
-    ['器具', params.device],
+    ['滤杯', params.device],
     ['研磨', params.grinder && params.grind_setting
       ? `${params.grinder} ${params.grind_setting}`
       : (params.grinder ?? params.grind_setting)],

@@ -68,8 +68,14 @@ async def update_equipment(
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise AppError(400, "empty_update", "Provide at least one field to update.")
+    # is_default=True 走 set_default 维护单默认不变量；False 允许回到「无默认」状态。
+    is_default = updates.pop("is_default", None)
     for key, value in updates.items():
         setattr(row, key, value)
+    if is_default is True:
+        await equipment_repository.set_default(session, user_id=user.id, equipment_id=row.id)
+    elif is_default is False:
+        row.is_default = False
     await session.flush()
     await session.refresh(row)
     return EquipmentProfile.model_validate(row)

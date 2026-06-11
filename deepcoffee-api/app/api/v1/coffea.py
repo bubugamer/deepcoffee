@@ -33,7 +33,7 @@ from app.services.langfuse_client import langfuse_tracer
 router = APIRouter(prefix="/coffea", tags=["coffea"], dependencies=[Depends(require_member)])
 
 
-def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | None]:
+def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | bool | None]:
     """器具 ORM → 喂模型的紧凑 dict（Bean/BrewRecord 是 pydantic，直接 model_dump）。"""
     return {
         "id": e.id,
@@ -42,6 +42,7 @@ def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | None]:
         "filter_media": e.filter_media,
         "water": e.water,
         "label": e.label,
+        "is_default": e.is_default,
     }
 
 

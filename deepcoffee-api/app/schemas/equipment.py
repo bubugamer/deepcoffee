@@ -14,6 +14,7 @@ class EquipmentProfile(BaseModel):
     filter_media: str | None = None
     water: str | None = None
     label: str | None = None
+    is_default: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -32,3 +33,4 @@ class EquipmentUpdateRequest(BaseModel):
     filter_media: str | None = Field(default=None, max_length=120)
     water: str | None = Field(default=None, max_length=120)
     label: str | None = Field(default=None, max_length=120)
+    is_default: bool | None = None

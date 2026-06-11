@@ -2,13 +2,16 @@
 // 我的器具：查看 / 新增 / 编辑 / 删除器具组合。
 // 数据有两个来源：对话中 AI 推荐参数闭环自动保存，以及这里的手动维护。
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Pencil, Trash2, Coffee } from 'lucide-react'
+import { Loader2, Plus, Pencil, Trash2, Coffee, Star } from 'lucide-react'
 import {
-  listEquipment, createEquipment, updateEquipment, deleteEquipment,
+  listEquipment, createEquipment, updateEquipment, deleteEquipment, setDefaultEquipment,
   type EquipmentProfile, type EquipmentInput,
 } from '@/lib/api/equipment'
 
-const FIELDS: { key: keyof EquipmentInput; label: string; placeholder: string }[] = [
+// 表单只编辑文本字段；is_default 用列表上的「设为默认」按钮维护。
+type EquipmentTextField = Exclude<keyof EquipmentInput, 'is_default'>
+
+const FIELDS: { key: EquipmentTextField; label: string; placeholder: string }[] = [
   { key: 'label',        label: '名称备注',  placeholder: '如：日常手冲一套' },
   { key: 'brew_method',  label: '冲煮方式',  placeholder: '如：V60 / 爱乐压 / 法压' },
   { key: 'grinder',      label: '磨豆机',    placeholder: '如：Comandante C40' },
@@ -102,6 +105,15 @@ export default function EquipmentPage() {
     }
   }
 
+  async function handleSetDefault(item: EquipmentProfile) {
+    try {
+      await setDefaultEquipment(item.id)
+      refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '设置失败')
+    }
+  }
+
   async function handleDelete(item: EquipmentProfile) {
     const name = item.label || item.brew_method || '这套器具'
     if (!window.confirm(`删除「${name}」？`)) return
@@ -170,8 +182,15 @@ export default function EquipmentPage() {
             ) : (
               <div className="flex items-start gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-dc-text-1 mb-2">
-                    {item.label || item.brew_method || '未命名器具'}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold text-dc-text-1">
+                      {item.label || item.brew_method || '未命名器具'}
+                    </span>
+                    {item.is_default && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-dc-accent/10 text-dc-accent flex items-center gap-1">
+                        <Star size={10} fill="currentColor" /> 默认
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-dc-text-2">
                     {item.brew_method  && <span><span className="text-dc-text-3 text-xs mr-1.5">冲煮</span>{item.brew_method}</span>}
@@ -181,6 +200,11 @@ export default function EquipmentPage() {
                   </div>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
+                  {!item.is_default && (
+                    <button onClick={() => handleSetDefault(item)} className="p-2 text-dc-text-3 hover:text-dc-accent" title="设为默认">
+                      <Star size={14} />
+                    </button>
+                  )}
                   <button onClick={() => { setEditingId(item.id); setAdding(false) }} className="p-2 text-dc-text-3 hover:text-dc-accent" title="编辑">
                     <Pencil size={14} />
                   </button>

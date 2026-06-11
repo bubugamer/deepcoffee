@@ -19,6 +19,7 @@ from app.prompts import BEAN_RECOMMEND_SYSTEM, BEAN_RECOMMEND_USER_TEMPLATE
 from app.schemas.bean import Bean
 from app.schemas.brew import BrewDraft
 from app.services.brew_validation import complete_brew_parameters
+from app.services.grinder_scales import format_grinder_reference, lookup_grinder_scale
 from app.services.model_gateway import ModelGateway, model_gateway
 from app.services.model_json import chat_json, check_number_in_range, whitelist_keys
 from app.services.recommend_service import generate_recommended_params
@@ -74,9 +75,13 @@ def _missing(equipment: dict[str, Any]) -> list[str]:
 
 
 def _first_complete_profile(profiles: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for profile in profiles or []:
-        if all(profile.get(key) for key in REQUIRED_EQUIPMENT):
+    """优先返回必填齐全的默认套（is_default），其次第一套齐全的。"""
+    complete = [p for p in profiles or [] if all(p.get(key) for key in REQUIRED_EQUIPMENT)]
+    for profile in complete:
+        if profile.get("is_default"):
             return {key: profile.get(key) for key in _EQUIPMENT_KEYS}
+    if complete:
+        return {key: complete[0].get(key) for key in _EQUIPMENT_KEYS}
     return None
 
 
@@ -132,6 +137,9 @@ async def _model_turn(
     model: str,
     gateway: ModelGateway,
 ) -> RecommendTurn | None:
+    grinder_names = [p.get("grinder") for p in equipment_profiles or []]
+    if isinstance(equipment_draft, dict):
+        grinder_names.append(equipment_draft.get("grinder"))
     user_content = BEAN_RECOMMEND_USER_TEMPLATE.format(
         session_id=session_id,
         status=status,
@@ -141,6 +149,7 @@ async def _model_turn(
         varietal="、".join(bean.varietal) or "（未知）",
         flavor_notes="、".join(bean.flavor.notes) if bean.flavor and bean.flavor.notes else "（未知）",
         equipment_profiles=_as_text(equipment_profiles),
+        grinder_reference=format_grinder_reference(grinder_names),
         equipment_draft=_as_text(equipment_draft),
         message=message or "（用户未补充文字，请基于已有信息起手）",
     )
@@ -209,7 +218,12 @@ def _local_turn(
     use = draft_equipment if not _missing(draft_equipment) else _first_complete_profile(equipment_profiles)
     if use:
         params, _note = generate_recommended_params(bean)
-        params = params.model_copy(update={"device": use["brew_method"], "grinder": use["grinder"]})
+        updates: dict[str, Any] = {"device": use["brew_method"], "grinder": use["grinder"]}
+        # 磨豆机命中刻度表时给具体区间，替换本地启发式的「中度」。
+        scale = lookup_grinder_scale(use.get("grinder"))
+        if scale is not None:
+            updates["grind_setting"] = scale.medium_ref
+        params = params.model_copy(update=updates)
         return RecommendTurn(
             status="completed",
             intent="generate_recommendation",

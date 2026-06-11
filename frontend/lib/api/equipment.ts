@@ -8,6 +8,7 @@ export interface EquipmentProfile {
   filter_media?: string | null
   water?: string | null
   label?: string | null
+  is_default: boolean
   created_at: string
   updated_at: string
 }
@@ -18,6 +19,7 @@ export interface EquipmentInput {
   filter_media?: string
   water?: string
   label?: string
+  is_default?: boolean
 }
 
 export function listEquipment(): Promise<EquipmentProfile[]> {
@@ -34,4 +36,9 @@ export function updateEquipment(id: string, body: EquipmentInput): Promise<Equip
 
 export function deleteEquipment(id: string): Promise<{ deleted: boolean }> {
   return apiFetch(`/equipment/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+// 设为默认器具套；后端自动取消其余套的默认（单默认不变量）。
+export function setDefaultEquipment(id: string): Promise<EquipmentProfile> {
+  return updateEquipment(id, { is_default: true })
 }
