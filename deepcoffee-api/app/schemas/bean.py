@@ -135,8 +135,25 @@ class RecommendParamsResponse(BaseModel):
     trace_id: str
 
 
+class ManualRecommendParams(BaseModel):
+    """手动编辑的建议冲煮参数（豆卡详情页编辑模式）。全部可选，落成隐藏 user_suggestion 记录。"""
+
+    device: str | None = Field(default=None, max_length=120)
+    grinder: str | None = Field(default=None, max_length=120)
+    grind_setting: str | None = Field(default=None, max_length=120)
+    dose_g: float | None = Field(default=None, ge=0, le=200)
+    water_ml: float | None = Field(default=None, ge=0, le=5000)
+    water_temp_c: float | None = Field(default=None, ge=50, le=100)
+    ratio: str | None = Field(default=None, max_length=20)
+    brew_time_seconds: int | None = Field(default=None, ge=0, le=3600)
+    notes: str | None = Field(default=None, max_length=500)
+
+
 class SetRecommendParamsRequest(BaseModel):
-    record_id: str = Field(min_length=1, max_length=64)
+    """二选一：record_id（指向已有用户记录）或 params（手动参数，创建隐藏记录）。"""
+
+    record_id: str | None = Field(default=None, min_length=1, max_length=64)
+    params: ManualRecommendParams | None = None
 
 
 # ---- Coffea 建议冲煮参数：多轮闭环（docs/deepcoffee-ai-prompts.md §5）----

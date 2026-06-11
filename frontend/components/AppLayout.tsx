@@ -88,10 +88,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const displayName = profile?.display_name ?? profile?.email ?? '账户'
   const initial = displayName.charAt(0) || '?'
-  const planLabel  = profile?.plan === 'pro' ? '会员版' : profile ? '免费版' : '载入中'
+  const planLabel  = profile?.plan === 'pro' ? 'Pro 版' : profile ? '免费版' : '载入中'
   const isUnlimited = quota?.ai_total === null
-  const quotaRemainingLabel = quota
-    ? isUnlimited ? '剩余无限' : `剩余 ${quota.ai_remaining ?? 0}`
+  const quotaUsageLabel = quota
+    ? isUnlimited ? `${quota.ai_used} / 无限` : `${quota.ai_used} / ${quota.ai_total}`
     : '暂不可用'
   const quotaPercent = quota && !isUnlimited && quota.ai_total
     ? Math.min(Math.round((quota.ai_used / quota.ai_total) * 100), 100)
@@ -132,33 +132,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Quota / User */}
       <div className="p-3 border-t border-dc-border space-y-2 flex-shrink-0">
         <div className="px-3 py-2.5 rounded-lg bg-dc-subtle">
-          <div className="flex justify-between items-center mb-1.5">
+          <div className="flex justify-between items-center">
             <span className="text-xs text-dc-text-3">本月 AI 用量</span>
             <span className="text-xs font-semibold text-dc-accent">
-              {accountLoading
-                ? '载入中'
-                : quota
-                ? quotaRemainingLabel
-                : '暂不可用'}
+              {accountLoading ? '载入中' : quotaUsageLabel}
             </span>
           </div>
-          {quota && (
-            <div className="mb-1.5 text-[11px] text-dc-text-3">
-              已用 {quota.ai_used} / {isUnlimited ? '无限' : quota.ai_total}
-            </div>
-          )}
           {accountError && (
-            <div className="text-xs text-dc-red leading-relaxed">{accountError}</div>
+            <div className="mt-1.5 text-xs text-dc-red leading-relaxed">{accountError}</div>
           )}
           {quota && !isUnlimited && (
-            <div className="h-1.5 bg-dc-border rounded-full overflow-hidden">
+            <div className="mt-1.5 h-1.5 bg-dc-border rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${quotaPercent > 80 ? 'bg-dc-yellow' : 'bg-dc-accent'}`}
                 style={{ width: `${quotaPercent}%` }}
               />
             </div>
           )}
-          <Link href="/app/settings" className="text-xs text-dc-accent mt-1.5 block hover:underline">
+          <Link href="/app/settings?tab=plan" className="text-xs text-dc-accent mt-1.5 block hover:underline">
             升级会员 →
           </Link>
         </div>

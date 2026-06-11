@@ -4,18 +4,18 @@
 !.env.example
 *.local
 
-# ── 按约定不公开的内容 ────────────────────────────────
-docs/
+# ── 按约定不公开的内容(只匹配仓库根目录,避免误伤 frontend 路由等同名目录)──
+/docs/
 # 第三方播客/文章转写素材(版权考虑)
-resources/
+/resources/
 # 个人冲煮记录(用户数据,非产品代码)
-records/
+/records/
 
 # ── 构建产物与依赖 ────────────────────────────────────
 node_modules/
 .next/
-site/
-output/
+/site/
+/output/
 dist/
 build/
 

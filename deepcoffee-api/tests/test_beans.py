@@ -210,3 +210,41 @@ def test_brew_records_full_field_search() -> None:
     assert by_origin.json()["total"] == 1
     miss = client.get("/v1/brew/records", headers=headers, params={"q": "不存在的词"})
     assert miss.json()["total"] == 0
+
+
+def test_manual_recommend_params_create_hidden_record() -> None:
+    client = TestClient(create_app())
+    bean_id = _confirm_bean(client, name="手动参数测试豆")
+    resp = client.put(
+        f"/v1/beans/{bean_id}/recommend-params",
+        headers=HEADERS,
+        json={"params": {
+            "device": "V60", "grinder": "ZP6S", "grind_setting": "4.5–5.5 圈",
+            "dose_g": 15, "water_ml": 225, "water_temp_c": 92,
+            "ratio": "1:15", "brew_time_seconds": 150,
+        }},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["recommended_params"]["device"] == "V60"
+    assert body["recommended_params"]["record_type"] == "user_suggestion"
+
+    # GET bean 读到手动参数；隐藏记录不进冲煮记录列表
+    bean = client.get(f"/v1/beans/{bean_id}", headers=HEADERS).json()
+    assert bean["recommended_params"]["grind_setting"] == "4.5–5.5 圈"
+    assert bean["recommended_record_id"] == body["recommended_record_id"]
+    records = client.get("/v1/brew/records", headers=HEADERS).json()
+    assert all(r["id"] != body["recommended_record_id"] for r in records["items"])
+
+
+def test_recommend_params_put_requires_exactly_one_of_record_or_params() -> None:
+    client = TestClient(create_app())
+    bean_id = _confirm_bean(client, name="参数校验豆")
+    neither = client.put(f"/v1/beans/{bean_id}/recommend-params", headers=HEADERS, json={})
+    assert neither.status_code == 422
+    both = client.put(
+        f"/v1/beans/{bean_id}/recommend-params",
+        headers=HEADERS,
+        json={"record_id": "brew_x", "params": {"device": "V60"}},
+    )
+    assert both.status_code == 422

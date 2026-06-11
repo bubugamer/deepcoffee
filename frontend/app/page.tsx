@@ -167,7 +167,7 @@ export default async function LandingPage() {
             {/* Pro */}
             <div className="dc-card p-6 border-dc-accent ring-1 ring-dc-accent/20">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-dc-accent">会员版</span>
+                <span className="text-sm font-medium text-dc-accent">Pro 版</span>
                 <span className="text-xs bg-dc-accent-light text-dc-accent px-2 py-0.5 rounded-full">推荐</span>
               </div>
               <div className="text-3xl font-extrabold text-dc-text-1 mb-1">¥{proPrice}</div>

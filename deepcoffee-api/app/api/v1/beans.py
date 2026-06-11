@@ -303,17 +303,53 @@ async def set_recommend_params(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> RecommendParamsResponse:
-    """把建议参数指向用户某条冲煮记录（「设为建议参数」）。不消耗额度。"""
-    record = await brew_record_repository.get(session, user_id=user.id, record_id=payload.record_id)
-    if record is None:
-        raise AppError(404, "brew_record_not_found", "Brew record not found.")
+    """设置建议参数：指向用户某条冲煮记录（record_id），或手动给一组参数（params，
+    落成隐藏 user_suggestion 记录）。二选一；都不消耗 AI 额度。"""
+    if (payload.record_id is None) == (payload.params is None):
+        raise AppError(422, "invalid_recommend_params", "Provide exactly one of record_id / params.")
+
+    if payload.params is not None:
+        # 手动路径：创建隐藏建议记录并把豆卡指过去（与 AI 生成共用同一指针机制）。
+        trace_id = f"bean_manual_params_{uuid4().hex[:12]}"
+        p = payload.params
+        draft = BrewDraft(
+            device=p.device,
+            grinder=p.grinder,
+            grind_setting=p.grind_setting,
+            dose_g=p.dose_g,
+            water_ml=p.water_ml,
+            water_temp_c=p.water_temp_c,
+            ratio=p.ratio,
+            brew_time_seconds=p.brew_time_seconds,
+            notes=p.notes,
+        )
+        record = await brew_record_repository.create(
+            session,
+            user_id=user.id,
+            draft=draft,
+            source_type="manual",
+            raw_input=None,
+            recap="手动设置的建议参数",
+            suggestions=[],
+            trace_id=trace_id,
+            bean_card_id=bean_id,
+            record_type="user_suggestion",
+            is_user_visible=False,
+        )
+        record_id = record.id
+    else:
+        record = await brew_record_repository.get(session, user_id=user.id, record_id=payload.record_id)
+        if record is None:
+            raise AppError(404, "brew_record_not_found", "Brew record not found.")
+        record_id = payload.record_id
+
     updated = await bean_repository.set_recommended_record(
-        session, user_id=user.id, bean_id=bean_id, record_id=payload.record_id
+        session, user_id=user.id, bean_id=bean_id, record_id=record_id
     )
     if updated is None:
         raise AppError(404, "bean_not_found", "Bean not found.")
     return RecommendParamsResponse(
         recommended_params=updated.recommended_params,
-        recommended_record_id=payload.record_id,
+        recommended_record_id=record_id,
         trace_id=record.trace_id or "",
     )

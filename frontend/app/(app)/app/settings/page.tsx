@@ -1,5 +1,6 @@
 'use client'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Check } from 'lucide-react'
 import { getBillingPlans, getUserProfile, getUserQuota, proPlanFeatures, updateUserProfile } from '@/lib/api/user'
 import { getToken } from '@/lib/auth'
@@ -8,8 +9,13 @@ import type { BillingPlan, UserProfile, UserQuota } from '@/types'
 type Tab = 'profile' | 'plan' | 'prefs'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
-export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>('profile')
+const TABS: Tab[] = ['profile', 'plan', 'prefs']
+
+function SettingsContent() {
+  // 支持 ?tab=plan 直达「配额与会员」（侧边栏「升级会员」入口用）
+  const searchParams = useSearchParams()
+  const initialTab = searchParams.get('tab') as Tab | null
+  const [tab, setTab] = useState<Tab>(initialTab && TABS.includes(initialTab) ? initialTab : 'profile')
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [quota, setQuota] = useState<UserQuota | null>(null)
   const [proPlan, setProPlan] = useState<BillingPlan | null>(null)
@@ -86,7 +92,7 @@ export default function SettingsPage() {
   }
 
   const initial = (displayName || profile?.email || '?').charAt(0)
-  const planLabel = profile?.plan === 'pro' ? '会员版' : '免费版'
+  const planLabel = profile?.plan === 'pro' ? 'Pro 版' : '免费版'
   const joinedAt = profile?.created_at ? profile.created_at.slice(0, 7) : '--'
   const isUnlimited = quota?.ai_total === null
   const quotaPercent = quota && !isUnlimited && quota.ai_total
@@ -210,11 +216,11 @@ export default function SettingsPage() {
               {/* Upgrade card */}
               <div className="dc-card p-6 border-dc-accent ring-1 ring-dc-accent/20">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="section-title">会员版</h2>
+                  <h2 className="section-title">Pro 版</h2>
                   <span className="dc-tag-accent">推荐</span>
                 </div>
                 <div className="text-3xl font-extrabold text-dc-text-1 mb-1">
-                  ¥{proPlan?.price ?? 19} <span className="text-sm font-normal text-dc-text-3">/ 月</span>
+                  ¥{proPlan?.price ?? 49} <span className="text-sm font-normal text-dc-text-3">/ 月</span>
                 </div>
                 <p className="text-xs text-dc-text-3 mb-5">随时取消，无最低承诺</p>
                 <ul className="space-y-2.5 mb-5">
@@ -275,5 +281,14 @@ export default function SettingsPage() {
         </>
       )}
     </div>
+  )
+}
+
+// useSearchParams 需要 Suspense 边界（Next 15 静态渲染要求），与 chat 页同模式
+export default function SettingsPage() {
+  return (
+    <Suspense>
+      <SettingsContent />
+    </Suspense>
   )
 }

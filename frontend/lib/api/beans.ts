@@ -352,6 +352,32 @@ export function recommendationToBeanParams(
   }
 }
 
+// 手动编辑的建议参数（豆卡详情页编辑模式）；后端落成隐藏 user_suggestion 记录
+export interface ManualRecommendParams {
+  device?: string
+  grinder?: string
+  grind_setting?: string
+  dose_g?: number
+  water_ml?: number
+  water_temp_c?: number
+  ratio?: string
+  brew_time_seconds?: number
+  notes?: string
+}
+
+// PUT /v1/beans/:id/recommend-params（手动参数路径）
+export async function setManualRecommendParams(
+  beanId: string,
+  params: ManualRecommendParams,
+  token?: string | null,
+): Promise<RecommendParamsResponse> {
+  return apiFetch<RecommendParamsResponse>(`/beans/${beanId}/recommend-params`, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ params }),
+  })
+}
+
 // PUT /v1/beans/:id/recommend-params
 export async function setRecommendedParams(beanId: string, recordId: string, token?: string | null): Promise<RecommendParamsResponse> {
   if (isApiEnabled) {
