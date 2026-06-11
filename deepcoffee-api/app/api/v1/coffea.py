@@ -23,9 +23,11 @@ from app.repositories.coffea_sessions import coffea_session_repository
 from app.repositories.equipment import equipment_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
-from app.schemas.coffea import CoffeaMessageRequest, CoffeaMessageResponse, CoffeaSessionState
+from app.schemas.bean import Bean, BeanDraft
+from app.schemas.coffea import ActionResult, CoffeaMessageRequest, CoffeaMessageResponse, CoffeaSessionState
 from app.services import coffea_dispatch
-from app.services.billing_service import billing_service
+from app.services.bean_card_intake import summarize_draft
+from app.services.candidate_service import candidate_service
 from app.services.coffea_executor import assemble_reply, execute_plan
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
 from app.services.langfuse_client import langfuse_tracer
@@ -46,6 +48,52 @@ def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | bool | None]:
     }
 
 
+async def _autosave_bean_card(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    results: list[ActionResult],
+    existing_beans: list[Bean],
+    trace_id: str,
+) -> str | None:
+    """高识别度豆卡识图直接建档；同名豆已存在则降级为草稿确认，避免重复建档。
+
+    成功落库时改写该 result 的 message/output（前端只见最终结果，不见草稿与原始判定）。
+    """
+    for result in results:
+        if result.type != "read_bean_card_image" or result.status != "done":
+            continue
+        output = result.output or {}
+        if not output.get("auto_save_eligible") or not isinstance(output.get("draft"), dict):
+            continue
+        draft = BeanDraft(**output["draft"])
+        summary = summarize_draft(draft)
+        name = (draft.name or "").strip()
+        if any(b.name.strip() == name for b in existing_beans):
+            output["auto_save_eligible"] = False
+            result.message = (
+                f"我从图片里识别到：{summary}。你的豆仓里已有同名豆子，"
+                "为避免重复建档，请在下面的草稿卡里确认后再保存。"
+            )
+            continue
+        bean_id = await bean_repository.create(
+            session,
+            user_id=user_id,
+            draft=draft,
+            source_type="image",
+            raw_input=output.get("raw_input"),
+            trace_id=trace_id,
+        )
+        # 与 /beans/confirm 同步：抽公共实体候选进管理员审核链路；失败不阻断建档。
+        await candidate_service.extract_from_bean(session, user_id=user_id, bean_id=bean_id, trace_id=trace_id)
+        confidence = output.get("confidence")
+        pct = f"（识别度 {round(confidence * 100)}%）" if isinstance(confidence, (int, float)) else ""
+        result.message = f"已识别并录入这支豆子：{summary}{pct}。已保存到你的豆仓，可随时打开豆卡修改。"
+        result.output = {"bean_id": bean_id, "confidence": confidence, "auto_saved": True}
+        return bean_id
+    return None
+
+
 @router.post("/messages", response_model=CoffeaMessageResponse, dependencies=[Depends(require_ai_quota)])
 async def post_message(
     payload: CoffeaMessageRequest,
@@ -60,7 +108,6 @@ async def post_message(
         session, user_id=user.id, session_id=payload.session_id
     )
 
-    token = await billing_service.get_model_token(session, user.id)
     attachments = [a.model_dump(exclude_none=True) for a in payload.attachments]
 
     # 水合该用户自己的上下文：一次查询，既喂调度器（让路由更准）又选出 active 实体（喂冲煮教练）。
@@ -91,8 +138,7 @@ async def post_message(
         recent_beans=[b.model_dump(mode="json") for b in beans[:5]],
         recent_brews=[b.model_dump(mode="json") for b in brews],
         equipment_profiles=[_equipment_dict(e) for e in equipment],
-        token=token,
-        model=settings.new_api_default_model,
+        model=settings.model_default_model,
     )
 
     # 按计划执行能现在执行的动作（knowledge / 图片 / 教练 / 联网核实）；其余标 pending。
@@ -103,17 +149,26 @@ async def post_message(
         session_state=cs.state,
         knowledge_service=knowledge_service,
         settings=settings,
-        token=token,
-        model=settings.new_api_default_model,
+        model=settings.model_default_model,
         active_context=active_context,
+    )
+
+    trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
+
+    # 高识别度豆卡自动录入（执行器只判定 auto_save_eligible，落库在端点层，保持执行器无副作用）。
+    auto_saved_bean_id = await _autosave_bean_card(
+        session, user_id=user.id, results=results, existing_beans=beans, trace_id=trace_id
     )
 
     # 落会话：合并状态更新 + 追加本轮用户消息（按预算裁剪）。
     coffea_session_repository.apply_state_updates(cs, plan.state_updates)
+    if auto_saved_bean_id:
+        coffea_session_repository.apply_state_updates(cs, {"active_bean_id": auto_saved_bean_id})
+        await ai_usage_repository.record(
+            session, user_id=user.id, action="coffea_bean_autosave", trace_id=trace_id
+        )
     coffea_session_repository.append_message(cs, "user", payload.message)
     await session.flush()
-
-    trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
     await ai_usage_repository.record(session, user_id=user.id, action="coffea_dispatch", trace_id=trace_id)
     # 真执行了知识/图片能力的，各记一条用量，便于分析。
     for result in results:
@@ -138,9 +193,11 @@ async def post_message(
 
     # 前端只读 reply 作为主气泡正文；results 保留动作明细，不要求前端遍历 results 来找主回复。
     reply = assemble_reply(plan, results)
-    # 余额耗尽导致的降级必须显式告知（否则 AI 只是静默变笨，用户不知道找管理员充值）。
-    if plan.degrade_reason == "balance_exhausted":
-        reply = f"{reply}\n\nAI 余额不足，本次为基础回复。请联系管理员充值。" if reply else "AI 余额不足，本次为基础回复。请联系管理员充值。"
+    # 服务端模型 key 配额/欠费导致的降级必须显式告知（否则 AI 只是静默变笨）；
+    # 这是管理员要充值的事，不是用户额度问题，文案不引导用户充值。
+    if plan.degrade_reason == "provider_quota":
+        notice = "AI 服务暂时不可用，本次为基础回复。"
+        reply = f"{reply}\n\n{notice}" if reply else notice
 
     return CoffeaMessageResponse(
         session_id=cs.session_id,

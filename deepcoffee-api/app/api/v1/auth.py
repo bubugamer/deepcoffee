@@ -12,7 +12,6 @@ from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.repositories.invites import InviteRepository
 from app.repositories.profiles import profile_repository
-from app.services.billing_service import billing_service
 from app.services.bootstrap import normalized_bootstrap_code
 from app.schemas.auth import (
     InviteRedeemRequest,
@@ -60,7 +59,6 @@ async def redeem_invite(
     # 尚无管理员时才会入库，见 services/bootstrap.py）。
     if payload.code.strip().upper() == normalized_bootstrap_code(settings):
         await profile_repository.set_role(session, user.id, "admin")
-    await billing_service.ensure_shadow_account(session, user.id, user.email)
     return InviteRedeemResponse(redeemed=True, message="邀请码已使用。")
 
 
@@ -73,7 +71,6 @@ async def get_me(
     # 禁用账号在入口处拦截，前端据此展示「账号已禁用」而非正常应用。
     if profile.status == "disabled":
         raise AppError(403, "account_disabled", "账号已被禁用，如有疑问请联系管理员。")
-    await billing_service.ensure_shadow_account(session, user.id, user.email)
     # invite_bound 与 require_member 的放行条件一致，供前端决定是否弹「补填邀请码」。
     settings = get_settings()
     if settings.enforce_invite_gate and profile.role != "admin" and user.id not in settings.admin_user_ids:
@@ -107,5 +104,4 @@ async def get_my_quota(
     settings: Settings = Depends(get_settings),
 ) -> UserQuota:
     await profile_repository.get_or_create(session, user.id, user.email)
-    local = await profile_repository.quota_for(session, user.id, settings)
-    return await billing_service.get_quota(session, user.id, local_quota=local)
+    return await profile_repository.quota_for(session, user.id, settings)

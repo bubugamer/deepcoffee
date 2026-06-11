@@ -23,9 +23,13 @@ async def dependency_health(settings: Settings = Depends(get_settings)) -> Depen
             status="configured" if settings.database_url else "not_configured",
             detail="DATABASE_URL is set." if settings.database_url else "DATABASE_URL is not set.",
         ),
-        new_api=DependencyState(
-            status="configured" if settings.new_api_base_url else "not_configured",
-            detail="NEW_API_BASE_URL is set." if settings.new_api_base_url else "NEW_API_BASE_URL is not set.",
+        model_gateway=DependencyState(
+            status="configured" if settings.model_gateway_enabled else "not_configured",
+            detail=(
+                "DEEPCOFFEE_MODEL_BASE_URL and DEEPCOFFEE_MODEL_API_KEY are set."
+                if settings.model_gateway_enabled
+                else "DEEPCOFFEE_MODEL_BASE_URL or DEEPCOFFEE_MODEL_API_KEY is not set."
+            ),
         ),
         langfuse=DependencyState(
             status="configured" if settings.langfuse_public_key and settings.langfuse_secret_key else "not_configured",

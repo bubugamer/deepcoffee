@@ -94,6 +94,7 @@ def test_build_search_query_short_fallback() -> None:
 
 class _FakeGateway:
     enabled = True
+    vision_enabled = True
 
     def __init__(self, content: str) -> None:
         self.content = content
@@ -104,6 +105,7 @@ class _FakeGateway:
 
 class _SequentialGateway:
     enabled = True
+    vision_enabled = True
 
     def __init__(self, contents: list[str]) -> None:
         self.contents = contents
@@ -129,7 +131,7 @@ _IMAGE_JSON = json.dumps(
 
 def test_verify_returns_text_with_model() -> None:
     text = asyncio.run(
-        web_verify.verify_with_model("q", _SOURCES, token="sk", model="m", gateway=_FakeGateway("综合：来源说…"))
+        web_verify.verify_with_model("q", _SOURCES, model="m", gateway=_FakeGateway("综合：来源说…"))
     )
     assert text == "综合：来源说…"
 
@@ -140,7 +142,6 @@ def test_verify_sends_images_to_vision_model() -> None:
         web_verify.verify_with_model(
             "图里这支豆口碑怎么样？",
             _SOURCES,
-            token="sk",
             model="deepseek-chat",
             image_urls=[_IMG],
             vision_model="kimi-k2.6",
@@ -156,14 +157,7 @@ def test_verify_sends_images_to_vision_model() -> None:
 
 def test_verify_none_without_sources() -> None:
     assert (
-        asyncio.run(web_verify.verify_with_model("q", [], token="sk", model="m", gateway=_FakeGateway("x"))) is None
-    )
-
-
-def test_verify_none_without_token() -> None:
-    assert (
-        asyncio.run(web_verify.verify_with_model("q", _SOURCES, token=None, model="m", gateway=_FakeGateway("x")))
-        is None
+        asyncio.run(web_verify.verify_with_model("q", [], model="m", gateway=_FakeGateway("x"))) is None
     )
 
 
@@ -186,18 +180,18 @@ class _FakeKB:
 
 
 _ENABLED = SimpleNamespace(
-    new_api_vision_model=None, web_search_enabled=True, brave_api_key="bk", brave_search_count=5
+    vision_model=None, web_search_enabled=True, brave_api_key="bk", brave_search_count=5
 )
 _DISABLED = SimpleNamespace(
-    new_api_vision_model=None, web_search_enabled=False, brave_api_key=None, brave_search_count=5
+    vision_model=None, web_search_enabled=False, brave_api_key=None, brave_search_count=5
 )
 
 _VISION_ENABLED = SimpleNamespace(
-    new_api_vision_model="kimi-k2.6", web_search_enabled=True, brave_api_key="bk", brave_search_count=5
+    vision_model="kimi-k2.6", web_search_enabled=True, brave_api_key="bk", brave_search_count=5
 )
 
 
-def _exec(monkeypatch, *, search_result, settings, token, gateway):
+def _exec(monkeypatch, *, search_result, settings, gateway):
     async def fake_search(query, *, api_key, count):  # noqa: ANN001
         return search_result
 
@@ -211,7 +205,6 @@ def _exec(monkeypatch, *, search_result, settings, token, gateway):
             session_state={},
             knowledge_service=_FakeKB(),
             settings=settings,
-            token=token,
             model="m",
             gateway=gateway,
         )
@@ -220,7 +213,7 @@ def _exec(monkeypatch, *, search_result, settings, token, gateway):
 
 def test_web_verify_done_with_search_and_model(monkeypatch) -> None:
     results = _exec(
-        monkeypatch, search_result=_SOURCES, settings=_ENABLED, token="sk", gateway=_FakeGateway("综合回答带来源")
+        monkeypatch, search_result=_SOURCES, settings=_ENABLED, gateway=_FakeGateway("综合回答带来源")
     )
     r = results[0]
     assert r.type == "web_verify"
@@ -248,7 +241,6 @@ def test_web_verify_uses_image_context_for_search_and_synthesis(monkeypatch) -> 
             session_state={},
             knowledge_service=_FakeKB(),
             settings=_VISION_ENABLED,
-            token="sk",
             model="deepseek-chat",
             gateway=gateway,
         )
@@ -263,12 +255,12 @@ def test_web_verify_uses_image_context_for_search_and_synthesis(monkeypatch) -> 
 
 
 def test_web_verify_degrades_when_no_sources(monkeypatch) -> None:
-    results = _exec(monkeypatch, search_result=[], settings=_ENABLED, token="sk", gateway=_FakeGateway("x"))
+    results = _exec(monkeypatch, search_result=[], settings=_ENABLED, gateway=_FakeGateway("x"))
     assert results[0].status == "degraded"
     assert "联网" in results[0].message
 
 
 def test_web_verify_degrades_when_disabled(monkeypatch) -> None:
     # 未配 key（web_search_enabled=False）→ 直接降级，不进检索分支。
-    results = _exec(monkeypatch, search_result=_SOURCES, settings=_DISABLED, token="sk", gateway=_FakeGateway("x"))
+    results = _exec(monkeypatch, search_result=_SOURCES, settings=_DISABLED, gateway=_FakeGateway("x"))
     assert results[0].status == "degraded"

@@ -67,6 +67,7 @@ class UserQuota(BaseModel):
     balance: float
     ai_used: int
     ai_total: int | None
+    ai_remaining: int | None
     reset_at: datetime | None
     features: list[str]
 
@@ -83,6 +84,10 @@ class AdminUserInfo(BaseModel):
     created_at: datetime
     invite_code: str | None = None
     invited_at: datetime | None = None
+    ai_used: int = 0
+    ai_total: int | None = None
+    ai_remaining: int | None = None
+    quota_custom: bool = False
 
 
 class AdminUserUpdateRequest(BaseModel):
@@ -91,6 +96,25 @@ class AdminUserUpdateRequest(BaseModel):
     plan: str | None = Field(default=None, pattern="^(basic|pro)$")
     role: str | None = Field(default=None, pattern="^(user|admin)$")
     status: str | None = Field(default=None, pattern="^(active|disabled)$")
+
+
+class AdminUserQuotaUpdateRequest(BaseModel):
+    """管理员调整单个用户的当月 AI 次数上限 / 已使用次数。"""
+
+    monthly_limit: int | None = Field(default=None, ge=0)
+    used_this_month: int | None = Field(default=None, ge=0)
+    reason: str | None = Field(default=None, max_length=300)
+
+
+class AdminAuditEventInfo(BaseModel):
+    """「修改历史」一条：谁在什么时候把什么从 A 改成了 B、为什么。"""
+
+    created_at: datetime
+    actor_email: str | None = None
+    action: str
+    before_value: str | None = None
+    after_value: str | None = None
+    reason: str | None = None
 
 
 class AdminStats(BaseModel):

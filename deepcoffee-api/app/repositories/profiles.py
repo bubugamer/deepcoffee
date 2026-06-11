@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.models.tables import InviteCode, UserProfile as UserProfileORM
-from app.repositories.usage import ai_usage_repository
+from app.models.tables import InviteCode, UserAiQuotaSetting, UserProfile as UserProfileORM
+from app.repositories.usage import ai_usage_repository, current_month_window
 from app.schemas.auth import AdminUserInfo, UserProfile, UserQuota
 
 
-def quota_total_for(plan: str, settings: Settings) -> int | None:
+def quota_total_for(plan: str, settings: Settings, custom_limit: int | None = None) -> int | None:
     """每月 AI 问答次数上限：basic 取配置值，pro（及其它付费档）视为无限（None）。"""
+    if custom_limit is not None:
+        return custom_limit
     if plan == "basic":
         return settings.ai_quota_basic
     return None
@@ -87,19 +91,24 @@ class ProfileRepository:
     async def quota_for(self, session: AsyncSession, user_id: str, settings: Settings) -> UserQuota:
         row = await session.get(UserProfileORM, user_id)
         plan = row.plan if row is not None else "basic"
-        total = quota_total_for(plan, settings)
-        used = await ai_usage_repository.count_for(session, user_id)
+        quota_setting = await session.get(UserAiQuotaSetting, user_id)
+        custom_limit = quota_setting.monthly_limit if quota_setting is not None else None
+        total = quota_total_for(plan, settings, custom_limit)
+        _, reset_at = current_month_window()
+        used = await ai_usage_repository.effective_count_for(session, user_id)
+        remaining = None if total is None else max(0, total - used)
         return UserQuota(
             plan=plan,
             balance=0,
             ai_used=used,
             ai_total=total,
-            reset_at=None,
+            ai_remaining=remaining,
+            reset_at=reset_at,
             features=_quota_features(total),
         )
 
     async def list_users_with_invites(
-        self, session: AsyncSession, *, page: int = 1, page_size: int = 20
+        self, session: AsyncSession, *, settings: Settings, page: int = 1, page_size: int = 20
     ) -> list[AdminUserInfo]:
         """管理员用户列表：每个注册用户 + 其绑定的邀请码（LEFT JOIN invite_codes.used_by）。"""
         offset = (page - 1) * page_size
@@ -110,20 +119,64 @@ class ProfileRepository:
             .offset(offset)
             .limit(page_size)
         )
-        return [
-            AdminUserInfo(
-                id=row.id,
-                email=row.email,
-                display_name=row.display_name,
-                plan=row.plan,
-                role=row.role,
-                status=row.status,
-                created_at=row.created_at,
-                invite_code=code,
-                invited_at=used_at,
+        users: list[AdminUserInfo] = []
+        for row, code, used_at in result.all():
+            users.append(
+                await self.admin_user_info(session, row, settings=settings, invite_code=code, invited_at=used_at)
             )
-            for row, code, used_at in result.all()
-        ]
+        return users
+
+    async def admin_user_info(
+        self,
+        session: AsyncSession,
+        row: UserProfileORM,
+        *,
+        settings: Settings,
+        invite_code: str | None = None,
+        invited_at: datetime | None = None,
+    ) -> AdminUserInfo:
+        quota_setting = await session.get(UserAiQuotaSetting, row.id)
+        custom_limit = quota_setting.monthly_limit if quota_setting is not None else None
+        total = quota_total_for(row.plan, settings, custom_limit)
+        used = await ai_usage_repository.effective_count_for(session, row.id)
+        remaining = None if total is None else max(0, total - used)
+        return AdminUserInfo(
+            id=row.id,
+            email=row.email,
+            display_name=row.display_name,
+            plan=row.plan,
+            role=row.role,
+            status=row.status,
+            created_at=row.created_at,
+            invite_code=invite_code,
+            invited_at=invited_at,
+            ai_used=used,
+            ai_total=total,
+            ai_remaining=remaining,
+            quota_custom=custom_limit is not None,
+        )
+
+    async def set_quota(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        monthly_limit: int | None,
+        actor_id: str | None,
+        reason: str | None = None,
+    ) -> None:
+        row = await session.get(UserProfileORM, user_id)
+        if row is None:
+            raise AppError(404, "user_not_found", "User profile not found.")
+        setting = await session.get(UserAiQuotaSetting, user_id)
+        if setting is None:
+            setting = UserAiQuotaSetting(user_id=user_id)
+            session.add(setting)
+        setting.monthly_limit = monthly_limit
+        setting.updated_by = actor_id
+        setting.reason = reason
+        setting.updated_at = datetime.now(timezone.utc)
+        await session.flush()
 
     async def assert_ai_quota(self, session: AsyncSession, user_id: str, *, settings: Settings) -> None:
         """AI 调用前的次数门禁：basic 用满即 402；pro 无限放行。
@@ -132,10 +185,12 @@ class ProfileRepository:
         """
         row = await session.get(UserProfileORM, user_id)
         plan = row.plan if row is not None else "basic"
-        total = quota_total_for(plan, settings)
+        quota_setting = await session.get(UserAiQuotaSetting, user_id)
+        custom_limit = quota_setting.monthly_limit if quota_setting is not None else None
+        total = quota_total_for(plan, settings, custom_limit)
         if total is None:
             return
-        used = await ai_usage_repository.count_for(session, user_id)
+        used = await ai_usage_repository.effective_count_for(session, user_id)
         if used >= total:
             raise AppError(
                 402,

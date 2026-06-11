@@ -1,6 +1,6 @@
 """Langfuse trace 适配器（AI 观测，Phase 3）。
 
-设计原则，和 new-api / billing 一致：**未配置即 no-op，优雅降级**。
+设计原则，和 model gateway / billing 一致：**未配置即 no-op，优雅降级**。
 - 没配 langfuse_public_key / secret_key / host → `enabled=False`，所有 trace 调用是空操作。
 - 装没装 `langfuse` SDK 都不影响业务：SDK 缺失也只是 no-op + 一次告警。
 - 观测永远不能让业务失败：所有上报都包在 try/except 里，异常只记日志。

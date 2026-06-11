@@ -133,7 +133,6 @@ async def _model_turn(
     message: str | None,
     session_id: str,
     status: str,
-    token: str,
     model: str,
     gateway: ModelGateway,
 ) -> RecommendTurn | None:
@@ -160,7 +159,6 @@ async def _model_turn(
     try:
         data = await chat_json(
             gateway,
-            user_token=token,
             model=model,
             messages=messages,
             temperature=0.3,
@@ -251,12 +249,11 @@ async def evaluate_turn(
     message: str | None,
     session_id: str,
     status: str,
-    token: str | None,
     model: str,
     gateway: ModelGateway | None = None,
 ) -> RecommendTurn:
     gw = gateway or model_gateway
-    if token and gw.enabled:
+    if gw.enabled:
         turn = await _model_turn(
             bean=bean,
             equipment_profiles=equipment_profiles,
@@ -264,7 +261,6 @@ async def evaluate_turn(
             message=message,
             session_id=session_id,
             status=status,
-            token=token,
             model=model,
             gateway=gw,
         )

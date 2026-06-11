@@ -16,6 +16,7 @@ from typing import Any
 
 from app.core.config import Settings
 from app.schemas.coffea import ActionResult, DispatchPlan
+from app.services import bean_card_intake
 from app.services.ai_answer import answer_with_model
 from app.services.brew_coach import LOCAL_COACH_FALLBACK, coach_with_model
 from app.services.image_understanding import understand_image
@@ -44,6 +45,8 @@ _PENDING_GUIDANCE = {
 _PENDING_FALLBACK = "这一步要走专门的确认流程，避免在聊天里直接改动你的数据。"
 # 暂无联网检索能力，web_verify 降级时的显式标注（§9 降级）。
 _WEB_VERIFY_DISCLAIMER = "（暂不能联网实时核实，以下基于本地知识库与一般经验，不代表最新网络信息）"
+# 图片理解整体不可用（vision 未配 / 无 token / 调用失败）时的兜底引导。
+_IMAGE_UNAVAILABLE_GUIDANCE = "我没能识别这张图片。可以把卡片或包装上的文字直接发给我，或到「我的豆仓」手动录入。"
 
 
 async def execute_plan(
@@ -54,7 +57,6 @@ async def execute_plan(
     session_state: dict | None,
     knowledge_service: KnowledgeService,
     settings: Settings,
-    token: str | None,
     model: str,
     active_context: dict | None = None,
     gateway: ModelGateway | None = None,
@@ -73,7 +75,6 @@ async def execute_plan(
                         image_urls=current_image_urls,
                         knowledge_service=knowledge_service,
                         settings=settings,
-                        token=token,
                         model=model,
                         gateway=gateway,
                     )
@@ -86,7 +87,6 @@ async def execute_plan(
                         attachments=attachments,
                         session_state=session_state,
                         settings=settings,
-                        token=token,
                         gateway=gateway,
                     )
                 )
@@ -99,7 +99,6 @@ async def execute_plan(
                         session_state=session_state,
                         image_urls=current_image_urls,
                         settings=settings,
-                        token=token,
                         model=model,
                         gateway=gateway,
                     )
@@ -113,7 +112,6 @@ async def execute_plan(
                         session_state=session_state,
                         knowledge_service=knowledge_service,
                         settings=settings,
-                        token=token,
                         model=model,
                         gateway=gateway,
                     )
@@ -174,22 +172,20 @@ async def _run_knowledge(
     image_urls: list[str] | None,
     knowledge_service: KnowledgeService,
     settings: Settings,
-    token: str | None,
     model: str,
     gateway: ModelGateway | None,
 ) -> ActionResult:
     kb = knowledge_service.answer_question(message)
     answer = kb.answer
     source = "local"
-    if kb.from_knowledge_base and token:
+    if kb.from_knowledge_base:
         grounding = knowledge_service.build_grounding([f.slug for f in kb.selected_files], settings)
         model_answer = await answer_with_model(
             message,
             grounding,
-            token=token,
             model=model,
             image_urls=image_urls,
-            vision_model=settings.new_api_vision_model,
+            vision_model=settings.vision_model,
             gateway=gateway,
         )
         if model_answer:
@@ -215,15 +211,13 @@ async def _run_image(
     attachments: list[dict[str, Any]] | None,
     session_state: dict | None,
     settings: Settings,
-    token: str | None,
     gateway: ModelGateway | None,
 ) -> ActionResult:
     data = await understand_image(
         message=message,
         images=image_data_urls(attachments),
         session_state=session_state,
-        token=token,
-        vision_model=settings.new_api_vision_model,
+        vision_model=settings.vision_model,
         gateway=gateway,
     )
     if data is None:
@@ -231,9 +225,71 @@ async def _run_image(
             type=action_type,
             status="degraded",
             source="local",
-            message="我还没法直接识别图片。可以把卡片或包装上的文字贴给我，我来帮你整理。",
+            message=_IMAGE_UNAVAILABLE_GUIDANCE,
         )
-    return ActionResult(type=action_type, status="done", source="model", output=data)
+    if action_type == "read_bean_card_image":
+        return _bean_card_result(data, settings)
+    return ActionResult(
+        type=action_type,
+        status="done",
+        source="model",
+        output=data,
+        message=_brew_photo_summary(data),
+    )
+
+
+def _bean_card_result(data: dict[str, Any], settings: Settings) -> ActionResult:
+    """豆卡识图：原始 JSON 不给用户看，转成草稿 + 综合识别度 + 人话摘要。
+
+    auto_save_eligible 只是执行器的判定；真正落库由端点层做（执行器保持无副作用）。
+    """
+    if data.get("image_type") != "bean_card":
+        return ActionResult(
+            type="read_bean_card_image",
+            status="degraded",
+            source="model",
+            message="这张图看起来不像豆卡。换一张清晰的豆卡照片，或把卡片上的文字发给我，也可以到「我的豆仓」手动录入。",
+        )
+    draft = bean_card_intake.draft_from_bean_fields(data)
+    confidence = bean_card_intake.effective_confidence(data, draft)
+    summary = bean_card_intake.summarize_draft(draft)
+    if not draft.name:
+        return ActionResult(
+            type="read_bean_card_image",
+            status="degraded",
+            source="model",
+            message=f"我从图片里识别到：{summary}，但没读出豆名。可以把豆卡文字发给我，或到「我的豆仓」手动录入。",
+        )
+    uncertainties = [u for u in (data.get("uncertainties") or []) if isinstance(u, str) and u.strip()]
+    uncertain_note = f"其中「{'、'.join(uncertainties[:3])}」不太确定，" if uncertainties else ""
+    return ActionResult(
+        type="read_bean_card_image",
+        status="done",
+        source="model",
+        output={
+            "draft": draft.model_dump(exclude_none=True),
+            "confidence": confidence,
+            "uncertainties": uncertainties,
+            "auto_save_eligible": confidence >= settings.bean_card_autosave_confidence,
+            "raw_input": bean_card_intake.ocr_raw_input(data),
+        },
+        message=f"我从图片里识别到：{summary}。{uncertain_note}请在下面的草稿卡里确认或修改后保存。",
+    )
+
+
+def _brew_photo_summary(data: dict[str, Any]) -> str | None:
+    """冲煮照片评估：从结构化输出里挑可读结论，避免裸 JSON 卡片。"""
+    assessment = data.get("brew_photo_assessment")
+    if not isinstance(assessment, dict):
+        return None
+    facts = [s for s in (assessment.get("observed_facts") or []) if isinstance(s, str) and s.strip()]
+    suggestions = [s for s in (assessment.get("suggested_adjustments") or []) if isinstance(s, str) and s.strip()]
+    parts: list[str] = []
+    if facts:
+        parts.append("从照片里看到：" + "；".join(facts[:3]) + "。")
+    if suggestions:
+        parts.append("建议：" + "；".join(suggestions[:3]) + "。")
+    return " ".join(parts) or None
 
 
 async def _run_coach(
@@ -244,7 +300,6 @@ async def _run_coach(
     session_state: dict | None,
     image_urls: list[str] | None,
     settings: Settings,
-    token: str | None,
     model: str,
     gateway: ModelGateway | None,
 ) -> ActionResult:
@@ -257,9 +312,8 @@ async def _run_coach(
         active_recipe=ctx.get("recipe"),
         image_urls=image_urls,
         taste_feedback=(session_state or {}).get("taste_feedback"),
-        token=token,
         model=model,
-        vision_model=settings.new_api_vision_model,
+        vision_model=settings.vision_model,
         gateway=gateway,
     )
     if text:
@@ -275,23 +329,21 @@ async def _run_web_verify(
     session_state: dict | None,
     knowledge_service: KnowledgeService,
     settings: Settings,
-    token: str | None,
     model: str,
     gateway: ModelGateway | None,
 ) -> ActionResult:
     """先试真联网检索（Brave Search）+ 模型综合；不可用 / 无结果 / 失败即降级回知识库（§9）。"""
     image_context: dict | None = None
-    if image_urls and settings.new_api_vision_model and token:
+    if image_urls and settings.vision_model:
         image_context = await understand_image(
             message=message,
             images=image_urls,
             session_state=session_state,
-            token=token,
-            vision_model=settings.new_api_vision_model,
+            vision_model=settings.vision_model,
             gateway=gateway,
         )
 
-    if settings.web_search_enabled and token:
+    if settings.web_search_enabled:
         try:
             search_text = message
             if image_context:
@@ -305,11 +357,10 @@ async def _run_web_verify(
                 answer = await web_verify.verify_with_model(
                     message,
                     sources,
-                    token=token,
                     model=model,
                     image_context=image_context,
                     image_urls=image_urls,
-                    vision_model=settings.new_api_vision_model,
+                    vision_model=settings.vision_model,
                     gateway=gateway,
                 )
                 if answer:
@@ -329,7 +380,6 @@ async def _run_web_verify(
         image_urls=image_urls,
         knowledge_service=knowledge_service,
         settings=settings,
-        token=token,
         model=model,
         gateway=gateway,
     )

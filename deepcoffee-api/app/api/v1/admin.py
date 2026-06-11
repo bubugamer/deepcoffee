@@ -5,48 +5,37 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, require_admin
 from app.models.tables import CandidateFact as CandidateFactORM
-from app.models.tables import InviteCode, NewapiBillingLink, Proposal as ProposalORM, UserProfile
+from app.models.tables import InviteCode, Proposal as ProposalORM, UserAiQuotaSetting, UserProfile
+from app.repositories.admin_audit import admin_audit_repository
 from app.repositories.candidates import candidate_repository
 from app.repositories.entities import entity_repository
 from sqlalchemy import func, select
 
 from app.repositories.invites import InviteAlreadyUsedError, InviteRepository
 from app.repositories.profiles import profile_repository
-from app.schemas.auth import AdminStats, AdminUserInfo, AdminUserUpdateRequest, InviteCodeInfo, InviteCreateRequest
+from app.repositories.usage import ai_usage_repository
+from app.schemas.auth import (
+    AdminAuditEventInfo,
+    AdminStats,
+    AdminUserInfo,
+    AdminUserQuotaUpdateRequest,
+    AdminUserUpdateRequest,
+    InviteCodeInfo,
+    InviteCreateRequest,
+)
 from app.schemas.candidate import CandidateFact, CandidatePromoteResponse, CandidateReviewRequest
 from app.schemas.entity import PublicEntity
 from app.schemas.proposal import Proposal, ProposalMarkAppliedRequest, ProposalReviewRequest
 from app.services.candidate_service import candidate_service
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
-from app.services.billing_service import billing_service
-from app.services.newapi_client import NewApiClient, NewApiError
 from app.services.proposal_service import proposal_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-
-def _new_api_user_already_missing(exc: NewApiError) -> bool:
-    """判断 delete_user 失败是否等价于“远端用户本来就不存在”。
-
-    repair 的核心保护是：只有远端删除成功，或能确认远端已经没有这个用户，才允许删本地 link。
-    普通网络错误、鉴权错误、路由错误都不能被当作“已删除”，否则会把状态修得更乱。
-    """
-    message = (exc.message or "").lower()
-    if "404 page not found" in message:
-        return False
-    missing_markers = (
-        "user not found",
-        "record not found",
-        "no rows in result set",
-        "用户不存在",
-        "用户未找到",
-        "未找到用户",
-    )
-    return any(marker in message for marker in missing_markers)
 
 
 @router.post("/knowledge/reload")
@@ -138,6 +127,7 @@ async def update_user(
     payload: AdminUserUpdateRequest,
     admin: AuthenticatedUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> AdminUserInfo:
     if payload.plan is None and payload.role is None and payload.status is None:
         raise AppError(400, "empty_update", "Provide at least one of plan / role / status.")
@@ -147,23 +137,27 @@ async def update_user(
     # 防自锁：管理员不能撤掉自己的 admin、也不能禁用自己（避免唯一管理员把自己关在门外）。
     if user_id == admin.id and (payload.role == "user" or payload.status == "disabled"):
         raise AppError(400, "cannot_modify_self", "不能对自己执行降级或禁用操作。")
-    if payload.plan is not None:
+    # 审计：每个真实变化的字段各落一条（传相同值不记）。
+    changes: list[tuple[str, str, str]] = []
+    if payload.plan is not None and payload.plan != profile.plan:
+        changes.append(("plan_change", profile.plan, payload.plan))
         profile.plan = payload.plan
-    if payload.role is not None:
+    if payload.role is not None and payload.role != profile.role:
+        changes.append(("role_change", profile.role, payload.role))
         profile.role = payload.role
-    if payload.status is not None:
+    if payload.status is not None and payload.status != profile.status:
+        changes.append(("status_change", profile.status, payload.status))
         profile.status = payload.status
     await session.flush()
+    if changes:
+        # 审计 actor 外键依赖操作者自己的档案存在（首次操作的环境名单管理员可能还没建档）。
+        await profile_repository.get_or_create(session, admin.id, admin.email)
+    for action, before, after in changes:
+        await admin_audit_repository.record(
+            session, user_id=user_id, actor_id=admin.id, action=action, before=before, after=after
+        )
     await session.refresh(profile)
-    return AdminUserInfo(
-        id=profile.id,
-        email=profile.email,
-        display_name=profile.display_name,
-        plan=profile.plan,
-        role=profile.role,
-        status=profile.status,
-        created_at=profile.created_at,
-    )
+    return await profile_repository.admin_user_info(session, profile, settings=settings)
 
 
 @router.get("/users", response_model=list[AdminUserInfo])
@@ -172,8 +166,93 @@ async def list_users(
     page_size: int = Query(default=20, ge=1, le=100),
     _admin: AuthenticatedUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> list[AdminUserInfo]:
-    return await profile_repository.list_users_with_invites(session, page=page, page_size=page_size)
+    return await profile_repository.list_users_with_invites(session, settings=settings, page=page, page_size=page_size)
+
+
+@router.patch("/users/{user_id}/quota", response_model=AdminUserInfo)
+async def update_user_quota(
+    user_id: str,
+    payload: AdminUserQuotaUpdateRequest,
+    admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> AdminUserInfo:
+    fields = payload.model_fields_set
+    if "monthly_limit" not in fields and "used_this_month" not in fields:
+        raise AppError(400, "empty_quota_update", "Provide monthly_limit or used_this_month.")
+    profile = await session.get(UserProfile, user_id)
+    if profile is None:
+        raise AppError(404, "user_not_found", "User profile not found.")
+    await profile_repository.get_or_create(session, admin.id, admin.email)
+    if "monthly_limit" in fields:
+        old_setting = await session.get(UserAiQuotaSetting, user_id)
+        old_limit = old_setting.monthly_limit if old_setting is not None else None
+        if old_limit != payload.monthly_limit:
+            await admin_audit_repository.record(
+                session,
+                user_id=user_id,
+                actor_id=admin.id,
+                action="quota_limit_change",
+                before="套餐默认" if old_limit is None else str(old_limit),
+                after="套餐默认" if payload.monthly_limit is None else str(payload.monthly_limit),
+                reason=payload.reason,
+            )
+        await profile_repository.set_quota(
+            session,
+            user_id=user_id,
+            monthly_limit=payload.monthly_limit,
+            actor_id=admin.id,
+            reason=payload.reason,
+        )
+    if "used_this_month" in fields and payload.used_this_month is not None:
+        old_used = await ai_usage_repository.effective_count_for(session, user_id)
+        if old_used != payload.used_this_month:
+            await admin_audit_repository.record(
+                session,
+                user_id=user_id,
+                actor_id=admin.id,
+                action="usage_adjust",
+                before=str(old_used),
+                after=str(payload.used_this_month),
+                reason=payload.reason,
+            )
+        await ai_usage_repository.set_effective_count(
+            session,
+            user_id=user_id,
+            used_this_month=payload.used_this_month,
+            actor_id=admin.id,
+            reason=payload.reason,
+        )
+    await session.refresh(profile)
+    return await profile_repository.admin_user_info(session, profile, settings=settings)
+
+
+@router.get("/users/{user_id}/audit", response_model=list[AdminAuditEventInfo])
+async def list_user_audit(
+    user_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    _admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[AdminAuditEventInfo]:
+    """「修改历史」：该用户被管理员修改的全部记录，按时间倒序。"""
+    profile = await session.get(UserProfile, user_id)
+    if profile is None:
+        raise AppError(404, "user_not_found", "User profile not found.")
+    rows = await admin_audit_repository.list_for_user(session, user_id, page=page, page_size=page_size)
+    return [
+        AdminAuditEventInfo(
+            created_at=event.created_at,
+            actor_email=actor_email,
+            action=event.action,
+            before_value=event.before_value,
+            after_value=event.after_value,
+            reason=event.reason,
+        )
+        for event, actor_email in rows
+    ]
 
 
 @router.get("/proposals", response_model=list[Proposal])
@@ -311,58 +390,3 @@ async def list_entities(
     session: AsyncSession = Depends(get_session),
 ) -> list[PublicEntity]:
     return await entity_repository.list(session, entity_type=entity_type, status=status)
-
-
-@router.post("/billing-links/{user_id}/repair")
-async def repair_billing_link(
-    user_id: str,
-    _admin: AuthenticatedUser = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, str | bool | None]:
-    """重建用户的 new-api 影子账户映射。
-
-    new-api 未配置时直接 skipped，不改本地数据。已配置时，只有远端用户删除成功，
-    或远端用户已不存在，才删除本地 link 并重建，避免 repair 把临时故障扩大成数据不一致。
-    """
-    if not billing_service.enabled:
-        return {
-            "status": "skipped",
-            "reason": "new-api is not configured",
-            "old_newapi_user_id": None,
-            "newapi_user_id": None,
-            "has_token": False,
-        }
-
-    profile = await session.get(UserProfile, user_id)
-    if profile is None:
-        raise AppError(404, "user_not_found", "User profile not found.")
-
-    link = await session.get(NewapiBillingLink, user_id)
-    old_newapi_user_id = link.newapi_user_id if link is not None else None
-    if link is not None:
-        try:
-            await NewApiClient(billing_service.settings).delete_user(link.newapi_user_id)
-        except NewApiError as exc:
-            if not _new_api_user_already_missing(exc):
-                raise AppError(
-                    exc.status_code,
-                    "new_api_delete_failed",
-                    "Could not delete the existing new-api shadow user; local link was left unchanged.",
-                    details={"newapi_user_id": link.newapi_user_id},
-                ) from exc
-        await session.delete(link)
-        await session.flush()
-
-    new_link = await billing_service.ensure_shadow_account(
-        session, user_id=user_id, email=profile.email, plan=profile.plan
-    )
-    if new_link is None:
-        raise AppError(502, "shadow_account_repair_failed", "Could not create a new shadow account.")
-
-    return {
-        "status": "repaired" if old_newapi_user_id is not None else "created",
-        "reason": None,
-        "old_newapi_user_id": old_newapi_user_id,
-        "newapi_user_id": new_link.newapi_user_id,
-        "has_token": bool(new_link.internal_token),
-    }

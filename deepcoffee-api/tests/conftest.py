@@ -9,23 +9,28 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app import models  # noqa: F401  (register models on Base.metadata)
+from app.core.config import get_settings
 from app.core import db as db_module
 from app.core.db import Base
-from app.services.billing_service import billing_service as _billing_service
 
-# 测试里禁用 new-api：endpoint 不应去连真 new-api 建影子账户、污染它。
-_billing_service.settings.new_api_base_url = None
+settings = get_settings()
 # 测试里禁用 Sentry：create_app 的 init_observability 不应把测试中的错误上报到真 Sentry。
 # settings 是全局单例（与 create_app 里 init_observability 读的是同一个对象），这里清掉即不初始化。
-_billing_service.settings.sentry_dsn = None
+settings.sentry_dsn = None
 # 测试默认关掉邀请门禁（业务端点的测试用户没有绑定邀请码）；
 # 门禁本身的行为由 test_invite_gate.py 显式开启后覆盖。
-_billing_service.settings.enforce_invite_gate = False
+settings.enforce_invite_gate = False
 # 测试固定跑在 local 语义下（接受 dev token），不随 .env 的 APP_ENV 漂移——
 # 本地模拟生产部署时 .env 会切到 production，测试不应因此全挂。
-_billing_service.settings.app_env = "local"
+settings.app_env = "local"
 # 同理，测试不读 .env 里的 bootstrap 码（test_quota_and_admin 用自己设的码）。
-_billing_service.settings.bootstrap_invite_code = None
+settings.bootstrap_invite_code = None
+# 测试里强制禁用模型网关：.env 一旦配了真厂商 key（DEEPCOFFEE_MODEL_*），没有这几行
+# 测试会真调厂商 API（烧钱且不稳定）。模型路径一律用 FakeGateway 显式注入覆盖。
+settings.model_base_url = None
+settings.model_api_key = None
+settings.vision_model_base_url = None
+settings.vision_model_api_key = None
 
 TEST_URL = os.environ.get(
     "TEST_DATABASE_URL",

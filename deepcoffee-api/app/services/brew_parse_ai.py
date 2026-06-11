@@ -22,10 +22,10 @@ _BREW_KEYS = [
 
 
 async def parse_brew_with_model(
-    text: str, *, token: str | None, model: str, gateway: ModelGateway | None = None
+    text: str, *, model: str, gateway: ModelGateway | None = None
 ) -> BrewDraft | None:
     gw = gateway or model_gateway
-    if not token or not gw.enabled:
+    if not gw.enabled:
         return None
     messages = [
         {"role": "system", "content": BREW_PARSE_SYSTEM},
@@ -33,7 +33,7 @@ async def parse_brew_with_model(
     ]
     try:
         data = await chat_json(
-            gw, user_token=token, model=model, messages=messages,
+            gw, model=model, messages=messages,
             temperature=0, max_tokens=700, allowed_keys=_BREW_KEYS,
         )
         # 直接用 Pydantic 校验映射（含嵌套 evaluation）；非法值（如 dose_g<=0）会抛错 → 回退。

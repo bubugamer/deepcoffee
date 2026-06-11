@@ -453,25 +453,6 @@ class KnowledgeSyncRecord(Base):
     )
 
 
-class NewapiBillingLink(Base):
-    """DeepCoffee 用户 ↔ new-api 影子计费账户的映射。前端永远拿不到这里的 token。"""
-
-    __tablename__ = "newapi_billing_links"
-
-    user_id: Mapped[str] = mapped_column(
-        String, ForeignKey("user_profiles.id", ondelete="CASCADE"), primary_key=True
-    )
-    newapi_user_id: Mapped[str] = mapped_column(String, nullable=False)
-    # 内部模型调用 token（仅后端持有）。TODO: 上线前改为加密存储。
-    internal_token: Mapped[str | None] = mapped_column(Text)
-    plan: Mapped[str] = mapped_column(String, default="basic", server_default="basic", nullable=False)
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-
 class AiUsageEvent(Base):
     __tablename__ = "ai_usage_events"
 
@@ -479,6 +460,55 @@ class AiUsageEvent(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     action: Mapped[str] = mapped_column(String, nullable=False)
     trace_id: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class UserAiQuotaSetting(Base):
+    __tablename__ = "user_ai_quota_settings"
+
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("user_profiles.id", ondelete="CASCADE"), primary_key=True
+    )
+    # null means "use plan default"; otherwise this exact monthly cap overrides the plan.
+    monthly_limit: Mapped[int | None] = mapped_column(Integer)
+    updated_by: Mapped[str | None] = mapped_column(String, ForeignKey("user_profiles.id", ondelete="SET NULL"))
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AiUsageAdjustment(Base):
+    __tablename__ = "ai_usage_adjustments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    actor_id: Mapped[str | None] = mapped_column(String, ForeignKey("user_profiles.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AdminAuditEvent(Base):
+    """管理员对用户的修改审计（套餐/角色/状态/额度）。一次字段变更一条，按时间倒序展示。"""
+
+    __tablename__ = "admin_audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    actor_id: Mapped[str | None] = mapped_column(String, ForeignKey("user_profiles.id", ondelete="SET NULL"))
+    # plan_change / role_change / status_change / quota_limit_change / usage_adjust
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    before_value: Mapped[str | None] = mapped_column(String)
+    after_value: Mapped[str | None] = mapped_column(String)
+    reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

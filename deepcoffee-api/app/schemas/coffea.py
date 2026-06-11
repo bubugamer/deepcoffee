@@ -62,7 +62,8 @@ class DispatchPlan(BaseModel):
     )
     should_answer_directly: bool = False
     source: SourceTag = "model"
-    # 模型路径失败回退本地时的原因标注（如 "balance_exhausted"），响应层据此在 reply 里加提示。
+    # 模型路径失败回退本地时的原因标注（如 "provider_quota"=服务端模型 key 配额/欠费），
+    # 响应层据此在 reply 里加显式提示，避免 AI 静默降级"变笨"。
     degrade_reason: str | None = None
 
 

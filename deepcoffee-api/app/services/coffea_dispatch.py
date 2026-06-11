@@ -16,7 +16,7 @@ from typing import Any
 
 from app.prompts import COFFEA_DISPATCH_SYSTEM, COFFEA_DISPATCH_USER_TEMPLATE
 from app.schemas.coffea import DispatchPlan
-from app.services.model_gateway import ModelGateway, is_insufficient_quota, model_gateway
+from app.services.model_gateway import ModelGateway, is_provider_quota_error, model_gateway
 from app.services.model_json import ModelJSONError, chat_json
 
 logger = logging.getLogger(__name__)
@@ -76,9 +76,8 @@ def _as_text(value: Any) -> str:
 def _attachments_brief(attachments: Any) -> list[dict[str, Any]] | None:
     """附件只给元信息（ref/类型/大小），**绝不把 base64 原文塞进调度提示词**。
 
-    一张图的 data URL 就是百万级 token：new-api 预扣费按输入长度估算，直接
-    insufficient_user_quota，整条模型路径塌成本地关键词兜底（用户表述了需求
-    仍被反问）。调度只需要知道「有什么附件」，图片本体由专项能力经 vision 通道读。
+    一张图的 data URL 就是百万级输入：调度只需要知道「有什么附件」，
+    图片本体由专项能力经 vision 通道读。
     """
     if not attachments:
         return None
@@ -107,18 +106,17 @@ async def dispatch_with_model(
     recent_brews: Any = None,
     equipment_profiles: Any = None,
     taste_preferences: Any = None,
-    token: str | None,
     model: str,
     gateway: ModelGateway | None = None,
     failure_reasons: list[str] | None = None,
 ) -> DispatchPlan | None:
     """模型路径。成功返回校验过的计划；任何条件不满足 / 不合规返回 None（调用方回退本地）。
 
-    failure_reasons：可选收集器。失败原因可分类时（如余额耗尽）追加标签，
-    供 dispatch() 写进兜底计划的 degrade_reason。
+    failure_reasons：可选收集器，命中服务端模型 key 配额/欠费时追加 "provider_quota"，
+    调用方据此给本地兜底计划打 degrade_reason 标注。
     """
     gw = gateway or model_gateway
-    if not token or not gw.enabled:
+    if not gw.enabled:
         return None
     user_content = COFFEA_DISPATCH_USER_TEMPLATE.format(
         session_state=_as_text(session_state),
@@ -136,7 +134,6 @@ async def dispatch_with_model(
     try:
         data = await chat_json(
             gw,
-            user_token=token,
             model=model,
             messages=messages,
             temperature=0,
@@ -148,11 +145,11 @@ async def dispatch_with_model(
         logger.warning("coffea_dispatch model JSON invalid, fallback to local: %s", exc)
         return None
     except Exception as exc:  # noqa: BLE001 — 模型/网关失败即回退本地，绝不打断对话
-        if is_insufficient_quota(exc):
-            # 余额耗尽要喊出来：ERROR 级日志 + 标签上抛，响应层会在 reply 里提示用户
-            logger.error("coffea_dispatch blocked by exhausted new-api balance: %s", exc)
+        if is_provider_quota_error(exc):
+            # 服务端模型 key 配额/欠费：必须显式暴露（ERROR 级，Sentry 可捕获），管理员需充值。
+            logger.error("coffea_dispatch blocked by provider quota/balance, fallback to local: %s", exc)
             if failure_reasons is not None:
-                failure_reasons.append("balance_exhausted")
+                failure_reasons.append("provider_quota")
         else:
             logger.warning("coffea_dispatch model call failed, fallback to local: %s", exc)
         return None
@@ -254,11 +251,11 @@ async def dispatch(
     recent_brews: Any = None,
     equipment_profiles: Any = None,
     taste_preferences: Any = None,
-    token: str | None = None,
     model: str,
     gateway: ModelGateway | None = None,
 ) -> DispatchPlan:
-    """对外入口：先试模型，失败即本地兜底。返回的计划必带 source 标注。"""
+    """对外入口：先试模型，失败即本地兜底。返回的计划必带 source 标注；
+    因服务端模型 key 配额/欠费而降级时，本地计划带 degrade_reason="provider_quota"。"""
     failure_reasons: list[str] = []
     plan = await dispatch_with_model(
         message=message,
@@ -268,14 +265,13 @@ async def dispatch(
         recent_brews=recent_brews,
         equipment_profiles=equipment_profiles,
         taste_preferences=taste_preferences,
-        token=token,
         model=model,
         gateway=gateway,
         failure_reasons=failure_reasons,
     )
     if plan is not None:
         return plan
-    fallback = local_dispatch(message=message, attachments=attachments, session_state=session_state)
-    if "balance_exhausted" in failure_reasons:
-        fallback.degrade_reason = "balance_exhausted"
-    return fallback
+    plan = local_dispatch(message=message, attachments=attachments, session_state=session_state)
+    if "provider_quota" in failure_reasons:
+        plan = plan.model_copy(update={"degrade_reason": "provider_quota"})
+    return plan

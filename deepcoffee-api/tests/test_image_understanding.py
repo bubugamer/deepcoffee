@@ -11,6 +11,7 @@ _IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
 
 class _FakeGateway:
     enabled = True
+    vision_enabled = True
 
     def __init__(self, content: str) -> None:
         self.content = content
@@ -39,7 +40,6 @@ def _call(**overrides):
     kwargs = dict(
         message="看看这张豆卡",
         images=[_IMG],
-        token="sk-x",
         vision_model="kimi-k2.6",
         gateway=_FakeGateway(_VALID),
     )
@@ -68,10 +68,6 @@ def test_to_data_url_none() -> None:
 
 # --- understand_image degrade paths ----------------------------------------
 
-def test_degrades_without_token() -> None:
-    assert _call(token=None) is None
-
-
 def test_degrades_without_vision_model() -> None:
     assert _call(vision_model=None) is None
 
@@ -81,7 +77,7 @@ def test_degrades_without_images() -> None:
 
 
 def test_degrades_when_gateway_disabled() -> None:
-    assert _call(gateway=SimpleNamespace(enabled=False)) is None
+    assert _call(gateway=SimpleNamespace(enabled=False, vision_enabled=False)) is None
 
 
 # --- understand_image happy path + multimodal wire shape -------------------

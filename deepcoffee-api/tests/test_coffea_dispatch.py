@@ -38,7 +38,7 @@ _VALID_PLAN = json.dumps(
 
 def test_model_path_parses_plan() -> None:
     plan = asyncio.run(
-        dispatch(message="读下这张豆卡", token="sk-x", model="m", gateway=_FakeGateway(_VALID_PLAN))
+        dispatch(message="读下这张豆卡", model="m", gateway=_FakeGateway(_VALID_PLAN))
     )
     assert plan.source == "model"
     assert plan.primary_intent == "read_bean_card_image"
@@ -49,7 +49,7 @@ def test_model_path_parses_plan() -> None:
 def test_model_path_drops_unexpected_keys() -> None:
     payload = json.dumps({"primary_intent": "direct_answer", "direct_reply": "你好，我是 Coffea。", "evil_key": "x"})
     plan = asyncio.run(
-        dispatch_with_model(message="hi", token="sk-x", model="m", gateway=_FakeGateway(payload))
+        dispatch_with_model(message="hi", model="m", gateway=_FakeGateway(payload))
     )
     assert plan is not None
     assert plan.primary_intent == "direct_answer"
@@ -59,28 +59,23 @@ def test_model_path_drops_unexpected_keys() -> None:
 def test_model_unknown_intent_falls_back_local() -> None:
     # 非白名单意图 → 模型路径 None → 回退本地（消息含知识问号 → knowledge_answer）。
     gw = _FakeGateway(json.dumps({"primary_intent": "definitely_not_allowed"}))
-    plan = asyncio.run(dispatch(message="瑰夏为什么有花香？", token="sk-x", model="m", gateway=gw))
+    plan = asyncio.run(dispatch(message="瑰夏为什么有花香？", model="m", gateway=gw))
     assert plan.source == "local"
     assert plan.primary_intent == "knowledge_answer"
 
 
 def test_model_invalid_json_falls_back_local() -> None:
     plan = asyncio.run(
-        dispatch(message="网上对这支豆评价怎么样", token="sk-x", model="m", gateway=_FakeGateway("not json"))
+        dispatch(message="网上对这支豆评价怎么样", model="m", gateway=_FakeGateway("not json"))
     )
     assert plan.source == "local"
     assert plan.primary_intent == "web_verify"
 
 
-def test_no_token_uses_local() -> None:
-    plan = asyncio.run(dispatch(message="随便聊聊", token=None, model="m", gateway=_FakeGateway(_VALID_PLAN)))
-    assert plan.source == "local"
-
-
 def test_disabled_gateway_returns_none() -> None:
     disabled = SimpleNamespace(enabled=False)
     result = asyncio.run(
-        dispatch_with_model(message="hi", token="sk-x", model="m", gateway=disabled)
+        dispatch_with_model(message="hi", model="m", gateway=disabled)
     )
     assert result is None
 
@@ -138,15 +133,13 @@ def test_allowed_intents_match_doc_count() -> None:
 # --- 附件元信息：调度提示词绝不携带 base64 原文 -----------------------------
 
 def test_dispatch_prompt_excludes_attachment_base64() -> None:
-    """回归：base64 进调度提示词会让 new-api 预扣费爆掉（insufficient_user_quota），
-    模型路径整体塌成本地兜底。提示词里只能有附件元信息。"""
+    """回归：base64 不应进入调度提示词。提示词里只能有附件元信息。"""
     gw = _FakeGateway(_VALID_PLAN)
     big_data_url = "data:image/jpeg;base64," + "A" * 200_000
     asyncio.run(
         dispatch_with_model(
             message="好的，请帮我记录这只豆子",
             attachments=[{"type": "image", "data_url": big_data_url, "mime_type": "image/jpeg"}],
-            token="sk-x",
             model="m",
             gateway=gw,
         )
@@ -163,20 +156,6 @@ def test_local_image_with_record_bean_text_reads_card() -> None:
     assert plan.primary_intent == "read_bean_card_image"
 
 
-# --- 余额耗尽降级标注 -------------------------------------------------------
-
-class _BrokeGateway:
-    """chat 永远抛「余额不足」的假网关。"""
-
-    enabled = True
-
-    async def chat(self, **kwargs):  # noqa: ANN003
-        raise RuntimeError(
-            'new-api model call failed: {"error":{"message":"预扣费额度失败, 用户剩余额度: ＄0.98",'
-            '"code":"insufficient_user_quota"}}'
-        )
-
-
 class _CrashGateway:
     """chat 抛普通网络错误的假网关。"""
 
@@ -186,13 +165,22 @@ class _CrashGateway:
         raise RuntimeError("connection reset by peer")
 
 
-def test_dispatch_tags_balance_exhausted_on_insufficient_quota() -> None:
-    plan = asyncio.run(dispatch(message="随便聊聊", token="sk-x", model="m", gateway=_BrokeGateway()))
-    assert plan.source == "local"
-    assert plan.degrade_reason == "balance_exhausted"
-
-
-def test_dispatch_no_tag_on_ordinary_failure() -> None:
-    plan = asyncio.run(dispatch(message="随便聊聊", token="sk-x", model="m", gateway=_CrashGateway()))
+def test_dispatch_falls_back_on_model_failure() -> None:
+    plan = asyncio.run(dispatch(message="随便聊聊", model="m", gateway=_CrashGateway()))
     assert plan.source == "local"
     assert plan.degrade_reason is None
+
+
+class _QuotaExhaustedGateway:
+    """chat 抛厂商配额/欠费错误的假网关（如 DeepSeek 402 Insufficient Balance）。"""
+
+    enabled = True
+
+    async def chat(self, **kwargs):  # noqa: ANN003
+        raise RuntimeError('model provider call failed: {"error":{"message":"Insufficient Balance"}}')
+
+
+def test_dispatch_tags_provider_quota_on_exhausted_key() -> None:
+    plan = asyncio.run(dispatch(message="随便聊聊", model="m", gateway=_QuotaExhaustedGateway()))
+    assert plan.source == "local"
+    assert plan.degrade_reason == "provider_quota"

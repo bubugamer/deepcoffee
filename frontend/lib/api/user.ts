@@ -16,9 +16,10 @@ const fallbackQuota: UserQuota = {
   plan: 'basic',
   balance: 0,
   ai_used: 22,
-  ai_total: 30,
-  reset_at: '2026-06-01T00:00:00Z',
-  features: ['AI 问答 30 次 / 月', '知识库文章免费浏览', '冲煮记录不限条数'],
+  ai_total: 500,
+  ai_remaining: 478,
+  reset_at: '2026-07-01T00:00:00+08:00',
+  features: ['AI 问答 500 次 / 月', '知识库文章免费浏览', '冲煮记录不限条数'],
 }
 
 // Pro plan features (shown in the upgrade card)
@@ -66,8 +67,8 @@ export async function getBillingPlans(): Promise<BillingPlan[]> {
     return apiFetch('/billing/plans')
   }
   return [
-    { id: 'basic', name: 'Basic', price: 0, currency: 'CNY', token_limit: 0, request_limit: 30, period: 'month', features: fallbackQuota.features },
-    { id: 'pro', name: 'Pro', price: 19, currency: 'CNY', token_limit: null, request_limit: null, period: 'month', features: proPlanFeatures },
+    { id: 'basic', name: 'Basic', price: 0, currency: 'CNY', token_limit: 0, request_limit: 500, period: 'month', features: fallbackQuota.features },
+    { id: 'pro', name: 'Pro', price: 49, currency: 'CNY', token_limit: null, request_limit: null, period: 'month', features: proPlanFeatures },
   ]
 }
 

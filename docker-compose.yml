@@ -34,12 +34,6 @@ services:
       # APP_ENV 由 deepcoffee-api/.env 决定（local / production），不在此硬编码。
       DEEPCOFFEE_KNOWLEDGE_DIR: /knowledge
       DEEPCOFFEE_BACKEND_CORS_ORIGINS: "[\"http://localhost:${WEB_PORT:-3010}\",\"http://127.0.0.1:${WEB_PORT:-3010}\",\"http://localhost:3000\",\"http://127.0.0.1:3000\"]"
-      # 容器内 localhost 指容器自身；new-api 跑在宿主机（独立 compose，:18451），
-      # 故覆盖 .env 里的 localhost，改用 host.docker.internal 才能从 api 容器连到它。
-      NEW_API_BASE_URL: "http://host.docker.internal:${NEW_API_PORT:-18451}"
-    extra_hosts:
-      # Linux 上 host.docker.internal 需显式映射；macOS/Windows Docker Desktop 自带，加了也无害。
-      - "host.docker.internal:host-gateway"
     volumes:
       # 知识库 Markdown 由仓库提供，挂载进容器（只读）
       - ./knowledge:/knowledge:ro

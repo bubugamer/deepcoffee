@@ -31,34 +31,34 @@ async def verify_with_model(
     question: str,
     sources: list[WebSource],
     *,
-    token: str | None,
     model: str,
     image_context: dict | None = None,
     image_urls: list[str] | None = None,
     vision_model: str | None = None,
     gateway: ModelGateway | None = None,
 ) -> str | None:
-    """成功返回带来源的综合回答；无 token / 网关不可用 / 无来源 / 出错返回 None。"""
+    """成功返回带来源的综合回答；网关不可用 / 无来源 / 出错返回 None。"""
     gw = gateway or model_gateway
-    if not token or not gw.enabled or not sources:
+    if not gw.enabled or not sources:
         return None
+    use_images = bool(image_urls and vision_model and gw.vision_enabled)
     image_note = image_context or (
         "本轮用户附带了图片。请直接查看图片，判断用户问题是否引用了图片；如果图片与核实任务无关、"
         "看不清或不能从来源确认，就明确说明，不要编造图片里的品牌、文字或事实。"
-        if image_urls and vision_model
+        if use_images
         else image_unavailable_note(image_urls, vision_model)
     )
     user_content = WEB_VERIFY_USER_TEMPLATE.format(
         question=question, image_context=image_note, source_summaries=format_sources(sources)
     )
-    model_to_use = select_model_for_images(text_model=model, vision_model=vision_model, image_urls=image_urls)
+    model_to_use = select_model_for_images(text_model=model, vision_model=vision_model if use_images else None, image_urls=image_urls)
     messages = [
         {"role": "system", "content": WEB_VERIFY_SYSTEM},
-        {"role": "user", "content": build_user_content(user_content, image_urls if vision_model else None)},
+        {"role": "user", "content": build_user_content(user_content, image_urls if use_images else None)},
     ]
     try:
         result = await gw.chat(
-            user_token=token, model=model_to_use, messages=messages, temperature=0.2, max_tokens=900
+            model=model_to_use, messages=messages, temperature=0.2, max_tokens=900
         )
     except Exception as exc:  # noqa: BLE001 — 模型失败即降级（调用方退回知识库）
         logger.warning("web_verify model synthesis failed, fallback: %s", exc)

@@ -3,7 +3,7 @@
 按豆子的处理法 / 品种给一组合理的手冲起手参数。产出一个完整 BrewDraft，落为
 `ai_suggestion` 冲煮记录（系统归属、用户不可见），豆子用 recommended_record_id 指向它。
 
-未来接入模型网关（new-api）后可换成模型生成（同样产出 BrewDraft，端点不变）；当前模型
+未来可继续增强模型生成（同样产出 BrewDraft，端点不变）；当前模型
 调用被渠道 key / token 卡住，先用本地规则保证降级可用。
 """
 

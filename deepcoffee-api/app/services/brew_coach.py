@@ -42,19 +42,19 @@ async def coach_with_model(
     active_recipe: Any = None,
     image_urls: list[str] | None = None,
     taste_feedback: Any = None,
-    token: str | None,
     model: str,
     vision_model: str | None = None,
     gateway: ModelGateway | None = None,
 ) -> str | None:
-    """成功返回教练回复文本；无 token / 网关不可用 / 出错返回 None（调用方用本地兜底）。"""
+    """成功返回教练回复文本；网关不可用 / 出错返回 None（调用方用本地兜底）。"""
     gw = gateway or model_gateway
-    if not token or not gw.enabled:
+    if not gw.enabled:
         return None
+    use_images = bool(image_urls and vision_model and gw.vision_enabled)
     image_context = (
         "本轮用户附带了原始图片。请直接查看图片，并判断图片是否能帮助回答当前冲煮问题；"
         "如果图片无关、看不清或不能支持结论，就说明不会依据图片判断，不要编造图片细节。"
-        if image_urls and vision_model
+        if use_images
         else image_unavailable_note(image_urls, vision_model)
     )
     user_content = BREW_COACH_USER_TEMPLATE.format(
@@ -65,14 +65,14 @@ async def coach_with_model(
         taste_feedback=_as_text(taste_feedback),
         message=message,
     )
-    model_to_use = select_model_for_images(text_model=model, vision_model=vision_model, image_urls=image_urls)
+    model_to_use = select_model_for_images(text_model=model, vision_model=vision_model if use_images else None, image_urls=image_urls)
     messages = [
         {"role": "system", "content": BREW_COACH_SYSTEM},
-        {"role": "user", "content": build_user_content(user_content, image_urls if vision_model else None)},
+        {"role": "user", "content": build_user_content(user_content, image_urls if use_images else None)},
     ]
     try:
         result = await gw.chat(
-            user_token=token, model=model_to_use, messages=messages, temperature=0.4, max_tokens=900
+            model=model_to_use, messages=messages, temperature=0.4, max_tokens=900
         )
     except Exception as exc:  # noqa: BLE001 — 失败即回退本地保守建议
         logger.warning("brew_coach model failed, fallback local: %s", exc)

@@ -53,23 +53,44 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("SUPABASE_SECRET_KEY", "DEEPCOFFEE_SUPABASE_SECRET_KEY")
     )
 
-    new_api_base_url: str | None = Field(default=None, validation_alias=AliasChoices("NEW_API_BASE_URL", "DEEPCOFFEE_NEW_API_BASE_URL"))
-    new_api_admin_token: str | None = Field(default=None, validation_alias=AliasChoices("NEW_API_ADMIN_TOKEN", "DEEPCOFFEE_NEW_API_ADMIN_TOKEN"))
-    new_api_admin_user_id: str = Field(default="1", validation_alias=AliasChoices("NEW_API_ADMIN_USER_ID", "DEEPCOFFEE_NEW_API_ADMIN_USER_ID"))
-    # new-api 的 quota 内部单位换算（默认 500000 quota = $1，与 new-api 默认一致）
-    new_api_quota_per_unit: int = Field(default=500000, validation_alias=AliasChoices("NEW_API_QUOTA_PER_UNIT", "DEEPCOFFEE_NEW_API_QUOTA_PER_UNIT"))
-    # 经 new-api 调用的默认模型名（需在 new-api 渠道里已启用）。见 docs/deepcoffee-ai-prompts.md §0。
-    new_api_default_model: str = Field(default="deepseek-v4-pro", validation_alias=AliasChoices("NEW_API_DEFAULT_MODEL", "DEEPCOFFEE_NEW_API_DEFAULT_MODEL"))
-    # 图片理解的 vision 通道模型名（独立模型，见 §2「外部依赖」）。默认 deepseek 纯文本不支持图片，
-    # 故图片场景默认用 Moonshot `kimi-k2.6`（多模态，OpenAI 兼容，base64 走 image_url）。
-    # 需在 new-api 渠道里启用该模型；渠道不可用时 image_understanding 整体降级，不影响纯文本能力。
-    new_api_vision_model: str | None = Field(default="kimi-k2.6", validation_alias=AliasChoices("NEW_API_VISION_MODEL", "DEEPCOFFEE_NEW_API_VISION_MODEL"))
-    # 新影子账户的初始配额（new-api 内部单位；500000 = $1）。Beta 先给一笔够用的；Phase 6 充值再调。
-    new_api_initial_quota: int = Field(default=500000, validation_alias=AliasChoices("NEW_API_INITIAL_QUOTA", "DEEPCOFFEE_NEW_API_INITIAL_QUOTA"))
+    # OpenAI-compatible model gateway. DeepCoffee owns user quota; model calls use
+    # this server-side key and never create per-user provider keys.
+    model_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_MODEL_BASE_URL", "MODEL_BASE_URL"),
+    )
+    model_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_MODEL_API_KEY", "MODEL_API_KEY"),
+    )
+    model_default_model: str = Field(
+        default="deepseek-v4-pro",
+        validation_alias=AliasChoices("DEEPCOFFEE_MODEL_DEFAULT_MODEL", "MODEL_DEFAULT_MODEL"),
+    )
+    # Optional independent OpenAI-compatible vision channel.
+    vision_model_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_VISION_MODEL_BASE_URL", "VISION_MODEL_BASE_URL"),
+    )
+    vision_model_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_VISION_MODEL_API_KEY", "VISION_MODEL_API_KEY"),
+    )
+    vision_model: str | None = Field(
+        default="kimi-k2.6",
+        validation_alias=AliasChoices("DEEPCOFFEE_VISION_MODEL", "VISION_MODEL"),
+    )
+    # 对话豆卡识图自动录入的识别度阈值：综合识别度（vision 自报与字段完整度取 min）达到即直接建档，
+    # 低于则出草稿卡让用户确认。
+    bean_card_autosave_confidence: float = Field(default=0.8, validation_alias=AliasChoices("DEEPCOFFEE_BEAN_CARD_AUTOSAVE_CONFIDENCE", "BEAN_CARD_AUTOSAVE_CONFIDENCE"))
 
     @property
-    def new_api_enabled(self) -> bool:
-        return bool(self.new_api_base_url and self.new_api_admin_token)
+    def model_gateway_enabled(self) -> bool:
+        return bool(self.model_base_url and self.model_api_key)
+
+    @property
+    def vision_gateway_enabled(self) -> bool:
+        return bool(self.vision_model_base_url and self.vision_model_api_key and self.vision_model)
 
     # 联网核实 web_verify（§9）：Brave Search API。未配 key 时 web_verify 整体降级回知识库。
     brave_api_key: str | None = Field(default=None, validation_alias=AliasChoices("BRAVE_API_KEY", "DEEPCOFFEE_BRAVE_API_KEY"))

@@ -1,7 +1,7 @@
-"""Model gateway: 所有模型请求由 deepcoffee-api 发起，经 new-api 的 OpenAI 兼容接口调用，
-用对应用户的内部 token，用量自动计入该用户的 new-api 影子账户。
+"""Model gateway: DeepCoffee backend calls an OpenAI-compatible provider directly.
 
-未配置 new-api 时不可用（调用方应回退到本地规则）。Phase 4 接入复盘/解析/问答时使用。
+User quota is enforced inside DeepCoffee before requests reach this gateway. The
+provider key is server-side only; callers never pass per-user model tokens.
 """
 
 from __future__ import annotations
@@ -23,14 +23,19 @@ class ChatResult:
     completion_tokens: int | None = None
 
 
-def is_insufficient_quota(exc: BaseException) -> bool:
-    """识别 new-api 的「影子账户余额耗尽」错误（insufficient_user_quota / 预扣费失败）。
+def is_provider_quota_error(exc: BaseException) -> bool:
+    """Best-effort classification for provider-side key quota/balance failures.
 
-    各 AI 链路在降级到本地兜底时用它区分「余额烧光」与普通故障——前者必须显式
-    告知用户去找管理员充值，否则 AI 只是静默变笨，没人知道为什么。
+    覆盖 DeepSeek（402 "Insufficient Balance"）、Moonshot（exceeded_current_quota /
+    insufficient balance）及通用 OpenAI 兼容网关的 insufficient_*_quota / rate_limit 文案。
+    这是**服务端 key 的问题**（管理员需充值），不是单个用户的额度。
     """
-    message = str(exc)
-    return "insufficient_user_quota" in message or "预扣费额度失败" in message
+    lowered = str(exc).lower()
+    return (
+        ("insufficient" in lowered and ("quota" in lowered or "balance" in lowered))
+        or "exceeded_current_quota" in lowered
+        or "rate_limit" in lowered
+    )
 
 
 class ModelGateway:
@@ -39,12 +44,24 @@ class ModelGateway:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.settings.new_api_base_url)
+        return self.settings.model_gateway_enabled
+
+    @property
+    def vision_enabled(self) -> bool:
+        return self.settings.vision_gateway_enabled
+
+    def _endpoint_for_model(self, model: str) -> tuple[str, str]:
+        if self.settings.vision_model and model == self.settings.vision_model:
+            if not self.vision_enabled:
+                raise AppError(503, "vision_gateway_disabled", "Vision model gateway is not configured.")
+            return self.settings.vision_model_base_url.rstrip("/"), self.settings.vision_model_api_key
+        if not self.enabled:
+            raise AppError(503, "model_gateway_disabled", "Model gateway is not configured.")
+        return self.settings.model_base_url.rstrip("/"), self.settings.model_api_key
 
     async def chat(
         self,
         *,
-        user_token: str,
         model: str,
         messages: list[dict[str, Any]],
         temperature: float = 0.3,
@@ -55,9 +72,7 @@ class ModelGateway:
         # messages 直接透传：content 既可是纯字符串，也可是 OpenAI 多模态分块数组
         # （[{"type":"text",...}, {"type":"image_url","image_url":{"url":"data:image/...;base64,..."}}]），
         # 让 vision 模型（如 kimi-k2.6）能收图片。见 docs/deepcoffee-ai-prompts.md §2。
-        if not self.enabled:
-            raise AppError(503, "model_gateway_disabled", "Model gateway (new-api) is not configured.")
-        base = self.settings.new_api_base_url.rstrip("/")
+        base, api_key = self._endpoint_for_model(model)
         payload: dict = {"model": model, "messages": messages, "temperature": temperature}
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
@@ -71,10 +86,10 @@ class ModelGateway:
             resp = await client.post(
                 "/v1/chat/completions",
                 json=payload,
-                headers={"Authorization": f"Bearer {user_token}", "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             )
             if resp.status_code >= 400:
-                raise AppError(502, "model_call_failed", f"new-api model call failed: {resp.text[:300]}")
+                raise AppError(502, "model_call_failed", f"model provider call failed: {resp.text[:300]}")
             data = resp.json()
         choice = (data.get("choices") or [{}])[0]
         content = (choice.get("message") or {}).get("content", "")

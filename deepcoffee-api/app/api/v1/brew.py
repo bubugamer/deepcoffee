@@ -24,7 +24,6 @@ from app.schemas.brew import (
     BrewRecordListResponse,
     BrewRecordUpdateRequest,
 )
-from app.services.billing_service import billing_service
 from app.services.brew_parse_ai import parse_brew_with_model
 from app.services.brew_recap_ai import recap_with_model
 from app.services.brew_validation import validate_confirm_draft
@@ -43,10 +42,7 @@ async def parse_brew(
     settings: Settings = Depends(get_settings),
 ) -> BrewParseResponse:
     # 有模型用模型抽取，失败即回退本地正则；两条路径都用 assess_brew_draft 算 confidence。
-    token = await billing_service.get_model_token(session, user.id)
-    model_draft = await parse_brew_with_model(
-        payload.input, token=token, model=settings.new_api_default_model
-    )
+    model_draft = await parse_brew_with_model(payload.input, model=settings.model_default_model)
     if model_draft is not None:
         draft = model_draft
         confidence, low_confidence_fields, clarification = assess_brew_draft(draft)
@@ -84,8 +80,7 @@ async def confirm_brew(
     draft = validate_confirm_draft(payload.draft)
     trace_id = f"brew_confirm_{uuid4().hex[:12]}"
     # 有模型用模型复盘，失败即回退本地模板。
-    token = await billing_service.get_model_token(session, user.id)
-    model_recap = await recap_with_model(draft, token=token, model=settings.new_api_default_model)
+    model_recap = await recap_with_model(draft, model=settings.model_default_model)
     if model_recap is not None:
         recap, suggestions = model_recap
         source = "model"

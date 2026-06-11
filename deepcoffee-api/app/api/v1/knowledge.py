@@ -11,7 +11,6 @@ from app.core.db import get_session
 from app.core.security import AuthenticatedUser, get_current_user
 from app.repositories.usage import ai_usage_repository
 from app.services.ai_answer import answer_with_model
-from app.services.billing_service import billing_service
 from app.schemas.knowledge import (
     ArticleDetail,
     ArticleSummary,
@@ -58,19 +57,20 @@ async def ask_knowledge(
     # 有模型用模型（基于本地选出的知识库摘录作答），失败即回退本地摘录式回答。
     model_used = False
     if response.from_knowledge_base:
-        token = await billing_service.get_model_token(session, user.id)
         grounding = service.build_grounding([f.slug for f in response.selected_files], settings)
         failure_reasons: list[str] = []
         model_answer = await answer_with_model(
-            payload.question, grounding, token=token, model=settings.new_api_default_model,
+            payload.question,
+            grounding,
+            model=settings.model_default_model,
             failure_reasons=failure_reasons,
         )
         if model_answer:
             response.answer = model_answer
             model_used = True
-        elif "balance_exhausted" in failure_reasons:
-            # 余额耗尽导致的降级显式告知（本地检索答案仍然返回，不阻断问答）
-            response.answer = f"{response.answer}\n\nAI 余额不足，本次为基础回复。请联系管理员充值。"
+        elif "provider_quota" in failure_reasons:
+            # 服务端模型 key 配额/欠费导致的降级显式告知（本地检索答案仍然返回，不阻断问答）
+            response.answer = f"{response.answer}\n\nAI 服务暂时不可用，本次为基础回复。"
     await ai_usage_repository.record(session, user_id=user.id, action="knowledge_ask", trace_id=response.trace_id)
     langfuse_tracer.trace(
         "knowledge_answer",
@@ -81,7 +81,7 @@ async def ask_knowledge(
         metadata={
             "from_knowledge_base": response.from_knowledge_base,
             "model_used": model_used,
-            "model": settings.new_api_default_model if model_used else None,
+            "model": settings.model_default_model if model_used else None,
             "selected_files": [f.slug for f in response.selected_files],
         },
     )

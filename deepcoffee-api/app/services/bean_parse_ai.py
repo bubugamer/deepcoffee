@@ -27,10 +27,10 @@ def _str_list(value: object) -> list[str]:
 
 
 async def parse_bean_with_model(
-    text: str, *, token: str | None, model: str, gateway: ModelGateway | None = None
+    text: str, *, model: str, gateway: ModelGateway | None = None
 ) -> BeanDraft | None:
     gw = gateway or model_gateway
-    if not token or not gw.enabled:
+    if not gw.enabled:
         return None
     messages = [
         {"role": "system", "content": BEAN_PARSE_SYSTEM},
@@ -38,7 +38,7 @@ async def parse_bean_with_model(
     ]
     try:
         data = await chat_json(
-            gw, user_token=token, model=model, messages=messages,
+            gw, model=model, messages=messages,
             temperature=0, max_tokens=600, allowed_keys=_BEAN_KEYS,
         )
         return BeanDraft(

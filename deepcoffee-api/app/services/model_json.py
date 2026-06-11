@@ -97,7 +97,6 @@ def check_number_in_range(
 async def chat_json(
     gateway: "ModelGateway",
     *,
-    user_token: str,
     model: str,
     messages: list[dict[str, Any]],
     temperature: float = 0.0,
@@ -114,7 +113,6 @@ async def chat_json(
     调用方统一 try/except 后回退本地。
     """
     result = await gateway.chat(
-        user_token=user_token,
         model=model,
         messages=messages,
         temperature=temperature,

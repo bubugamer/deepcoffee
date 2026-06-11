@@ -6,6 +6,8 @@ Importing this package registers every model on ``Base.metadata`` so that
 
 from app.models.tables import (
     AiUsageEvent,
+    AdminAuditEvent,
+    AiUsageAdjustment,
     BrewRecord,
     CandidateFact,
     CoffeaSession,
@@ -17,7 +19,6 @@ from app.models.tables import (
     GreenBeanProductVarietal,
     InviteCode,
     KnowledgeSyncRecord,
-    NewapiBillingLink,
     Origin,
     ProcessMethod,
     Proposal,
@@ -28,6 +29,7 @@ from app.models.tables import (
     RoasterProductVarietal,
     UserBeanCard,
     UserBeanCardVarietal,
+    UserAiQuotaSetting,
     UserEquipmentProfile,
     UserProfile,
     Varietal,
@@ -35,6 +37,8 @@ from app.models.tables import (
 
 __all__ = [
     "AiUsageEvent",
+    "AdminAuditEvent",
+    "AiUsageAdjustment",
     "BrewRecord",
     "CandidateFact",
     "CoffeaSession",
@@ -46,7 +50,6 @@ __all__ = [
     "GreenBeanProductVarietal",
     "InviteCode",
     "KnowledgeSyncRecord",
-    "NewapiBillingLink",
     "Origin",
     "ProcessMethod",
     "Proposal",
@@ -57,6 +60,7 @@ __all__ = [
     "RoasterProductVarietal",
     "UserBeanCard",
     "UserBeanCardVarietal",
+    "UserAiQuotaSetting",
     "UserEquipmentProfile",
     "UserProfile",
     "Varietal",

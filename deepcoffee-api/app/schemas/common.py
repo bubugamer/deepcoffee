@@ -18,7 +18,7 @@ class DependencyState(BaseModel):
 
 class DependencyHealthResponse(BaseModel):
     database: DependencyState
-    new_api: DependencyState
+    model_gateway: DependencyState
     langfuse: DependencyState
     knowledge: DependencyState
 

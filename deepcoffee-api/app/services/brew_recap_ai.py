@@ -49,10 +49,10 @@ def _format_user(draft: BrewDraft) -> str:
 
 
 async def recap_with_model(
-    draft: BrewDraft, *, token: str | None, model: str, gateway: ModelGateway | None = None
+    draft: BrewDraft, *, model: str, gateway: ModelGateway | None = None
 ) -> tuple[str, list[str]] | None:
     gw = gateway or model_gateway
-    if not token or not gw.enabled:
+    if not gw.enabled:
         return None
     messages = [
         {"role": "system", "content": BREW_RECAP_SYSTEM},
@@ -60,7 +60,7 @@ async def recap_with_model(
     ]
     try:
         data = await chat_json(
-            gw, user_token=token, model=model, messages=messages,
+            gw, model=model, messages=messages,
             temperature=0.5, max_tokens=500, required_keys=["recap"], allowed_keys=["recap", "suggestions"],
         )
     except Exception as exc:  # noqa: BLE001 — 复盘失败即回退本地模板

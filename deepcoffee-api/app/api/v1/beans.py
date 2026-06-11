@@ -35,7 +35,6 @@ from app.schemas.brew import BrewDraft
 from app.services.bean_parse_ai import parse_bean_with_model
 from app.services.bean_parser import assess_bean_draft, parse_bean_input
 from app.services.bean_recommend_service import evaluate_turn
-from app.services.billing_service import billing_service
 from app.services.brew_validation import complete_brew_parameters
 from app.services.candidate_service import candidate_service
 from app.services.langfuse_client import langfuse_tracer
@@ -65,10 +64,7 @@ async def parse_bean(
     settings: Settings = Depends(get_settings),
 ) -> BeanParseResponse:
     # 有模型用模型抽取，失败即回退本地启发式；两条路径都用 assess_bean_draft 算 confidence。
-    token = await billing_service.get_model_token(session, user.id)
-    model_draft = await parse_bean_with_model(
-        payload.input, token=token, model=settings.new_api_default_model
-    )
+    model_draft = await parse_bean_with_model(payload.input, model=settings.model_default_model)
     if model_draft is not None:
         draft = model_draft
         confidence, low_confidence_fields, clarification = assess_bean_draft(draft)
@@ -208,7 +204,6 @@ async def recommend_params(
         }
         for p in profiles
     ]
-    token = await billing_service.get_model_token(session, user.id)
     turn = await evaluate_turn(
         bean=bean,
         equipment_profiles=profile_dicts,
@@ -216,8 +211,7 @@ async def recommend_params(
         message=payload.message,
         session_id=cs.session_id,
         status=prev_status,
-        token=token,
-        model=settings.new_api_default_model,
+        model=settings.model_default_model,
     )
 
     trace_id = f"bean_reco_{uuid4().hex[:12]}"

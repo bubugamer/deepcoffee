@@ -68,9 +68,20 @@ const ACTION_LABEL: Record<string, string> = {
   parse_bean: '解析豆卡',
   kb_answer: '知识库',
   knowledge: '知识库',
+  knowledge_answer: '知识库',
   web_verify: '联网核实',
   recommend_params: '建议参数',
+  recommend_brew_params: '建议参数',
   compare: '冲煮对比',
+  read_bean_card_image: '豆卡识别',
+  assess_brew_photo: '冲煮照片',
+  adjust_brew_params: '参数调整',
+  scale_recipe: '配方换算',
+  grinder_conversion: '研磨换算',
+  storage_resting_advice: '储存养豆',
+  equipment_advice: '器具建议',
+  brew_record_parse: '记录冲煮',
+  create_or_update_bean_card: '豆卡',
 }
 
 function statusMeta(status: ActionStatus) {
@@ -88,16 +99,17 @@ function getSources(output?: Record<string, unknown> | null): WebVerifySource[] 
   return raw.filter((s): s is WebVerifySource => typeof s === 'object' && s !== null)
 }
 
-function ActionResultCard({ result }: { result: ActionResult }) {
+function ActionResultCard({ result, replyText }: { result: ActionResult; replyText?: string | null }) {
   const meta = statusMeta(result.status)
   const { Icon } = meta
-  const label = ACTION_LABEL[result.type] ?? result.type
+  // 动作名只显示中文标签；未知类型一律「处理结果」，绝不裸显内部英文动作名
+  const label = ACTION_LABEL[result.type] ?? '处理结果'
   const sources = getSources(result.output)
-  // 除 sources 外的其余 output 字段，折叠展示原始数据
-  const extraOutput = result.output
-    ? Object.fromEntries(Object.entries(result.output).filter(([k]) => k !== 'sources'))
-    : null
-  const hasExtra = extraOutput && Object.keys(extraOutput).length > 0
+  // message 已被组装进顶层 reply 时不在卡片里重复；原始 output JSON 不再展示给用户
+  const message = result.message?.trim()
+  const duplicateOfReply = !!message && replyText?.trim() === message
+  const showMessage = !!message && !duplicateOfReply
+  if (!showMessage && sources.length === 0) return null
 
   return (
     <div className="dc-card overflow-hidden text-sm">
@@ -108,7 +120,7 @@ function ActionResultCard({ result }: { result: ActionResult }) {
         </span>
       </div>
       <div className="px-3 py-2.5 space-y-2">
-        {result.message && <p className="text-dc-text-2 leading-relaxed">{result.message}</p>}
+        {showMessage && <p className="text-dc-text-2 leading-relaxed">{message}</p>}
 
         {sources.length > 0 && (
           <div className="space-y-1.5">
@@ -131,16 +143,81 @@ function ActionResultCard({ result }: { result: ActionResult }) {
             ))}
           </div>
         )}
-
-        {hasExtra && (
-          <details className="text-xs">
-            <summary className="text-dc-text-3 cursor-pointer hover:text-dc-text-2 select-none">原始输出</summary>
-            <pre className="mt-1.5 bg-dc-subtle rounded-lg p-2 overflow-x-auto text-dc-text-2 leading-relaxed">
-              {JSON.stringify(extraOutput, null, 2)}
-            </pre>
-          </details>
-        )}
       </div>
+    </div>
+  )
+}
+
+// ── 聊天内豆卡草稿确认（read_bean_card_image 低识别度路径）──
+function ChatBeanDraft({
+  result,
+  onPatch,
+}: {
+  result: ActionResult
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  const output = result.output ?? {}
+  const savedBeanId = typeof output.saved_bean_id === 'string' ? output.saved_bean_id : null
+  const [draft, setDraft] = useState<BeanDraft>(() => (output.draft as BeanDraft) ?? {})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  if (output.dismissed === true) return null
+  if (savedBeanId) {
+    return (
+      <div className="dc-card px-4 py-3 flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-1.5 text-dc-green">
+          <CheckCircle2 size={14} /> 已保存到豆仓
+        </span>
+        <Link href={`/app/beans/${savedBeanId}`} className="text-dc-accent hover:underline text-xs">
+          查看豆卡 →
+        </Link>
+      </div>
+    )
+  }
+
+  const confidence = typeof output.confidence === 'number' ? output.confidence : null
+
+  async function confirm() {
+    setSaving(true)
+    setError('')
+    try {
+      const rawInput = typeof output.raw_input === 'string' ? output.raw_input : undefined
+      const res = await confirmBean(draft, rawInput, getToken(), 'image')
+      onPatch({ saved_bean_id: res.bean_id })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <BeanDraftCard
+      draft={draft}
+      confidence={confidence}
+      lowConfidenceFields={[]}
+      clarification={null}
+      error={error}
+      saving={saving}
+      onChange={setDraft}
+      onConfirm={confirm}
+      onRetry={() => onPatch({ dismissed: true })}
+      retryLabel="忽略"
+    />
+  )
+}
+
+// 自动录入成功的简洁结果卡（消息正文已说明，卡片只给入口）
+function AutoSavedBeanCard({ beanId }: { beanId: string }) {
+  return (
+    <div className="dc-card px-4 py-3 flex items-center justify-between gap-2 text-sm">
+      <span className="flex items-center gap-1.5 text-dc-green">
+        <CheckCircle2 size={14} /> 已录入豆仓
+      </span>
+      <Link href={`/app/beans/${beanId}`} className="text-dc-accent hover:underline text-xs">
+        查看豆卡 →
+      </Link>
     </div>
   )
 }
@@ -315,6 +392,17 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
     abortRef.current?.abort()
   }
 
+  // 草稿确认/忽略后把状态写回该轮 result.output（随消息一起持久化，刷新后不丢）
+  function patchResultOutput(msgIdx: number, resIdx: number, patch: Record<string, unknown>) {
+    setMessages(cur => cur.map((m, i) => {
+      if (i !== msgIdx || !m.results) return m
+      const results = m.results.map((r, j) =>
+        j === resIdx ? { ...r, output: { ...(r.output ?? {}), ...patch } } : r,
+      )
+      return { ...m, results }
+    }))
+  }
+
   function resetThread() {
     setMessages([])
     setSessionId(null)
@@ -391,7 +479,15 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                       {m.text}
                     </div>
                   )}
-                  {m.results?.map((r, j) => <ActionResultCard key={j} result={r} />)}
+                  {m.results?.map((r, j) => {
+                    if (r.type === 'read_bean_card_image' && r.output?.auto_saved && typeof r.output.bean_id === 'string') {
+                      return <AutoSavedBeanCard key={j} beanId={r.output.bean_id} />
+                    }
+                    if (r.type === 'read_bean_card_image' && r.output?.draft) {
+                      return <ChatBeanDraft key={j} result={r} onPatch={(patch) => patchResultOutput(i, j, patch)} />
+                    }
+                    return <ActionResultCard key={j} result={r} replyText={m.text} />
+                  })}
                 </div>
               )}
             </div>
@@ -509,6 +605,7 @@ function DraftInput({
 
 function BeanDraftCard({
   draft, confidence, lowConfidenceFields, clarification, error, saving, onChange, onConfirm, onRetry,
+  retryLabel = '重新描述',
 }: {
   draft: BeanDraft | null
   confidence: number | null
@@ -519,6 +616,7 @@ function BeanDraftCard({
   onChange: (draft: BeanDraft) => void
   onConfirm: () => void
   onRetry: () => void
+  retryLabel?: string
 }) {
   if (!draft) {
     return (
@@ -599,7 +697,7 @@ function BeanDraftCard({
         >
           {saving ? '保存中…' : '确认保存'}
         </button>
-        <button onClick={onRetry} className="btn-secondary text-sm py-2">重新描述</button>
+        <button onClick={onRetry} className="btn-secondary text-sm py-2">{retryLabel}</button>
       </div>
     </div>
   )

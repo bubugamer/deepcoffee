@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import update
@@ -9,6 +10,7 @@ from app.core.config import get_settings
 from app.core.db import get_sessionmaker
 from app.main import create_app
 from app.models.tables import UserProfile
+from app.repositories.usage import current_month_window
 from app.services.bootstrap import seed_bootstrap_invite_code
 
 
@@ -37,6 +39,7 @@ def test_basic_quota_gate_blocks_after_limit() -> None:
         quota = client.get("/v1/me/quota", headers=headers)
         assert quota.status_code == 200
         assert quota.json()["ai_total"] == 2
+        assert quota.json()["ai_remaining"] == 2
 
         # 前两次放行，第三次门禁拦截 402。
         assert _ask(client, headers).status_code == 200
@@ -64,6 +67,7 @@ def test_pro_plan_is_unlimited() -> None:
         quota = client.get("/v1/me/quota", headers=headers)
         assert quota.status_code == 200
         assert quota.json()["ai_total"] is None
+        assert quota.json()["ai_remaining"] is None
         assert quota.json()["plan"] == "pro"
 
         for _ in range(3):
@@ -148,3 +152,145 @@ def test_admin_users_lists_invite_binding() -> None:
     assert row["plan"] == "basic"
     assert row["invite_code"] == code
     assert row["invited_at"] is not None
+    assert row["ai_used"] == 0
+    assert row["ai_total"] == get_settings().ai_quota_basic
+    assert row["ai_remaining"] == get_settings().ai_quota_basic
+    assert row["quota_custom"] is False
+
+
+def test_admin_can_set_custom_monthly_limit_and_gate_updates_immediately() -> None:
+    client = TestClient(create_app())
+    admin_headers = {"Authorization": "Bearer dev:admin-1:admin@example.com"}
+    user_headers = {"Authorization": "Bearer dev:quota-user:quota@example.com"}
+
+    assert client.get("/v1/me", headers=user_headers).status_code == 200
+    updated = client.patch(
+        "/v1/admin/users/quota-user/quota",
+        headers=admin_headers,
+        json={"monthly_limit": 1, "reason": "internal beta limit"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["ai_total"] == 1
+    assert updated.json()["ai_remaining"] == 1
+    assert updated.json()["quota_custom"] is True
+
+    quota = client.get("/v1/me/quota", headers=user_headers)
+    assert quota.status_code == 200
+    body = quota.json()
+    assert body["ai_total"] == 1
+    assert body["ai_remaining"] == 1
+    assert datetime.fromisoformat(body["reset_at"]) == current_month_window()[1]
+
+    assert _ask(client, user_headers).status_code == 200
+    blocked = _ask(client, user_headers)
+    assert blocked.status_code == 402
+    assert blocked.json()["error"]["code"] == "ai_quota_exceeded"
+
+
+def test_admin_can_adjust_used_this_month_without_deleting_usage_events() -> None:
+    client = TestClient(create_app())
+    admin_headers = {"Authorization": "Bearer dev:admin-1:admin@example.com"}
+    user_headers = {"Authorization": "Bearer dev:adjust-user:adjust@example.com"}
+
+    assert client.get("/v1/me", headers=user_headers).status_code == 200
+    assert _ask(client, user_headers).status_code == 200
+
+    adjusted = client.patch(
+        "/v1/admin/users/adjust-user/quota",
+        headers=admin_headers,
+        json={"monthly_limit": 3, "used_this_month": 2, "reason": "manual correction"},
+    )
+    assert adjusted.status_code == 200
+    assert adjusted.json()["ai_used"] == 2
+    assert adjusted.json()["ai_total"] == 3
+    assert adjusted.json()["ai_remaining"] == 1
+
+    usage = client.get("/v1/billing/usage", headers=user_headers)
+    assert usage.status_code == 200
+    assert usage.json()["total_requests"] == 2
+
+    assert _ask(client, user_headers).status_code == 200
+    blocked = _ask(client, user_headers)
+    assert blocked.status_code == 402
+
+    reset = client.patch(
+        "/v1/admin/users/adjust-user/quota",
+        headers=admin_headers,
+        json={"monthly_limit": None, "used_this_month": 0, "reason": "reset to plan default"},
+    )
+    assert reset.status_code == 200
+    assert reset.json()["ai_total"] == get_settings().ai_quota_basic
+    assert reset.json()["ai_used"] == 0
+    assert reset.json()["quota_custom"] is False
+
+
+# ── 管理操作审计（admin_audit_events + GET /admin/users/{id}/audit）──
+
+def test_admin_changes_are_audited_and_listed() -> None:
+    client = TestClient(create_app())
+    admin_headers = {"Authorization": "Bearer dev:admin-1:admin@example.com"}
+    user_headers = {"Authorization": "Bearer dev:audit-user:audit@example.com"}
+    user_id = client.get("/v1/me", headers=user_headers).json()["id"]
+
+    # 改角色 + 套餐（两个字段 → 两条审计）
+    resp = client.patch(
+        f"/v1/admin/users/{user_id}", headers=admin_headers,
+        json={"role": "admin", "plan": "pro"},
+    )
+    assert resp.status_code == 200, resp.text
+    # 调额度：上限 + 已用 + 原因
+    resp = client.patch(
+        f"/v1/admin/users/{user_id}/quota", headers=admin_headers,
+        json={"monthly_limit": 1000, "used_this_month": 3, "reason": "beta 补偿"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    events = client.get(f"/v1/admin/users/{user_id}/audit", headers=admin_headers).json()
+    actions = [e["action"] for e in events]
+    # 倒序：最新（额度）在前
+    assert set(actions) == {"role_change", "plan_change", "quota_limit_change", "usage_adjust"}
+    role_evt = next(e for e in events if e["action"] == "role_change")
+    assert role_evt["before_value"] == "user" and role_evt["after_value"] == "admin"
+    assert role_evt["actor_email"] == "admin@example.com"
+    limit_evt = next(e for e in events if e["action"] == "quota_limit_change")
+    assert limit_evt["before_value"] == "套餐默认" and limit_evt["after_value"] == "1000"
+    assert limit_evt["reason"] == "beta 补偿"
+    used_evt = next(e for e in events if e["action"] == "usage_adjust")
+    assert used_evt["before_value"] == "0" and used_evt["after_value"] == "3"
+
+
+def test_noop_admin_changes_are_not_audited() -> None:
+    client = TestClient(create_app())
+    admin_headers = {"Authorization": "Bearer dev:admin-1:admin@example.com"}
+    user_headers = {"Authorization": "Bearer dev:audit-noop:audit-noop@example.com"}
+    user_id = client.get("/v1/me", headers=user_headers).json()["id"]
+
+    # 传与现状相同的值：plan 默认 basic、used 当前 0 → 不落审计
+    assert client.patch(
+        f"/v1/admin/users/{user_id}", headers=admin_headers, json={"plan": "basic"}
+    ).status_code == 200
+    assert client.patch(
+        f"/v1/admin/users/{user_id}/quota", headers=admin_headers, json={"used_this_month": 0}
+    ).status_code == 200
+
+    events = client.get(f"/v1/admin/users/{user_id}/audit", headers=admin_headers).json()
+    assert events == []
+
+
+def test_audit_endpoint_requires_admin_and_existing_user() -> None:
+    settings = get_settings()
+    original_admins = settings.admin_user_ids
+    # 关闭「本地未配名单则人人是管理员」便利通道，逼出 403 分支。
+    settings.admin_user_ids = ["admin-1"]
+    try:
+        client = TestClient(create_app())
+        admin_headers = {"Authorization": "Bearer dev:admin-1:admin@example.com"}
+        user_headers = {"Authorization": "Bearer dev:audit-plain:audit-plain@example.com"}
+        user_id = client.get("/v1/me", headers=user_headers).json()["id"]
+
+        denied = client.get(f"/v1/admin/users/{user_id}/audit", headers=user_headers)
+        assert denied.status_code == 403
+        missing = client.get("/v1/admin/users/no-such-user/audit", headers=admin_headers)
+        assert missing.status_code == 404
+    finally:
+        settings.admin_user_ids = original_admins

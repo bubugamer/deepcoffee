@@ -33,6 +33,19 @@ export interface AdminUserInfo {
   created_at: string
   invite_code?: string | null
   invited_at?: string | null
+  ai_used: number
+  ai_total: number | null
+  ai_remaining: number | null
+  quota_custom: boolean
+}
+
+export interface AdminAuditEvent {
+  created_at: string
+  actor_email?: string | null
+  action: string
+  before_value?: string | null
+  after_value?: string | null
+  reason?: string | null
 }
 
 export interface ProposalAuditEntry {
@@ -133,8 +146,18 @@ export function updateAdminUser(
   return apiFetch(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(body) })
 }
 
-export function repairBillingLink(userId: string): Promise<Record<string, unknown>> {
-  return apiFetch(`/admin/billing-links/${encodeURIComponent(userId)}/repair`, { method: 'POST' })
+export function updateAdminUserQuota(
+  userId: string,
+  body: { monthly_limit?: number | null; used_this_month?: number; reason?: string },
+): Promise<AdminUserInfo> {
+  return apiFetch(`/admin/users/${encodeURIComponent(userId)}/quota`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export function getAdminUserAudit(userId: string, page = 1, pageSize = 50): Promise<AdminAuditEvent[]> {
+  return apiFetch(`/admin/users/${encodeURIComponent(userId)}/audit?page=${page}&page_size=${pageSize}`)
 }
 
 // ── Review: proposals / candidates / entities ──────────────────────────────

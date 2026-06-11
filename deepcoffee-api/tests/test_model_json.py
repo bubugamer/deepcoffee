@@ -115,7 +115,6 @@ def test_chat_json_parses_and_passes_response_format() -> None:
     data = asyncio.run(
         chat_json(
             gw,
-            user_token="sk-x",
             model="m",
             messages=[{"role": "user", "content": "hi"}],
             required_keys=["status"],
@@ -133,7 +132,6 @@ def test_chat_json_raises_on_missing_required_key() -> None:
         asyncio.run(
             chat_json(
                 gw,
-                user_token="sk-x",
                 model="m",
                 messages=[{"role": "user", "content": "hi"}],
                 required_keys=["status"],
@@ -146,7 +144,6 @@ def test_chat_json_whitelist_drops_extra_keys() -> None:
     data = asyncio.run(
         chat_json(
             gw,
-            user_token="sk-x",
             model="m",
             messages=[{"role": "user", "content": "hi"}],
             allowed_keys=["a"],

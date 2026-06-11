@@ -102,7 +102,7 @@ def test_bean_confirm_list_detail_and_flavor_update() -> None:
 
 
 def test_recommend_params_needs_equipment_then_completes() -> None:
-    # 多轮契约（§5）。测试环境无 new-api → 模型不可用，走本地兜底分支。
+    # 多轮契约（§5）。测试环境无模型网关 → 模型不可用，走本地兜底分支。
     client = TestClient(create_app())
     bean_id = _confirm_bean(client)
 

@@ -233,12 +233,17 @@ export async function parseBeanInput(input: string, token?: string | null): Prom
 }
 
 // POST /v1/beans/confirm
-export async function confirmBean(draft: BeanDraft, rawInput?: string, token?: string | null): Promise<BeanConfirmResponse> {
+export async function confirmBean(
+  draft: BeanDraft,
+  rawInput?: string,
+  token?: string | null,
+  sourceType: string = 'text',
+): Promise<BeanConfirmResponse> {
   if (isApiEnabled) {
     return apiFetch<BeanConfirmResponse>('/beans/confirm', {
       method: 'POST',
       token,
-      body: JSON.stringify({ draft, source_type: 'text', raw_input: rawInput }),
+      body: JSON.stringify({ draft, source_type: sourceType, raw_input: rawInput }),
     })
   }
   return {

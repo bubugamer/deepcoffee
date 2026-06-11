@@ -30,6 +30,7 @@ class _FakeKB:
 
 class _FakeGateway:
     enabled = True
+    vision_enabled = True
 
     def __init__(self, content: str) -> None:
         self.content = content
@@ -39,7 +40,7 @@ class _FakeGateway:
 
 
 _SETTINGS = SimpleNamespace(
-    new_api_vision_model=None, web_search_enabled=False, brave_api_key=None, brave_search_count=5
+    vision_model=None, web_search_enabled=False, brave_api_key=None, brave_search_count=5
 )
 
 
@@ -50,7 +51,6 @@ def _run(plan, **overrides):
         session_state={},
         knowledge_service=_FakeKB(),
         settings=_SETTINGS,
-        token=None,
         model="m",
         gateway=None,
     )
@@ -58,7 +58,7 @@ def _run(plan, **overrides):
     return asyncio.run(execute_plan(plan, **kwargs))
 
 
-def test_knowledge_local_when_no_token() -> None:
+def test_knowledge_local_when_gateway_missing() -> None:
     plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
     results = _run(plan)
     assert len(results) == 1
@@ -69,9 +69,9 @@ def test_knowledge_local_when_no_token() -> None:
     assert r.message == "本地知识库摘录答案"
 
 
-def test_knowledge_uses_model_when_token_and_gateway() -> None:
+def test_knowledge_uses_model_when_gateway_available() -> None:
     plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
-    results = _run(plan, token="sk-x", gateway=_FakeGateway("模型生成的更自然回答"))
+    results = _run(plan, gateway=_FakeGateway("模型生成的更自然回答"))
     r = results[0]
     assert r.status == "done"
     assert r.source == "model"
@@ -80,7 +80,7 @@ def test_knowledge_uses_model_when_token_and_gateway() -> None:
 
 def test_knowledge_stays_local_when_not_from_kb() -> None:
     plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
-    results = _run(plan, knowledge_service=_FakeKB(from_kb=False), token="sk-x", gateway=_FakeGateway("x"))
+    results = _run(plan, knowledge_service=_FakeKB(from_kb=False), gateway=_FakeGateway("x"))
     assert results[0].source == "local"
 
 
@@ -90,10 +90,13 @@ def test_image_action_degraded_without_image_bytes() -> None:
         primary_intent="read_bean_card_image",
         actions=[{"type": "read_bean_card_image", "input_ref": "attachment_1"}],
     )
-    results = _run(plan, attachments=[{"type": "image", "note": "巴拿马 瑰夏 日晒"}], token="sk-x")
+    results = _run(plan, attachments=[{"type": "image", "note": "巴拿马 瑰夏 日晒"}])
     assert results[0].type == "read_bean_card_image"
     assert results[0].status == "degraded"
     assert results[0].message
+
+
+_VISION_SETTINGS = SimpleNamespace(vision_model="kimi-k2.6", bean_card_autosave_confidence=0.8)
 
 
 def test_image_action_done_with_image_and_vision() -> None:
@@ -104,16 +107,64 @@ def test_image_action_done_with_image_and_vision() -> None:
     results = _run(
         plan,
         attachments=[{"type": "image", "data_url": _IMG}],
-        token="sk-x",
-        settings=SimpleNamespace(new_api_vision_model="kimi-k2.6"),
+        settings=_VISION_SETTINGS,
         gateway=_FakeGateway(_VALID_IMAGE_JSON),
     )
-    assert results[0].status == "done"
-    assert results[0].source == "model"
-    assert results[0].output["image_type"] == "bean_card"
+    r = results[0]
+    assert r.status == "done"
+    assert r.source == "model"
+    # 原始识别 JSON 不透传；转成草稿 + 综合识别度 + 人话 message
+    assert r.output["draft"]["name"] == "巴拿马 瑰夏"
+    assert r.output["auto_save_eligible"] is False  # 只识别出豆名，完整度低
+    assert r.message and "识别到" in r.message and "image_type" not in r.message
 
 
-def test_coach_action_local_fallback_without_token() -> None:
+def test_bean_card_high_confidence_marks_auto_save() -> None:
+    full = json.dumps({
+        "image_type": "bean_card",
+        "confidence": 0.92,
+        "bean_fields": {
+            "name": "千峰庄园 帕卡马拉",
+            "roaster_name": "Coffeebuff",
+            "origin_name": "巴拿马",
+            "process_name": "CM 日晒",
+            "varietal_names": ["帕卡马拉"],
+        },
+    })
+    plan = DispatchPlan(
+        primary_intent="read_bean_card_image",
+        actions=[{"type": "read_bean_card_image", "input_ref": "attachment_1"}],
+    )
+    results = _run(
+        plan,
+        attachments=[{"type": "image", "data_url": _IMG}],
+        settings=_VISION_SETTINGS,
+        gateway=_FakeGateway(full),
+    )
+    r = results[0]
+    assert r.status == "done"
+    assert r.output["auto_save_eligible"] is True
+    assert r.output["confidence"] == 0.92
+
+
+def test_bean_card_wrong_image_type_degrades_with_manual_hint() -> None:
+    plan = DispatchPlan(
+        primary_intent="read_bean_card_image",
+        actions=[{"type": "read_bean_card_image", "input_ref": "attachment_1"}],
+    )
+    results = _run(
+        plan,
+        attachments=[{"type": "image", "data_url": _IMG}],
+        settings=_VISION_SETTINGS,
+        gateway=_FakeGateway(json.dumps({"image_type": "brew_photo", "brew_photo_assessment": {}})),
+    )
+    r = results[0]
+    assert r.status == "degraded"
+    assert "不像豆卡" in r.message and "手动录入" in r.message
+    assert r.output is None
+
+
+def test_coach_action_local_fallback_without_gateway() -> None:
     plan = DispatchPlan(primary_intent="scale_recipe", actions=[{"type": "scale_recipe"}])
     results = _run(plan)
     assert results[0].type == "scale_recipe"
@@ -124,7 +175,7 @@ def test_coach_action_local_fallback_without_token() -> None:
 
 def test_coach_action_uses_model() -> None:
     plan = DispatchPlan(primary_intent="grinder_conversion", actions=[{"type": "grinder_conversion"}])
-    results = _run(plan, token="sk-x", gateway=_FakeGateway("C40 #18 大约对应 ZP6 6.0 圈，仅近似。"))
+    results = _run(plan, gateway=_FakeGateway("C40 #18 大约对应 ZP6 6.0 圈，仅近似。"))
     assert results[0].status == "done"
     assert results[0].source == "model"
     assert "ZP6" in results[0].message
@@ -161,6 +212,7 @@ def test_coach_receives_hydrated_active_entities() -> None:
 
     class _CaptureGW:
         enabled = True
+        vision_enabled = True
 
         async def chat(self, **kwargs):  # noqa: ANN003
             captured["user"] = kwargs["messages"][1]["content"]
@@ -172,7 +224,7 @@ def test_coach_receives_hydrated_active_entities() -> None:
         "equipment": {"brew_method": "V60", "grinder": "C40"},
         "recipe": {"dose_g": 15, "water_ml": 240},
     }
-    results = _run(plan, token="sk-x", gateway=_CaptureGW(), active_context=active_context)
+    results = _run(plan, gateway=_CaptureGW(), active_context=active_context)
     assert results[0].status == "done"
     assert results[0].source == "model"
     # active 实体出现在喂给教练的 user 消息里。
@@ -186,6 +238,7 @@ def test_coach_action_receives_original_images() -> None:
 
     class _CaptureGW:
         enabled = True
+        vision_enabled = True
 
         async def chat(self, **kwargs):  # noqa: ANN003
             captured["model"] = kwargs["model"]
@@ -196,8 +249,7 @@ def test_coach_action_receives_original_images() -> None:
     results = _run(
         plan,
         attachments=[{"type": "image", "data_url": _IMG}],
-        token="sk-x",
-        settings=SimpleNamespace(new_api_vision_model="kimi-k2.6"),
+        settings=SimpleNamespace(vision_model="kimi-k2.6"),
         gateway=_CaptureGW(),
     )
     assert results[0].status == "done"
@@ -211,6 +263,7 @@ def test_knowledge_action_receives_original_images() -> None:
 
     class _CaptureGW:
         enabled = True
+        vision_enabled = True
 
         async def chat(self, **kwargs):  # noqa: ANN003
             captured["model"] = kwargs["model"]
@@ -221,8 +274,7 @@ def test_knowledge_action_receives_original_images() -> None:
     results = _run(
         plan,
         attachments=[{"type": "image", "data_url": _IMG}],
-        token="sk-x",
-        settings=SimpleNamespace(new_api_vision_model="kimi-k2.6"),
+        settings=SimpleNamespace(vision_model="kimi-k2.6"),
         gateway=_CaptureGW(),
     )
     assert results[0].status == "done"

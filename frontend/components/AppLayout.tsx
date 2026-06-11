@@ -90,6 +90,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const initial = displayName.charAt(0) || '?'
   const planLabel  = profile?.plan === 'pro' ? '会员版' : profile ? '免费版' : '载入中'
   const isUnlimited = quota?.ai_total === null
+  const quotaRemainingLabel = quota
+    ? isUnlimited ? '剩余无限' : `剩余 ${quota.ai_remaining ?? 0}`
+    : '暂不可用'
   const quotaPercent = quota && !isUnlimited && quota.ai_total
     ? Math.min(Math.round((quota.ai_used / quota.ai_total) * 100), 100)
     : 0
@@ -135,10 +138,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {accountLoading
                 ? '载入中'
                 : quota
-                ? `${quota.ai_used} / ${isUnlimited ? '∞' : quota.ai_total}`
+                ? quotaRemainingLabel
                 : '暂不可用'}
             </span>
           </div>
+          {quota && (
+            <div className="mb-1.5 text-[11px] text-dc-text-3">
+              已用 {quota.ai_used} / {isUnlimited ? '无限' : quota.ai_total}
+            </div>
+          )}
           {accountError && (
             <div className="text-xs text-dc-red leading-relaxed">{accountError}</div>
           )}

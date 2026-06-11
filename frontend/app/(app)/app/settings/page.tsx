@@ -180,10 +180,9 @@ export default function SettingsPage() {
                       <div className="flex justify-between text-sm mb-2">
                         <span className="text-dc-text-2">AI 问答</span>
                         <span className="font-semibold text-dc-text-1">
-                          {quota.ai_used}
-                          {' '}
+                          剩余 {isUnlimited ? '无限' : quota.ai_remaining ?? 0}
                           <span className="text-dc-text-3 font-normal">
-                            / {isUnlimited ? '无限制' : quota.ai_total}
+                            {' '}（已用 {quota.ai_used} / {isUnlimited ? '无限' : quota.ai_total}）
                           </span>
                         </span>
                       </div>

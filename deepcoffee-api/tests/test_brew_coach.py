@@ -10,6 +10,7 @@ _IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
 
 class _FakeGateway:
     enabled = True
+    vision_enabled = True
 
     def __init__(self, content: str) -> None:
         self.content = content
@@ -20,21 +21,16 @@ class _FakeGateway:
         return SimpleNamespace(content=self.content, model="fake")
 
 
-def test_coach_none_without_token() -> None:
-    out = asyncio.run(coach_with_model(message="22g 配方换成 15g", token=None, model="m", gateway=_FakeGateway("x")))
-    assert out is None
-
-
 def test_coach_none_when_gateway_disabled() -> None:
     out = asyncio.run(
-        coach_with_model(message="x", token="sk", model="m", gateway=SimpleNamespace(enabled=False))
+        coach_with_model(message="x", model="m", gateway=SimpleNamespace(enabled=False))
     )
     assert out is None
 
 
 def test_coach_returns_free_text() -> None:
     gw = _FakeGateway("先保持 1:15 粉水比，把 22g 等比缩到 15g：水量约 225ml。")
-    out = asyncio.run(coach_with_model(message="22g 配方换成 15g", token="sk", model="m", gateway=gw))
+    out = asyncio.run(coach_with_model(message="22g 配方换成 15g", model="m", gateway=gw))
     assert out is not None and "225ml" in out
     # 自由文本走 chat，不应带 response_format。
     assert "response_format" not in gw.last_kwargs
@@ -45,7 +41,6 @@ def test_coach_sends_original_images_to_vision_model() -> None:
     out = asyncio.run(
         coach_with_model(
             message="这杯偏酸，帮我结合图看看下一杯怎么调",
-            token="sk",
             model="deepseek-chat",
             vision_model="kimi-k2.6",
             image_urls=[_IMG],
@@ -60,5 +55,5 @@ def test_coach_sends_original_images_to_vision_model() -> None:
 
 
 def test_coach_empty_text_returns_none() -> None:
-    out = asyncio.run(coach_with_model(message="x", token="sk", model="m", gateway=_FakeGateway("   ")))
+    out = asyncio.run(coach_with_model(message="x", model="m", gateway=_FakeGateway("   ")))
     assert out is None

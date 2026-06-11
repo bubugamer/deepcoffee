@@ -277,6 +277,7 @@ export interface UserQuota {
   balance: number
   ai_used: number
   ai_total: number | null  // null = unlimited (Pro)
+  ai_remaining: number | null
   reset_at?: string | null
   features: string[]
 }

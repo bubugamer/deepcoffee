@@ -1,9 +1,9 @@
 """图片理解 image_understanding（§2）——把豆卡 / 粉床 / 器具图转成结构化上下文。
 
 外部依赖（单列）：默认模型 deepseek-v4-pro 不支持图片输入，本能力依赖一个**可配置的
-vision 通道**（`settings.new_api_vision_model`，默认 Moonshot `kimi-k2.6`，多模态、OpenAI
+vision 通道**（`settings.vision_model`，默认 Moonshot `kimi-k2.6`，多模态、OpenAI
 兼容）。图片以 **base64 data URI 经 `image_url` 分块传入**（Moonshot 不接受纯 URL）。
-通道未配置 / 无 token / 没有可用图片时，整体降级返回 None——调用方据此提示用户「粘贴卡片
+通道未配置 / 没有可用图片时，整体降级返回 None——调用方据此提示用户「粘贴卡片
 文字」，不假装识别成功。
 
 设计与全局约定一致：有通道用通道、没有就降级；任何不合规返回 None，绝不编造识别结果。
@@ -53,17 +53,16 @@ async def understand_image(
     message: str,
     images: list[str] | None,
     session_state: dict | None = None,
-    token: str | None,
     vision_model: str | None,
     gateway: ModelGateway | None = None,
 ) -> dict | None:
-    """成功返回结构化图片理解 JSON；通道未配 / 无 token / 无图片 / 不合规返回 None。
+    """成功返回结构化图片理解 JSON；通道未配 / 无图片 / 不合规返回 None。
 
     `images`：base64 data URI 列表（`data:image/...;base64,...`），直接以 image_url 分块喂给
     vision 模型。
     """
     gw = gateway or model_gateway
-    if not token or not gw.enabled or not vision_model or not images:
+    if not gw.vision_enabled or not vision_model or not images:
         return None
     user_text = IMAGE_UNDERSTANDING_USER_TEMPLATE.format(
         message=message or "",
@@ -77,7 +76,6 @@ async def understand_image(
     try:
         data = await chat_json(
             gw,
-            user_token=token,
             model=vision_model,
             messages=messages,
             # kimi-k2.6 关思考（instant 模式）→ 直接出结构化 JSON、不绕思维链，更快更省；

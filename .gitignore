@@ -11,9 +11,6 @@ resources/
 # 个人冲煮记录(用户数据,非产品代码)
 records/
 
-# ── 第三方源码(运行用官方 docker 镜像,不 vendor)────
-new-api/
-
 # ── 构建产物与依赖 ────────────────────────────────────
 node_modules/
 .next/
@@ -37,3 +34,4 @@ venv/
 .playwright-cli/
 .DS_Store
 *.log
+*.tsbuildinfo
