@@ -65,9 +65,6 @@ export default async function LandingPage() {
             免费开始使用
             <ArrowRight size={16} />
           </Link>
-          <Link href="/knowledge" className="btn-secondary text-base px-6 py-3">
-            浏览知识库
-          </Link>
         </div>
 
         {/* Product preview */}
@@ -148,7 +145,7 @@ export default async function LandingPage() {
           </div>
           <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
             {/* Free */}
-            <div className="dc-card p-6">
+            <div className="dc-card p-6 flex flex-col h-full">
               <div className="text-sm font-medium text-dc-text-3 mb-1">免费版</div>
               <div className="text-3xl font-extrabold text-dc-text-1 mb-1">¥0</div>
               <div className="text-sm text-dc-text-3 mb-6">永久免费</div>
@@ -160,12 +157,12 @@ export default async function LandingPage() {
                   </li>
                 ))}
               </ul>
-              <Link href="/auth?tab=register" className="btn-secondary text-sm w-full text-center block py-2.5">
+              <Link href="/auth?tab=register" className="btn-secondary text-sm w-full h-10 flex items-center justify-center mt-auto">
                 免费注册
               </Link>
             </div>
             {/* Pro */}
-            <div className="dc-card p-6 border-dc-accent ring-1 ring-dc-accent/20">
+            <div className="dc-card p-6 border-dc-accent ring-1 ring-dc-accent/20 flex flex-col h-full">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium text-dc-accent">Pro 版</span>
                 <span className="text-xs bg-dc-accent-light text-dc-accent px-2 py-0.5 rounded-full">推荐</span>
@@ -180,7 +177,7 @@ export default async function LandingPage() {
                   </li>
                 ))}
               </ul>
-              <Link href="/auth?tab=register" className="btn-primary text-sm w-full text-center block py-2.5">
+              <Link href="/auth?tab=register" className="btn-primary text-sm w-full h-10 flex items-center justify-center mt-auto">
                 免费开始，随时升级
               </Link>
             </div>

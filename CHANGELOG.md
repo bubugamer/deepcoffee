@@ -18,6 +18,8 @@ DeepCoffee 的重要变更记录。日期为变更落地日。
 ### 部署
 
 - 后端 Dockerfile 迁至 `deploy/backend.Dockerfile`（仓库根构建上下文 + 白名单 `.dockerignore`，知识库烤进镜像，安装 observability extra）。
+- **正式上线**：前端 Vercel + 后端 Google Cloud Run（东京）+ Supabase，前端 push 即自动部署。
+- 落地页微调：定价卡等高对齐，移除「浏览知识库」入口（注册后可达）。
 
 ## 2026-06-11（第二批）
 
