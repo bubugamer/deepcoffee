@@ -15,25 +15,66 @@ from __future__ import annotations
 
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 KNOWLEDGE = Path(__file__).resolve().parents[1] / "knowledge"
-RELATED_HEADINGS = re.compile(r"^##\s*(相关页面|相关条目|相关阅读|相关文章)\s*$")
+RELATED_HEADINGS = re.compile(r"^##\s*(相关页面|相关条目|相关阅读|相关文章|关联页面|关联条目)\s*$")
 # `- 标题 — 描述`（破折号可为 — 或 –，描述可空）；标题里不含 [ ] ( ) 才视为纯文本
 BULLET = re.compile(r"^(\s*-\s+)([^\[\]()—–]+?)(\s*[—–]\s*.*)?$")
 
 
-def build_index() -> dict[str, list[str]]:
-    index: dict[str, list[str]] = {}
+def norm_key(value: str) -> str:
+    """匹配键规范化：NFKC、小写、空格→-（容忍「Tim Wendelboe」vs「tim-wendelboe.md」类差异）。"""
+    value = unicodedata.normalize("NFKC", value).strip().lower()
+    return re.sub(r"\s+", "-", value)
+
+
+def _frontmatter(text: str) -> dict:
+    if not text.startswith("---"):
+        return {}
+    lines = text.splitlines()
+    meta: dict = {}
+    key = None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^([A-Za-z_]+):\s*(.*)$", line)
+        if m:
+            key = m.group(1)
+            val = m.group(2).strip().strip("'\"")
+            meta[key] = [] if val == "" else val
+        elif key and re.match(r"^\s*-\s+", line) and isinstance(meta.get(key), list):
+            meta[key].append(line.strip()[1:].strip().strip("'\""))
+    return meta
+
+
+def build_index() -> dict[str, set[str]]:
+    """规范化键（词干/标题/别名）→ 知识库根相对路径集合。多键命中同一文件不算歧义。"""
+    index: dict[str, set[str]] = {}
+
+    def add(key: str, rel: str) -> None:
+        if key:
+            index.setdefault(norm_key(key), set()).add(rel)
+
     for path in sorted(KNOWLEDGE.rglob("*.md")):
         rel = path.relative_to(KNOWLEDGE)
         if rel.name == "index.md" or "stylesheets" in rel.parts:
             continue
-        index.setdefault(rel.stem, []).append(str(rel).replace("\\", "/"))
+        rel_str = str(rel).replace("\\", "/")
+        add(rel.stem, rel_str)
+        meta = _frontmatter(path.read_text(encoding="utf-8"))
+        title = meta.get("title")
+        if isinstance(title, str):
+            add(title, rel_str)
+        aliases = meta.get("aliases")
+        if isinstance(aliases, list):
+            for alias in aliases:
+                add(alias, rel_str)
     return index
 
 
-def process(path: Path, index: dict[str, list[str]], apply: bool) -> tuple[int, list[str]]:
+def process(path: Path, index: dict[str, set[str]], apply: bool) -> tuple[int, list[str]]:
     lines = path.read_text(encoding="utf-8").splitlines()
     in_related = False
     changed = 0
@@ -48,14 +89,17 @@ def process(path: Path, index: dict[str, list[str]], apply: bool) -> tuple[int, 
         if not m:
             continue
         title = m.group(2).strip()
-        targets = index.get(title)
+        targets = index.get(norm_key(title)) or set()
+        # 自引用排除（文章自己的别名出现在自己的关联段里没意义）
+        self_rel = str(path.relative_to(KNOWLEDGE)).replace("\\", "/")
+        targets = targets - {self_rel}
         if not targets:
             notes.append(f"  未命中: {title!r}")
             continue
         if len(targets) > 1:
-            notes.append(f"  歧义: {title!r} -> {targets}")
+            notes.append(f"  歧义: {title!r} -> {sorted(targets)}")
             continue
-        lines[i] = f"{m.group(1)}[{title}]({targets[0]}){m.group(3) or ''}"
+        lines[i] = f"{m.group(1)}[{title}]({next(iter(targets))}){m.group(3) or ''}"
         changed += 1
     if changed and apply:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -385,23 +385,8 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
             </div>
           )}
 
-          {/* Related */}
-          {article.related && article.related.length > 0 && (
-            <div className="dc-card p-4">
-              <h3 className="text-xs font-semibold text-dc-text-3 uppercase tracking-wide mb-3">相关文章</h3>
-              <div className="space-y-1">
-                {article.related.map(r => (
-                  <Link
-                    key={r.slug}
-                    href={`/knowledge/${r.slug}`}
-                    className="block text-sm text-dc-text-2 py-1.5 px-2 rounded hover:bg-dc-subtle hover:text-dc-accent transition-colors"
-                  >
-                    {r.title}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* 相关文章侧栏已移除：与文章底部「关联页面/相关页面」重复（2026-06-12 用户拍板）。
+              后端 related 字段保留不消费。 */}
         </aside>
       </div>
     </div>
