@@ -12,6 +12,7 @@ import { confirmBrew } from '@/lib/api/records'
 import { sendCoffeaMessage, fileToDataUrl, mockSuggestions } from '@/lib/api/chat'
 import { isQuotaExceeded } from '@/lib/api/client'
 import { QuotaNotice } from '@/components/QuotaNotice'
+import { ChatMarkdown } from '@/components/ChatMarkdown'
 import { useProfile } from '@/components/ProfileContext'
 import { getToken } from '@/lib/auth'
 import type {
@@ -122,7 +123,11 @@ function ActionResultCard({ result, replyText }: { result: ActionResult; replyTe
         </span>
       </div>
       <div className="px-3 py-2.5 space-y-2">
-        {showMessage && <p className="text-dc-text-2 leading-relaxed">{message}</p>}
+        {showMessage && (
+          <div className="text-dc-text-2 leading-relaxed">
+            <ChatMarkdown text={message} />
+          </div>
+        )}
 
         {sources.length > 0 && (
           <div className="space-y-1.5">
@@ -836,7 +841,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                 <div className="space-y-3 max-w-lg w-full">
                   {m.text && (
                     <div className="bg-white border border-dc-border text-sm px-4 py-3 rounded-2xl rounded-tl-sm text-dc-text-1 leading-relaxed">
-                      {m.text}
+                      <ChatMarkdown text={m.text} />
                     </div>
                   )}
                   {m.results?.map((r, j) => {
