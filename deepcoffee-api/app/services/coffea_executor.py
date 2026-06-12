@@ -15,11 +15,14 @@ import logging
 from typing import Any
 
 from app.core.config import Settings
+from app.schemas.brew import BrewDraft
 from app.schemas.coffea import ActionResult, DispatchPlan
 from app.services import bean_card_intake
 from app.services.ai_answer import answer_with_model
 from app.services.brew_coach import LOCAL_COACH_FALLBACK, coach_with_model
+from app.services.brew_parse_ai import parse_brew_with_model
 from app.services.image_understanding import understand_image
+from app.services.input_parser import assess_brew_draft, parse_brew_input
 from app.services.knowledge_service import KnowledgeService
 from app.services.multimodal import image_data_urls
 from app.services.model_gateway import ModelGateway
@@ -35,12 +38,24 @@ _COACH_ACTIONS = frozenset(
 # 仅作意图、无执行动作（由调度器的 direct_reply 直接回用户）。
 _INTENT_ONLY = frozenset({"direct_answer", "ask_clarification", "out_of_scope"})
 _DISPLAYABLE_RESULT_STATUSES = frozenset({"done", "degraded"})
-# 写库类动作（建/改豆卡、生成建议参数、记录冲煮）故意不在聊天单轮自动执行，避免一句话误改用户数据。
+# 写库类动作（建/改豆卡、生成建议参数）故意不在聊天单轮自动执行，避免一句话误改用户数据。
 # 给明确的引导语，指向各自的确认流程，而不是笼统的「后续阶段接入」（那会被前端误显示成"处理中"）。
+# brew_record_parse 例外：消息里带参数时真解析出草稿（落库仍由用户在草稿卡确认）。
 _PENDING_GUIDANCE = {
     "brew_record_parse": "想记录这杯吗？把冲煮参数发我（豆子、粉量、水量、水温、时间、风味），或到「记录冲煮」页录入——记录会在你确认后才入库。",
     "create_or_update_bean_card": "想建立或修改这支豆子的豆卡吗？到「豆仓」新建 / 编辑，确认后才保存。",
     "recommend_brew_params": "想要冲煮建议参数吗？在对应豆子的「生成建议参数」发起，会先问你的器具再给方案。",
+}
+# 冲煮草稿关键字段 → 中文名（缺失提示用）。与 input_parser.assess_brew_draft 的字段集一致。
+_BREW_FIELD_LABELS = {
+    "bean_name": "豆子",
+    "device": "滤杯",
+    "dose_g": "粉量",
+    "water_ml": "水量",
+    "water_temp_c": "水温",
+    "grinder": "磨豆机",
+    "grind_setting": "研磨刻度",
+    "brew_time_seconds": "冲煮时间",
 }
 _PENDING_FALLBACK = "这一步要走专门的确认流程，避免在聊天里直接改动你的数据。"
 # 暂无联网检索能力，web_verify 降级时的显式标注（§9 降级）。
@@ -116,6 +131,8 @@ async def execute_plan(
                         gateway=gateway,
                     )
                 )
+            elif action_type == "brew_record_parse":
+                results.append(await _run_brew_parse(message, model=model, gateway=gateway))
             elif action_type in _INTENT_ONLY:
                 # 调度器已经把要直接说的话放在 direct_reply，这里不重复产出动作结果。
                 continue
@@ -290,6 +307,78 @@ def _brew_photo_summary(data: dict[str, Any]) -> str | None:
     if suggestions:
         parts.append("建议：" + "；".join(suggestions[:3]) + "。")
     return " ".join(parts) or None
+
+
+def _brew_summary(draft: BrewDraft) -> str:
+    """已解析字段的一句人话摘要（只列识别到的）。"""
+    parts: list[str] = []
+    if draft.bean_name:
+        parts.append(draft.bean_name)
+    if draft.device:
+        parts.append(draft.device)
+    grind = f"{draft.grinder or ''} {draft.grind_setting or ''}".strip()
+    if grind:
+        parts.append(grind)
+    if draft.dose_g:
+        parts.append(f"粉 {draft.dose_g:g}g")
+    if draft.water_ml:
+        parts.append(f"水 {draft.water_ml:g}ml")
+    if draft.water_temp_c:
+        parts.append(f"{draft.water_temp_c:g}°C")
+    if draft.ratio:
+        parts.append(f"粉水比 {draft.ratio}")
+    if draft.brew_time_seconds:
+        parts.append(f"{draft.brew_time_seconds // 60}:{draft.brew_time_seconds % 60:02d}")
+    if draft.brew_steps:
+        parts.append(f"{len(draft.brew_steps)} 段注水")
+    return " · ".join(parts)
+
+
+async def _run_brew_parse(message: str, *, model: str, gateway: ModelGateway | None) -> ActionResult:
+    """聊天里记录冲煮：消息带参数就真解析成草稿（缺什么明确说），落库由用户在草稿卡确认。
+
+    完全没解析出参数（纯意图，如「我想记录冲煮」）才回通用引导语。
+    """
+    draft = await parse_brew_with_model(message, model=model, gateway=gateway)
+    source = "model"
+    if draft is None:
+        draft, _, _, _ = parse_brew_input(message)
+        source = "local"
+    confidence, missing, _ = assess_brew_draft(draft)
+    # 「实质参数」不含 bean_name：本地启发式几乎任何句子都能抽出个"豆名"，
+    # 纯意图消息（"我想记录冲煮"）必须仍走通用引导，而不是抱着垃圾豆名出草稿。
+    has_substance = any([
+        draft.device, draft.grinder, draft.grind_setting, draft.dose_g, draft.water_ml,
+        draft.water_temp_c, draft.ratio, draft.brew_time_seconds, draft.brew_steps,
+    ])
+    if not has_substance:
+        return ActionResult(
+            type="brew_record_parse",
+            status="pending",
+            source=source,
+            message=_PENDING_GUIDANCE["brew_record_parse"],
+        )
+    summary = _brew_summary(draft)
+    missing_labels = [_BREW_FIELD_LABELS[f] for f in missing if f in _BREW_FIELD_LABELS]
+    if missing_labels:
+        msg = (
+            f"我从你的描述里解析出：{summary}。"
+            f"还缺{('、'.join(missing_labels[:4]))}，可以直接在下面的草稿卡里补充，确认后保存。"
+        )
+    else:
+        msg = f"我从你的描述里解析出：{summary}。信息齐了，请在下面的草稿卡确认保存。"
+    return ActionResult(
+        type="brew_record_parse",
+        status="done",
+        source=source,
+        output={
+            "draft": draft.model_dump(exclude_none=True),
+            "confidence": confidence,
+            "missing_fields": missing,
+            "raw_input": message,
+        },
+        message=msg,
+    )
 
 
 async def _run_coach(

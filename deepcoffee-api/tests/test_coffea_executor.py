@@ -331,3 +331,26 @@ def test_assemble_reply_returns_none_when_nothing_displayable() -> None:
         ActionResult(type="recommend_brew_params", status="pending", message="待确认流程。"),
     ]
     assert assemble_reply(plan, results) is None
+
+
+# ── 聊天记录冲煮：带参数真解析、纯意图回引导 ──
+
+def test_brew_record_parse_with_params_returns_draft_and_missing() -> None:
+    plan = DispatchPlan(primary_intent="brew_record_parse", actions=[{"type": "brew_record_parse"}])
+    results = _run(plan, message="帮我记录这次冲煮：15g 粉，270ml 水，96°C，2:30")
+    r = results[0]
+    assert r.type == "brew_record_parse"
+    assert r.status == "done"
+    assert r.output["draft"]["dose_g"] == 15
+    assert r.output["draft"]["water_ml"] == 270
+    assert "missing_fields" in r.output and "device" in r.output["missing_fields"]
+    assert "解析出" in r.message and "还缺" in r.message
+
+
+def test_brew_record_parse_without_params_keeps_guidance() -> None:
+    plan = DispatchPlan(primary_intent="brew_record_parse", actions=[{"type": "brew_record_parse"}])
+    results = _run(plan, message="我想记录今天的冲煮")
+    r = results[0]
+    assert r.status == "pending"
+    assert "把冲煮参数发我" in r.message
+    assert r.output is None

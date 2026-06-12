@@ -6,14 +6,16 @@ import {
   Send, AlertTriangle, AlertCircle, CheckCircle2, Clock, RotateCcw,
   ImagePlus, X, Globe, Square,
 } from 'lucide-react'
-import { confirmBean, parseBeanInput } from '@/lib/api/beans'
+import { confirmBean, getBeans, parseBeanInput } from '@/lib/api/beans'
+import { listEquipment, type EquipmentProfile } from '@/lib/api/equipment'
+import { confirmBrew } from '@/lib/api/records'
 import { sendCoffeaMessage, fileToDataUrl, mockSuggestions } from '@/lib/api/chat'
 import { isQuotaExceeded } from '@/lib/api/client'
 import { QuotaNotice } from '@/components/QuotaNotice'
 import { useProfile } from '@/components/ProfileContext'
 import { getToken } from '@/lib/auth'
 import type {
-  BeanDraft, ActionResult, ActionStatus, CoffeaAttachment, WebVerifySource,
+  Bean, BeanDraft, ActionResult, ActionStatus, CoffeaAttachment, WebVerifySource,
 } from '@/types'
 
 const BREW_HINTS = [
@@ -208,6 +210,329 @@ function ChatBeanDraft({
   )
 }
 
+// ── 聊天内冲煮草稿确认（brew_record_parse 解析出参数后）──
+const BREW_TEXT_FIELDS: { key: string; label: string; placeholder: string }[] = [
+  { key: 'grind_setting', label: '研磨刻度', placeholder: '例如：4.8 圈' },
+  { key: 'dose_g', label: '粉量 (g)', placeholder: '15' },
+  { key: 'water_ml', label: '水量 (ml)', placeholder: '270' },
+  { key: 'water_temp_c', label: '水温 (°C)', placeholder: '96' },
+  { key: 'ratio', label: '粉水比', placeholder: '1:18' },
+  { key: 'time', label: '时间', placeholder: '2:30 或 150（秒）' },
+]
+
+const CUSTOM = '__custom__'
+
+// 下拉（来源：豆仓 / 我的器具）+「自定义输入」的组合字段
+function ComboField({
+  label, missing, options, choice, custom, placeholder, onChoice, onCustom,
+}: {
+  label: string
+  missing: boolean
+  options: { value: string; label: string }[]
+  choice: string
+  custom: string
+  placeholder: string
+  onChoice: (v: string) => void
+  onCustom: (v: string) => void
+}) {
+  const empty = choice === '' || (choice === CUSTOM && !custom.trim())
+  const highlight = missing && empty
+  return (
+    <label className="block">
+      <span className="text-xs text-dc-text-3 mb-1 block">
+        {label}{highlight && <span className="text-dc-yellow ml-1">待补充</span>}
+      </span>
+      <select
+        value={choice}
+        onChange={e => onChoice(e.target.value)}
+        className={`dc-input text-sm py-1.5 ${highlight ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`}
+      >
+        <option value="">未选择</option>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        <option value={CUSTOM}>自定义输入…</option>
+      </select>
+      {choice === CUSTOM && (
+        <input
+          value={custom}
+          onChange={e => onCustom(e.target.value)}
+          placeholder={placeholder}
+          className={`dc-input text-sm py-1.5 mt-1.5 ${highlight ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`}
+        />
+      )}
+    </label>
+  )
+}
+
+function parseBrewTimeText(text: string): number | undefined {
+  const t = text.trim()
+  if (!t) return undefined
+  const m = t.match(/^(\d+)[:：](\d{1,2})$/)
+  if (m) return Number(m[1]) * 60 + Number(m[2])
+  const n = Number(t)
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : undefined
+}
+
+function ChatBrewDraft({
+  result, linkedBeanId, onPatch,
+}: {
+  result: ActionResult
+  linkedBeanId: string | null
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  const output = result.output ?? {}
+  const savedRecordId = typeof output.saved_record_id === 'string' ? output.saved_record_id : null
+  const savedRecap = typeof output.saved_recap === 'string' ? output.saved_recap : null
+  const savedBeanId = typeof output.saved_bean_id === 'string' ? output.saved_bean_id : null
+  const savedBeanName = typeof output.saved_bean_name === 'string' ? output.saved_bean_name : null
+  const baseDraft = (output.draft as Record<string, unknown>) ?? {}
+  const missing = Array.isArray(output.missing_fields) ? (output.missing_fields as string[]) : []
+  const steps = Array.isArray(baseDraft.brew_steps) ? baseDraft.brew_steps : []
+  const parsedBeanName = String(baseDraft.bean_name ?? '').trim()
+  const parsedDevice = String(baseDraft.device ?? '').trim()
+  const parsedGrinder = String(baseDraft.grinder ?? '').trim()
+
+  // 下拉数据源：豆仓 + 我的器具；拉取失败回退为纯手输（空选项 + 自定义）
+  const [beans, setBeans] = useState<Bean[] | null>(null)
+  const [equipment, setEquipment] = useState<EquipmentProfile[] | null>(null)
+  const [beanChoice, setBeanChoice] = useState(parsedBeanName ? CUSTOM : '')
+  const [beanCustom, setBeanCustom] = useState(parsedBeanName)
+  const [createBeanCard, setCreateBeanCard] = useState(true)
+  const [device, setDevice] = useState({ choice: parsedDevice ? CUSTOM : '', custom: parsedDevice })
+  const [grinder, setGrinder] = useState({ choice: parsedGrinder ? CUSTOM : '', custom: parsedGrinder })
+  const [fields, setFields] = useState<Record<string, string>>(() => ({
+    grind_setting: String(baseDraft.grind_setting ?? ''),
+    dose_g: baseDraft.dose_g != null ? String(baseDraft.dose_g) : '',
+    water_ml: baseDraft.water_ml != null ? String(baseDraft.water_ml) : '',
+    water_temp_c: baseDraft.water_temp_c != null ? String(baseDraft.water_temp_c) : '',
+    ratio: String(baseDraft.ratio ?? ''),
+    time: typeof baseDraft.brew_time_seconds === 'number'
+      ? `${Math.floor(baseDraft.brew_time_seconds / 60)}:${String(baseDraft.brew_time_seconds % 60).padStart(2, '0')}`
+      : String(baseDraft.brew_time ?? ''),
+  }))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const beanInitRef = useRef(false)
+  const equipInitRef = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getBeans({}, getToken())
+      .then(list => { if (!cancelled) setBeans(list) })
+      .catch(() => { if (!cancelled) setBeans([]) })
+    listEquipment()
+      .then(list => { if (!cancelled) setEquipment(list) })
+      .catch(() => { if (!cancelled) setEquipment([]) })
+    return () => { cancelled = true }
+  }, [])
+
+  // 豆仓就绪后预选：来自豆卡页的 linkedBeanId 优先；其次解析名精确同名；未命中保持自定义预填
+  useEffect(() => {
+    if (beans === null || beanInitRef.current) return
+    beanInitRef.current = true
+    if (linkedBeanId && beans.some(b => b.bean_id === linkedBeanId)) {
+      setBeanChoice(linkedBeanId)
+      return
+    }
+    const match = parsedBeanName ? beans.find(b => b.name.trim() === parsedBeanName) : undefined
+    if (match) setBeanChoice(match.bean_id)
+  }, [beans, linkedBeanId, parsedBeanName])
+
+  // 器具就绪后预选：解析值命中选项即选中；解析为空时取默认器具套
+  useEffect(() => {
+    if (equipment === null || equipInitRef.current) return
+    equipInitRef.current = true
+    const brewMethods = equipment.map(e => e.brew_method).filter(Boolean) as string[]
+    const grinders = equipment.map(e => e.grinder).filter(Boolean) as string[]
+    const def = equipment.find(e => e.is_default)
+    setDevice(cur => {
+      if (parsedDevice && brewMethods.includes(parsedDevice)) return { choice: parsedDevice, custom: '' }
+      if (!parsedDevice && def?.brew_method) return { choice: def.brew_method, custom: '' }
+      return cur
+    })
+    setGrinder(cur => {
+      if (parsedGrinder && grinders.includes(parsedGrinder)) return { choice: parsedGrinder, custom: '' }
+      if (!parsedGrinder && def?.grinder) return { choice: def.grinder, custom: '' }
+      return cur
+    })
+  }, [equipment, parsedDevice, parsedGrinder])
+
+  if (output.dismissed === true) return null
+  if (savedRecordId) {
+    return (
+      <div className="dc-card px-4 py-3 text-sm space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 text-dc-green">
+            <CheckCircle2 size={14} /> 已保存到冲煮记录
+          </span>
+          <Link href="/app/records" className="text-dc-accent hover:underline text-xs">
+            查看记录 →
+          </Link>
+        </div>
+        {savedBeanId && (
+          <div className="flex items-center justify-between gap-2 text-xs text-dc-text-3">
+            <span>已为「{savedBeanName ?? '新豆子'}」建豆卡并关联</span>
+            <Link href={`/app/beans/${savedBeanId}`} className="text-dc-accent hover:underline">查看豆卡 →</Link>
+          </div>
+        )}
+        {savedRecap && <p className="text-xs text-dc-text-3 leading-relaxed">{savedRecap}</p>}
+      </div>
+    )
+  }
+
+  const beanOptions = (beans ?? []).map(b => ({ value: b.bean_id, label: b.name }))
+  const uniq = (values: (string | null | undefined)[]) => [...new Set(values.filter(Boolean) as string[])]
+  const deviceOptions = uniq((equipment ?? []).map(e => e.brew_method)).map(v => ({ value: v, label: v }))
+  const grinderOptions = uniq((equipment ?? []).map(e => e.grinder)).map(v => ({ value: v, label: v }))
+
+  // 手输豆名且豆仓里没有同名豆 → 显示「顺手建豆卡」勾选
+  const customBeanName = beanChoice === CUSTOM ? beanCustom.trim() : ''
+  const customUnmatched = !!customBeanName && !(beans ?? []).some(b => b.name.trim() === customBeanName)
+
+  async function confirm() {
+    setSaving(true)
+    setError('')
+    try {
+      const token = getToken()
+      const rawInput = typeof output.raw_input === 'string' ? output.raw_input : undefined
+
+      // 1) 解析豆子选择 → bean_card_id（下拉直选 / 同名匹配 / 勾选建档）
+      let beanCardId: string | undefined
+      let beanName: string | undefined
+      let createdBeanId: string | undefined
+      if (beanChoice && beanChoice !== CUSTOM) {
+        beanCardId = beanChoice
+        beanName = (beans ?? []).find(b => b.bean_id === beanChoice)?.name
+      } else if (customBeanName) {
+        beanName = customBeanName
+        const match = (beans ?? []).find(b => b.name.trim() === customBeanName)
+        if (match) {
+          beanCardId = match.bean_id
+        } else if (createBeanCard) {
+          const created = await confirmBean({ name: customBeanName }, rawInput, token)
+          beanCardId = created.bean_id
+          createdBeanId = created.bean_id
+        }
+      }
+
+      const numeric = (text: string) => {
+        const n = Number(text.trim())
+        return text.trim() && Number.isFinite(n) && n > 0 ? n : undefined
+      }
+      const deviceValue = device.choice === CUSTOM ? device.custom.trim() : device.choice
+      const grinderValue = grinder.choice === CUSTOM ? grinder.custom.trim() : grinder.choice
+      // 2) 在解析草稿基础上合并用户编辑（注水步骤等其余字段原样保留）
+      const merged: Record<string, unknown> = {
+        ...baseDraft,
+        bean_name: beanName,
+        device: deviceValue || undefined,
+        grinder: grinderValue || undefined,
+        grind_setting: fields.grind_setting.trim() || undefined,
+        dose_g: numeric(fields.dose_g),
+        water_ml: numeric(fields.water_ml),
+        water_temp_c: numeric(fields.water_temp_c),
+        ratio: fields.ratio.trim() || undefined,
+        brew_time_seconds: parseBrewTimeText(fields.time),
+      }
+      const res = await confirmBrew(merged, rawInput, beanCardId, token)
+      onPatch({
+        saved_record_id: res.brew_id,
+        saved_recap: res.recap,
+        ...(createdBeanId ? { saved_bean_id: createdBeanId, saved_bean_name: beanName } : {}),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="dc-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-dc-border">
+        <span className="text-sm font-semibold text-dc-text-1">冲煮记录草稿</span>
+        {steps.length > 0 && (
+          <span className="text-xs text-dc-text-3">已解析 {steps.length} 段注水</span>
+        )}
+      </div>
+      <div className="p-4 grid sm:grid-cols-2 gap-3">
+        <div>
+          <ComboField
+            label="豆子"
+            missing={missing.includes('bean_name')}
+            options={beanOptions}
+            choice={beanChoice}
+            custom={beanCustom}
+            placeholder="例如：千峰庄园帕卡马拉"
+            onChoice={setBeanChoice}
+            onCustom={setBeanCustom}
+          />
+          {customUnmatched && (
+            <label className="flex items-center gap-1.5 mt-1.5 text-xs text-dc-text-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={createBeanCard}
+                onChange={e => setCreateBeanCard(e.target.checked)}
+                className="accent-dc-accent"
+              />
+              同时为这支豆建一张豆卡
+            </label>
+          )}
+        </div>
+        <ComboField
+          label="滤杯"
+          missing={missing.includes('device')}
+          options={deviceOptions}
+          choice={device.choice}
+          custom={device.custom}
+          placeholder="例如：V60"
+          onChoice={v => setDevice({ choice: v, custom: device.custom })}
+          onCustom={v => setDevice({ choice: device.choice, custom: v })}
+        />
+        <ComboField
+          label="磨豆机"
+          missing={missing.includes('grinder')}
+          options={grinderOptions}
+          choice={grinder.choice}
+          custom={grinder.custom}
+          placeholder="例如：ZP6S"
+          onChoice={v => setGrinder({ choice: v, custom: grinder.custom })}
+          onCustom={v => setGrinder({ choice: grinder.choice, custom: v })}
+        />
+        {BREW_TEXT_FIELDS.map(({ key, label, placeholder }) => {
+          const isMissing = (key === 'time' ? missing.includes('brew_time_seconds') : missing.includes(key))
+            && !fields[key].trim()
+          return (
+            <label key={key} className="block">
+              <span className="text-xs text-dc-text-3 mb-1 block">
+                {label}{isMissing && <span className="text-dc-yellow ml-1">待补充</span>}
+              </span>
+              <input
+                value={fields[key]}
+                onChange={e => setFields(cur => ({ ...cur, [key]: e.target.value }))}
+                placeholder={placeholder}
+                className={`dc-input text-sm py-1.5 ${isMissing ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`}
+              />
+            </label>
+          )
+        })}
+      </div>
+      {error && (
+        <div className="px-4 py-2 bg-red-50 border-t border-red-100 text-xs text-dc-red">{error}</div>
+      )}
+      <div className="px-4 py-3 border-t border-dc-border flex gap-2">
+        <button
+          onClick={confirm}
+          disabled={saving}
+          className="btn-primary text-sm py-2 flex-1 disabled:opacity-50"
+        >
+          {saving ? '保存中…' : '确认保存'}
+        </button>
+        <button onClick={() => onPatch({ dismissed: true })} className="btn-secondary text-sm py-2">忽略</button>
+      </div>
+    </div>
+  )
+}
+
 // 自动录入成功的简洁结果卡（消息正文已说明，卡片只给入口）
 function AutoSavedBeanCard({ beanId }: { beanId: string }) {
   return (
@@ -233,6 +558,32 @@ interface ChatTurn {
   pending?: boolean
   error?: string
   quota?: boolean            // 402 ai_quota_exceeded：展示升级引导而非报错红条
+  at?: number                // epoch ms；微信式居中时间戳用（旧持久化数据可能没有）
+}
+
+// 微信式时间格式：今天 HH:mm；昨天；今年 M月D日；更早带年份
+function formatChatTime(ts: number): string {
+  const d = new Date(ts)
+  const now = new Date()
+  const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (d.toDateString() === now.toDateString()) return hm
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (d.toDateString() === yesterday.toDateString()) return `昨天 ${hm}`
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+}
+
+const TIME_GAP_MS = 5 * 60 * 1000  // 与上一条带时间消息间隔超 5 分钟才显示（仿微信）
+
+function TimeDivider({ at }: { at: number }) {
+  return (
+    <div className="flex justify-center">
+      <span className="text-[11px] text-dc-text-3 bg-dc-subtle px-2.5 py-1 rounded-full">
+        {formatChatTime(at)}
+      </span>
+    </div>
+  )
 }
 
 function dataUrlMime(d: string): string | undefined {
@@ -334,7 +685,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
     setSending(true)
     setMessages(cur => [
       ...cur,
-      { role: 'user', text: t, images },
+      { role: 'user', text: t, images, at: Date.now() },
       { role: 'assistant', pending: true },
     ])
 
@@ -352,7 +703,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
       const hasResultContent = res.results.some(
         r => r.message?.trim() || getSources(r.output).length > 0 || (r.output && Object.keys(r.output).length > 0),
       )
-      let turn: ChatTurn = { role: 'assistant', text: res.reply, results: res.results }
+      let turn: ChatTurn = { role: 'assistant', text: res.reply, results: res.results, at: Date.now() }
 
       // 兜底：永远不要留空气泡
       if (!turn.text?.trim() && !(turn.results && turn.results.length > 0)) {
@@ -370,7 +721,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
       if (controller.signal.aborted) {
         setMessages(cur => {
           const next = [...cur]
-          next[next.length - 1] = { role: 'assistant', text: '（已停止本次回复）' }
+          next[next.length - 1] = { role: 'assistant', text: '（已停止本次回复）', at: Date.now() }
           return next
         })
         return
@@ -379,7 +730,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
       const msg = err instanceof Error ? err.message : '请求失败，请稍后重试。'
       setMessages(cur => {
         const next = [...cur]
-        next[next.length - 1] = { role: 'assistant', error: msg, quota }
+        next[next.length - 1] = { role: 'assistant', error: msg, quota, at: Date.now() }
         return next
       })
     } finally {
@@ -441,9 +792,18 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
         )}
 
         {/* Message thread */}
-        {messages.map((m, i) => (
-          m.role === 'user' ? (
-            <div key={i} className="flex gap-3 justify-end">
+        {messages.map((m, i) => {
+          // 微信式居中时间戳：首条带时间的消息，或与上一条带时间消息间隔超过阈值
+          let showTime = false
+          if (m.at) {
+            let prevAt: number | undefined
+            for (let j = i - 1; j >= 0; j--) {
+              if (messages[j].at) { prevAt = messages[j].at; break }
+            }
+            showTime = prevAt === undefined || m.at - prevAt > TIME_GAP_MS
+          }
+          const bubble = m.role === 'user' ? (
+            <div className="flex gap-3 justify-end">
               <div className="space-y-2 max-w-lg">
                 {m.images && m.images.length > 0 && (
                   <div className="flex flex-wrap gap-2 justify-end">
@@ -461,7 +821,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
               <UserAvatar />
             </div>
           ) : (
-            <div key={i} className="flex gap-3 items-start">
+            <div className="flex gap-3 items-start">
               <AiAvatar />
               {m.pending ? (
                 <TypingDots />
@@ -486,13 +846,29 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                     if (r.type === 'read_bean_card_image' && r.output?.draft) {
                       return <ChatBeanDraft key={j} result={r} onPatch={(patch) => patchResultOutput(i, j, patch)} />
                     }
+                    if (r.type === 'brew_record_parse' && r.output?.draft) {
+                      return (
+                        <ChatBrewDraft
+                          key={j}
+                          result={r}
+                          linkedBeanId={linkedBeanId}
+                          onPatch={(patch) => patchResultOutput(i, j, patch)}
+                        />
+                      )
+                    }
                     return <ActionResultCard key={j} result={r} replyText={m.text} />
                   })}
                 </div>
               )}
             </div>
           )
-        ))}
+          return (
+            <div key={i} className="space-y-6">
+              {showTime && m.at && <TimeDivider at={m.at} />}
+              {bubble}
+            </div>
+          )
+        })}
 
         {/* Quick hints before first user message (brew seeded mode) */}
         {messages.length > 0 && !hasUserTurn && (

@@ -1,0 +1,13 @@
+**
+
+!deploy/
+!deploy/backend.Dockerfile
+
+!deepcoffee-api/
+!deepcoffee-api/app/
+!deepcoffee-api/app/**
+!deepcoffee-api/pyproject.toml
+!deepcoffee-api/README.md
+
+!knowledge/
+!knowledge/**

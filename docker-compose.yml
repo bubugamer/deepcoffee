@@ -26,7 +26,8 @@ services:
 
   api:
     build:
-      context: ./deepcoffee-api
+      context: .
+      dockerfile: deploy/backend.Dockerfile
     image: deepcoffee-api:latest
     env_file:
       - ./deepcoffee-api/.env
