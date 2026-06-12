@@ -100,8 +100,8 @@ Jonathan Gagné 参与了 Pulsar 的设计，获得销售版税。
 
 ## 相关页面
 
-- 涩感的形成机制 — 深粉床为何减少涩感
-- V60手冲冲煮指南 — 对比圆锥形的绕流问题
-- Stagg-X滤杯 — 另一款平底/无绕流设计
-- 咖啡滤纸深度分析 — 滤纸孔隙对流速的影响
-- Jonathan-Gagné — 设计者
+- [涩感的形成机制](brewing/涩感的形成机制.md) — 深粉床为何减少涩感
+- [V60手冲冲煮指南](brewing/V60手冲冲煮指南.md) — 对比圆锥形的绕流问题
+- [Stagg-X滤杯](equipment/drippers/Stagg-X滤杯.md) — 另一款平底/无绕流设计
+- [咖啡滤纸深度分析](equipment/drippers/咖啡滤纸深度分析.md) — 滤纸孔隙对流速的影响
+- [Jonathan-Gagné](figures/国际/Jonathan-Gagné.md) — 设计者

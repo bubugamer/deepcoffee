@@ -65,5 +65,5 @@ search:
 
 ## 相关页面
 
-- Erna-Knutsen — 精品咖啡教母，1974 年创造"specialty coffee"一词
-- 精品咖啡运动史 — 第一至第三波浪潮全览
+- [Erna-Knutsen](figures/国际/Erna-Knutsen.md) — 精品咖啡教母，1974 年创造"specialty coffee"一词
+- [精品咖啡运动史](brewing/精品咖啡运动史.md) — 第一至第三波浪潮全览

@@ -83,8 +83,8 @@ V60 滤纸塞入方法：用水龙头水压将滤纸冲成适合 Stagg 底部的
 
 ## 相关页面
 
-- V60手冲冲煮指南 — 对比锥形滤杯的绕流问题
-- Pulsar滤杯 — 另一款无绕流设计，更系统地解决了 V60 弱点
-- 咖啡滤纸深度分析 — 滤纸孔隙与流速
-- 涩感的形成机制 — 平底深粉床对涩感的过滤效果
-- Jonathan-Gagné — 本文作者
+- [V60手冲冲煮指南](brewing/V60手冲冲煮指南.md) — 对比锥形滤杯的绕流问题
+- [Pulsar滤杯](equipment/drippers/Pulsar滤杯.md) — 另一款无绕流设计，更系统地解决了 V60 弱点
+- [咖啡滤纸深度分析](equipment/drippers/咖啡滤纸深度分析.md) — 滤纸孔隙与流速
+- [涩感的形成机制](brewing/涩感的形成机制.md) — 平底深粉床对涩感的过滤效果
+- [Jonathan-Gagné](figures/国际/Jonathan-Gagné.md) — 本文作者

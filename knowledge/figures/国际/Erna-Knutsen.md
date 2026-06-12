@@ -59,5 +59,5 @@ search:
 
 ## 相关页面
 
-- Alfred-Peet — 精品咖啡运动之父，同时期的核心人物
-- 精品咖啡运动史 — 三波浪潮全览
+- [Alfred-Peet](figures/国际/Alfred-Peet.md) — 精品咖啡运动之父，同时期的核心人物
+- [精品咖啡运动史](brewing/精品咖啡运动史.md) — 三波浪潮全览

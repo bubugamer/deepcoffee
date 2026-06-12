@@ -92,5 +92,5 @@ sources:
 
 ## 相关页面
 
-- Comandante-C40 — 经典手摇锥刀磨豆机
+- [Comandante-C40](equipment/grinders/手动/Comandante-C40.md) — 经典手摇锥刀磨豆机
 - 1Zpresso-ZP6S — 高端手摇锥刀磨（ZP6 Special）

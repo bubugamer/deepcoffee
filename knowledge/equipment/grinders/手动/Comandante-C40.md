@@ -82,5 +82,5 @@ sources:
 
 ## 相关页面
 
-- 平刀vs锥刀 — 刀盘类型对比与选购逻辑
+- [平刀vs锥刀](equipment/grinders/平刀vs锥刀.md) — 刀盘类型对比与选购逻辑
 - Timemore-M01 — 主要竞品（同价位锥刀手摇磨）

@@ -94,3 +94,45 @@ def test_green_bean_product_support_detail_has_chinese_category() -> None:
     detail = client.get("/v1/knowledge/articles/green-bean-products__project-origin-cm-selections")
     assert detail.status_code == 200
     assert detail.json()["category"] == "生豆商产品"
+
+
+def test_internal_content_not_served_to_users() -> None:
+    """内部维护说明不下发：代码路径/AI 使用逻辑/「Deep Coffee 从中使用什么」章节。"""
+    client = TestClient(create_app())
+
+    grinder = client.get("/v1/knowledge/articles/equipment__grinders__磨豆机刻度对照表")
+    assert grinder.status_code == 200, grinder.text
+    md = grinder.json()["markdown"]
+    assert "grinder_scales" not in md
+    assert "deepcoffee-api" not in md
+    assert "Coffea 会" not in md
+    assert "刻度对照表" in md  # 正文主体还在
+
+    bop = client.get("/v1/knowledge/articles/competitions__best-of-panama")
+    assert bop.status_code == 200, bop.text
+    bop_md = bop.json()["markdown"]
+    assert "从中使用什么" not in bop_md
+    assert all("从中使用什么" not in s["heading"] for s in bop.json()["sections"])
+    assert all("从中使用什么" not in t["title"] for t in bop.json()["toc"])
+
+
+def test_drop_internal_sections_strips_future_internal_blocks() -> None:
+    """服务端兜底：即使内容侧再混入内部章节，扫描时也会整段剔除。"""
+    from app.services.knowledge_service import drop_internal_sections
+
+    md = (
+        "# 标题\n\n正文。\n\n## Deep Coffee 从中使用什么\n\n内部说明。\n\n"
+        "## 内部维护说明\n\n同步约定。\n\n## 正常章节\n\n保留内容。\n"
+    )
+    out = drop_internal_sections(md)
+    assert "从中使用什么" not in out and "内部说明" not in out and "同步约定" not in out
+    assert "正常章节" in out and "保留内容" in out and "正文。" in out
+
+
+def test_related_section_links_are_real_markdown_links() -> None:
+    """「相关页面」已链接化：V60 指南的相关条目应是 [标题](路径.md) 形式。"""
+    client = TestClient(create_app())
+    detail = client.get("/v1/knowledge/articles/brewing__v60手冲冲煮指南")
+    assert detail.status_code == 200, detail.text
+    md = detail.json()["markdown"]
+    assert "[手冲用水科学](brewing/手冲用水科学.md)" in md

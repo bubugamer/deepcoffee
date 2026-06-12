@@ -49,6 +49,31 @@ def split_frontmatter(raw: str) -> tuple[dict, str]:
     return {}, raw
 
 
+# 内部章节标题模式：写给维护者/AI 的说明，不该出现在用户可见正文与模型 grounding 里。
+# 内容侧应避免再写这类章节；这里是服务端兜底（展示、sections、toc、grounding 全部干净）。
+_INTERNAL_SECTION_PATTERNS = (
+    re.compile(r"^Deep\s*Coffee\s*从中使用", re.IGNORECASE),
+    re.compile(r"^内部(说明|备注|维护)"),
+)
+
+
+def drop_internal_sections(markdown: str) -> str:
+    """按 ## 标题整段剔除内部章节（到下一个同级标题或文末）。"""
+    lines = markdown.splitlines()
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        h2 = re.match(r"^##\s+(.+?)\s*$", line)
+        if h2:
+            heading = h2.group(1).strip()
+            skipping = any(p.search(heading) for p in _INTERNAL_SECTION_PATTERNS)
+            if skipping:
+                continue
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).strip("\n") + ("\n" if kept else "")
+
+
 def _meta_str(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
@@ -262,6 +287,8 @@ class KnowledgeService:
             raw = path.read_text(encoding="utf-8")
             # frontmatter 在此切一刀：markdown 是干净正文，meta 是结构化元数据。
             meta, markdown = split_frontmatter(raw)
+            # 内部章节兜底剔除：下游（展示/章节/目录/grounding）全部派生自干净正文。
+            markdown = drop_internal_sections(markdown)
             rel_without_suffix = rel.with_suffix("")
             # slug / category 仍由路径 / 文件夹决定（不读 meta.slug / meta.category，避免改 URL、断关联）。
             slug = normalize_slug("__".join(rel_without_suffix.parts))
