@@ -35,8 +35,10 @@ from app.schemas.coffea import (
 )
 from app.services import coffea_dispatch
 from app.services.bean_card_intake import summarize_draft
+from app.services.brew_coach import coach_with_model
 from app.services.candidate_service import candidate_service
 from app.services.coffea_executor import assemble_reply, execute_plan
+from app.services.image_storage import upload_chat_images
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
 from app.services.langfuse_client import langfuse_tracer
 
@@ -44,6 +46,44 @@ router = APIRouter(prefix="/coffea", tags=["coffea"], dependencies=[Depends(requ
 
 # 持久化到历史时，results 只保留展示安全字段；剥离草稿/原图/原始 OCR 等交互态与大字段。
 _SAFE_OUTPUT_KEYS = frozenset({"sources", "bean_id", "auto_saved"})
+
+
+# 识图建卡后判断用户这句话是否在要冲煮方案/建议。
+_BREW_PLAN_HINTS = ("方案", "建议", "怎么冲", "冲煮", "热冲", "配方", "参数", "recipe", "冲一", "做一杯")
+
+
+def _wants_brew_plan(message: str) -> bool:
+    low = (message or "").lower()
+    return any(k in low for k in _BREW_PLAN_HINTS)
+
+
+async def _brew_advice_for_new_bean(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    bean_id: str,
+    message: str,
+    equipment: list[UserEquipmentProfile],
+    settings: Settings,
+    trace_id: str,
+) -> str | None:
+    """识图建卡后给冲煮建议：有默认器具按它给方案；没有则引导用户去设默认器具。"""
+    default_equip = next((e for e in equipment if e.is_default), None)
+    if default_equip is None:
+        return "想要冲煮方案的话，先到「我的器具」设一套默认器具，我就能按你的器具给你一版热冲方案。"
+    bean = await bean_repository.get(session, user_id=user_id, bean_id=bean_id)
+    if bean is None:
+        return None
+    advice = await coach_with_model(
+        message=message,
+        active_bean=bean.model_dump(mode="json"),
+        active_equipment=_equipment_dict(default_equip),
+        model=settings.model_default_model,
+        vision_model=settings.vision_model,
+    )
+    if advice:
+        await ai_usage_repository.record(session, user_id=user_id, action="coffea_brew_advice", trace_id=trace_id)
+    return advice
 
 
 def _display_safe_results(results: list[ActionResult]) -> list[dict]:
@@ -222,9 +262,25 @@ async def post_message(
         notice = "AI 服务暂时不可用，本次为基础回复。"
         reply = f"{reply}\n\n{notice}" if reply else notice
 
-    # 落历史（跨设备同步）：用户一轮 + 助手一轮；图片不存，results 取展示安全摘要。
+    # 识图建卡 + 用户这句话有"要冲煮方案"意图时，顺带给一段建议：
+    # 有默认器具就按默认器具给方案；没有就引导去设默认器具。
+    if auto_saved_bean_id and _wants_brew_plan(payload.message):
+        advice = await _brew_advice_for_new_bean(
+            session,
+            user_id=user.id,
+            bean_id=auto_saved_bean_id,
+            message=payload.message,
+            equipment=equipment,
+            settings=settings,
+            trace_id=trace_id,
+        )
+        if advice:
+            reply = f"{reply}\n\n{advice}" if reply else advice
+
+    # 落历史（跨设备同步）：用户一轮 + 助手一轮。图片传到 Supabase 图床存公开 URL（跨设备可看）。
     now_ms = int(time.time() * 1000)
-    coffea_session_repository.append_turn(cs, "user", payload.message, at=now_ms)
+    image_urls = await upload_chat_images(attachments, user_id=user.id, settings=settings)
+    coffea_session_repository.append_turn(cs, "user", payload.message, at=now_ms, images=image_urls or None)
     if reply or results:
         coffea_session_repository.append_turn(
             cs, "assistant", reply or "", results=_display_safe_results(results), at=now_ms
@@ -263,6 +319,7 @@ async def get_session_history(
                 text=m.get("content"),
                 results=m.get("results") or [],
                 at=m.get("at"),
+                images=m.get("images") or [],
             )
         )
     return CoffeaSessionHistory(

@@ -9,7 +9,7 @@ import {
 import { confirmBean, getBeans, parseBeanInput } from '@/lib/api/beans'
 import { listEquipment, type EquipmentProfile } from '@/lib/api/equipment'
 import { confirmBrew } from '@/lib/api/records'
-import { sendCoffeaMessage, getCoffeaSession, fileToDataUrl, mockSuggestions } from '@/lib/api/chat'
+import { sendCoffeaMessage, getCoffeaSession, compressImage, mockSuggestions } from '@/lib/api/chat'
 import { isQuotaExceeded } from '@/lib/api/client'
 import { QuotaNotice } from '@/components/QuotaNotice'
 import { ChatMarkdown } from '@/components/ChatMarkdown'
@@ -616,8 +616,8 @@ function dataUrlMime(d: string): string | undefined {
   return d.match(/^data:([^;]+);/)?.[1]
 }
 
-// 历史会话持久化：按用户 id 各存一份（localStorage，本机）。
-// 图片 data URL 体积大，持久化时剥离；pending 中间态不落盘。
+// 历史会话持久化：按用户 id 各存一份（localStorage，本机，离线兜底）。
+// 图片不进 localStorage（体积大）：图片走服务端图床，历史回看时由服务端 URL 提供。
 const CHAT_STORE_VERSION = 1
 const MAX_STORED_TURNS = 60
 
@@ -662,11 +662,13 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
       if (server) {
         setSessionId(server.session_id)
         if (server.turns.length > 0) {
+          // 服务端是真相（跨设备）：文字 / 结果 / 图片 URL 都来自服务端。
           setMessages(server.turns.map(t => ({
             role: t.role,
             text: t.text ?? undefined,
             results: t.results,
             at: t.at ?? undefined,
+            images: t.images ?? undefined,
           })))
         }
         return
@@ -700,7 +702,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
-    const urls = await Promise.all(Array.from(files).map(fileToDataUrl))
+    const urls = await Promise.all(Array.from(files).map(f => compressImage(f)))
     setPendingImages(cur => [...cur, ...urls])
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -726,6 +728,8 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
 
     const controller = new AbortController()
     abortRef.current = controller
+    // 自动超时：网络卡住/请求丢失时别让界面永久转圈（区别于用户手动「停止」）。
+    const timeout = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), 90_000)
     try {
       const res = await sendCoffeaMessage(
         { message: t, session_id: sessionId, attachments },
@@ -751,12 +755,16 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
         return next
       })
     } catch (err) {
-      // 用户主动停止：不算错误，气泡改为「已停止」。注意后端不支持中途取消，
-      // 本次请求服务端仍会跑完并计入额度，停止只是前端不再等待结果。
+      // abort 分两种：自动超时 vs 用户手动「停止」。后端不支持中途取消，
+      // 本次请求服务端仍会跑完并计入额度，停止/超时只是前端不再等待结果。
       if (controller.signal.aborted) {
+        const timedOut = (controller.signal.reason as DOMException | undefined)?.name === 'TimeoutError'
+        const text = timedOut
+          ? '响应超时了，网络似乎不太稳定，请重试一下。'
+          : '（已停止本次回复）'
         setMessages(cur => {
           const next = [...cur]
-          next[next.length - 1] = { role: 'assistant', text: '（已停止本次回复）', at: Date.now() }
+          next[next.length - 1] = { role: 'assistant', text, at: Date.now() }
           return next
         })
         return
@@ -769,6 +777,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
         return next
       })
     } finally {
+      clearTimeout(timeout)
       abortRef.current = null
       setSending(false)
     }

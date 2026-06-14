@@ -93,10 +93,11 @@ class CoffeaSessionRepository:
         *,
         results: list[dict[str, Any]] | None = None,
         at: int | None = None,
+        images: list[str] | None = None,
     ) -> None:
-        """追加一轮消息（含 assistant 的 results 摘要与时间戳），供跨设备同步回看。
+        """追加一轮消息（含 assistant 的 results 摘要、时间戳、图片 URL），供跨设备同步回看。
 
-        图片 / 草稿等交互态与大字段由调用方在传入前剥离。
+        images 是图床公开 URL（图片本身存 Supabase Storage，不存 JSONB）；草稿等交互态在传入前剥离。
         """
         turns = list(cs.recent_messages or [])
         turn: dict[str, Any] = {"role": role, "content": content or ""}
@@ -104,6 +105,8 @@ class CoffeaSessionRepository:
             turn["results"] = results
         if at is not None:
             turn["at"] = at
+        if images:
+            turn["images"] = images
         turns.append(turn)
         cs.recent_messages = turns[-self._MAX_TURNS :]
 

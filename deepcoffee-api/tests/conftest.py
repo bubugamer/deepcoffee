@@ -31,6 +31,9 @@ settings.model_base_url = None
 settings.model_api_key = None
 settings.vision_model_base_url = None
 settings.vision_model_api_key = None
+# 同理禁用 Supabase 图床：否则带图测试会真上传到 Supabase Storage（慢、且污染线上桶）。
+settings.supabase_url = None
+settings.supabase_secret_key = None
 
 TEST_URL = os.environ.get(
     "TEST_DATABASE_URL",

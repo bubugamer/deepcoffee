@@ -107,6 +107,7 @@ class CoffeaSessionTurn(BaseModel):
     text: str | None = None
     results: list[dict[str, Any]] = Field(default_factory=list)
     at: int | None = None
+    images: list[str] = Field(default_factory=list)  # 图床公开 URL（跨设备回看）
 
 
 class CoffeaSessionHistory(BaseModel):

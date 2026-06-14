@@ -318,3 +318,60 @@ def test_session_history_empty_for_new_user() -> None:
     body = hist.json()
     assert body["session_id"].startswith("sess_")
     assert body["turns"] == []
+
+
+# ── 识图建卡后按默认器具给冲煮建议 ──
+
+def test_wants_brew_plan_detection() -> None:
+    from app.api.v1.coffea import _wants_brew_plan
+    assert _wants_brew_plan("这个豆子给我一个热冲方案")
+    assert _wants_brew_plan("怎么冲比较好")
+    assert not _wants_brew_plan("帮我建个豆卡")
+
+
+def test_image_bean_with_brew_intent_no_equipment_prompts_for_equipment(monkeypatch) -> None:  # noqa: ANN001
+    _fake_vision(monkeypatch, {
+        "image_type": "bean_card",
+        "confidence": 0.9,
+        "bean_fields": _FULL_BEAN_FIELDS,
+    })
+    headers = {"Authorization": "Bearer dev:brew-advice-1:brew-advice-1@example.com"}
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/coffea/messages", headers=headers,
+        json={"message": "这个豆子给我一个热冲方案", **_IMG_ATTACH},
+    )
+    assert resp.status_code == 200, resp.text
+    reply = resp.json()["reply"]
+    assert "已识别并录入" in reply  # 建卡照常
+    assert "默认器具" in reply and "我的器具" in reply  # 无器具 → 引导补
+
+
+def test_chat_images_uploaded_and_in_history(monkeypatch) -> None:  # noqa: ANN001
+    """带图消息：图片上传图床得 URL，存进用户轮，GET /session 跨设备能取回。"""
+    from app.api.v1 import coffea as coffea_mod
+
+    async def fake_upload(attachments, *, user_id, settings):  # noqa: ANN001, ANN003
+        return [f"https://stub.supabase.co/storage/v1/object/public/chat-images/{user_id}/x.jpg"]
+
+    monkeypatch.setattr(coffea_mod, "upload_chat_images", fake_upload)
+    headers = {"Authorization": "Bearer dev:imgstore-1:imgstore-1@example.com"}
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/coffea/messages", headers=headers,
+        json={"message": "看看这张图", "attachments": [{"type": "image", "data_url": "data:image/jpeg;base64,/9j/x"}]},
+    )
+    assert resp.status_code == 200, resp.text
+    hist = client.get("/v1/coffea/session", headers=headers).json()
+    user_turn = next(t for t in hist["turns"] if t["role"] == "user")
+    assert user_turn["images"] and user_turn["images"][0].endswith("x.jpg")
+
+
+def test_text_only_message_has_no_images() -> None:
+    headers = {"Authorization": "Bearer dev:noimg-1:noimg-1@example.com"}
+    client = TestClient(create_app())
+    resp = client.post("/v1/coffea/messages", headers=headers, json={"message": "你好"})
+    assert resp.status_code == 200, resp.text
+    hist = client.get("/v1/coffea/session", headers=headers).json()
+    user_turn = next(t for t in hist["turns"] if t["role"] == "user")
+    assert user_turn["images"] == []

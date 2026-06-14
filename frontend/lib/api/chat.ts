@@ -29,6 +29,34 @@ export function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+// 上传前压缩：手机原图常有数 MB，等比缩到长边 ≤maxDim 并转 JPEG，
+// 大幅减小请求体（弱网更不易卡住），对豆卡文字识别足够。解码失败则回退原图。
+export async function compressImage(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
+  if (!file.type.startsWith('image/') || typeof document === 'undefined') {
+    return fileToDataUrl(file)
+  }
+  try {
+    const dataUrl = await fileToDataUrl(file)
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('decode failed'))
+      el.src = dataUrl
+    })
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+    if (scale >= 1 && file.size <= 600_000) return dataUrl  // 已经够小，不折腾
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(img.width * scale)
+    canvas.height = Math.round(img.height * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return dataUrl
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', quality)
+  } catch {
+    return fileToDataUrl(file)
+  }
+}
+
 // ── API Functions ─────────────────────────────────────────────────────────
 // POST /v1/coffea/messages —— 统一聊天入口（意图路由由后端完成，返回 results[]）
 export async function sendCoffeaMessage(
@@ -56,6 +84,7 @@ export interface CoffeaSessionTurn {
   text?: string | null
   results?: ActionResult[]
   at?: number | null
+  images?: string[]
 }
 
 export interface CoffeaSessionHistory {

@@ -28,21 +28,48 @@ export function isQuotaExceeded(err: unknown): err is ApiError {
   return err instanceof ApiError && err.status === 402 && err.code === 'ai_quota_exceeded'
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit & { token?: string | null }): Promise<T> {
-  const { token: explicitToken, headers, ...requestInit } = init ?? {}
+// 普通请求默认超时（毫秒）：防止网络卡住时界面永久挂起。
+// 调用方传了自己的 signal（如聊天的停止/超时控制）则不再叠加默认超时。
+const DEFAULT_TIMEOUT_MS = 45_000
+
+export async function apiFetch<T>(
+  path: string,
+  init?: RequestInit & { token?: string | null; timeoutMs?: number },
+): Promise<T> {
+  const { token: explicitToken, headers, timeoutMs, signal: externalSignal, ...requestInit } = init ?? {}
   const token = explicitToken ?? getToken()
-  const res = await fetch(`${API_BASE}/v1${path}`, {
-    ...requestInit,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(headers ?? {}),
-    },
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    const detail = (body.error ?? body.detail ?? body) as Record<string, string>
-    throw new ApiError(res.status, detail.code ?? 'api_error', detail.message ?? `HTTP ${res.status}`)
+
+  // 没有外部 signal 时挂一个自动超时；有外部 signal 则交给调用方控制。
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let signal = externalSignal
+  if (!externalSignal) {
+    const controller = new AbortController()
+    signal = controller.signal
+    timer = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), timeoutMs ?? DEFAULT_TIMEOUT_MS)
   }
-  return res.json() as Promise<T>
+
+  try {
+    const res = await fetch(`${API_BASE}/v1${path}`, {
+      ...requestInit,
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(headers ?? {}),
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail = (body.error ?? body.detail ?? body) as Record<string, string>
+      throw new ApiError(res.status, detail.code ?? 'api_error', detail.message ?? `HTTP ${res.status}`)
+    }
+    return res.json() as Promise<T>
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new ApiError(408, 'timeout', '请求超时，请检查网络后重试。')
+    }
+    throw err
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
