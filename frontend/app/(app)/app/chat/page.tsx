@@ -15,6 +15,7 @@ import { QuotaNotice } from '@/components/QuotaNotice'
 import { ChatMarkdown } from '@/components/ChatMarkdown'
 import { useProfile } from '@/components/ProfileContext'
 import { getToken } from '@/lib/auth'
+import { isExternalSourceHref, sourceHref } from '@/lib/knowledge-source-links'
 import type {
   Bean, BeanDraft, ActionResult, ActionStatus, CoffeaAttachment, WebVerifySource,
 } from '@/types'
@@ -134,20 +135,40 @@ function ActionResultCard({ result, replyText }: { result: ActionResult; replyTe
             <div className="flex items-center gap-1 text-xs text-dc-text-3">
               <Globe size={11} /> 参考来源
             </div>
-            {sources.map((s, i) => (
-              <a
-                key={i}
-                href={s.url ?? '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-lg border border-dc-border px-2.5 py-1.5 hover:border-dc-accent-hi transition-colors"
-              >
-                <div className="text-dc-text-1 font-medium line-clamp-1">{s.title ?? s.url}</div>
-                <div className="text-xs text-dc-text-3 line-clamp-1">
-                  {s.url}{(s.published_at ?? s.time) ? ` · ${s.published_at ?? s.time}` : ''}
-                </div>
-              </a>
-            ))}
+            {sources.map((s, i) => {
+              const href = sourceHref(s)
+              const subtitle = s.url ?? s.path ?? s.excerpt
+              const time = s.published_at ?? s.time
+              const content = (
+                <>
+                  <div className="text-dc-text-1 font-medium line-clamp-1">{s.title ?? href ?? '参考来源'}</div>
+                  {(subtitle || time) && (
+                    <div className="text-xs text-dc-text-3 line-clamp-1">
+                      {subtitle}{subtitle && time ? ` · ${time}` : time}
+                    </div>
+                  )}
+                </>
+              )
+              const className = 'block rounded-lg border border-dc-border px-2.5 py-1.5 hover:border-dc-accent-hi transition-colors'
+
+              if (!href) {
+                return <div key={i} className={className}>{content}</div>
+              }
+
+              if (isExternalSourceHref(href)) {
+                return (
+                  <a key={i} href={href} target="_blank" rel="noopener noreferrer" className={className}>
+                    {content}
+                  </a>
+                )
+              }
+
+              return (
+                <Link key={i} href={href} className={className}>
+                  {content}
+                </Link>
+              )
+            })}
           </div>
         )}
       </div>

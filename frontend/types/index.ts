@@ -352,6 +352,9 @@ export interface CoffeaMessageResponse {
 export interface WebVerifySource {
   title?: string
   url?: string
+  slug?: string
+  path?: string
+  excerpt?: string
   published_at?: string
   time?: string
 }
