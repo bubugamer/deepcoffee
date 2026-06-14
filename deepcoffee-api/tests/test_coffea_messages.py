@@ -281,3 +281,40 @@ def test_quota_counts_one_per_message_despite_detail_events(monkeypatch) -> None
     assert resp.json()["results"]  # 真执行了能力（产生明细事件）
     quota = client.get("/v1/me/quota", headers=headers).json()
     assert quota["ai_used"] == 1
+
+
+# ── 会话跨设备同步：GET /coffea/session 返回双向历史 ──
+
+def test_session_history_round_trips_across_devices() -> None:
+    headers = {"Authorization": "Bearer dev:sync-user-1:sync-user-1@example.com"}
+    # 设备 A：发两轮
+    client_a = TestClient(create_app())
+    r1 = client_a.post("/v1/coffea/messages", headers=headers, json={"message": "瑰夏为什么有花香"})
+    assert r1.status_code == 200, r1.text
+    sid = r1.json()["session_id"]
+    r2 = client_a.post("/v1/coffea/messages", headers=headers, json={"message": "那耶加雪菲呢", "session_id": sid})
+    assert r2.status_code == 200, r2.text
+
+    # 设备 B：全新 client（同 token），拉历史应看到 A 聊的内容
+    client_b = TestClient(create_app())
+    hist = client_b.get("/v1/coffea/session", headers=headers)
+    assert hist.status_code == 200, hist.text
+    body = hist.json()
+    assert body["session_id"] == sid  # 同一条永久对话
+    roles = [t["role"] for t in body["turns"]]
+    texts = [t["text"] for t in body["turns"]]
+    assert roles.count("user") == 2 and "assistant" in roles
+    assert "瑰夏为什么有花香" in texts and "那耶加雪菲呢" in texts
+    # assistant 轮带 results 摘要（知识问答），且无草稿/原图大字段
+    assistant_turns = [t for t in body["turns"] if t["role"] == "assistant"]
+    assert assistant_turns and assistant_turns[0]["text"]
+
+
+def test_session_history_empty_for_new_user() -> None:
+    headers = {"Authorization": "Bearer dev:sync-fresh-1:sync-fresh-1@example.com"}
+    client = TestClient(create_app())
+    hist = client.get("/v1/coffea/session", headers=headers)
+    assert hist.status_code == 200, hist.text
+    body = hist.json()
+    assert body["session_id"].startswith("sess_")
+    assert body["turns"] == []

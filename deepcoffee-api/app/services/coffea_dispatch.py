@@ -242,6 +242,36 @@ def local_dispatch(
     )
 
 
+def _redirect_image_bean_card(plan: DispatchPlan, attachments: Any) -> DispatchPlan:
+    """带图片时把 create_or_update_bean_card 归一化为 read_bean_card_image。
+
+    用图片建豆卡必须先读图；模型有时把「建卡 + 图片」误判为纯写库流程，只回 pending 引导桩
+    （前端表现为豆卡卡片一直「处理中」）。这里统一引到已实现的 OCR→草稿/自动建档链路。
+    不改提示词，model / local 两条路径都覆盖。
+    """
+    if not attachments:
+        return plan
+    targets_create = plan.primary_intent == "create_or_update_bean_card" or any(
+        isinstance(a, dict) and a.get("type") == "create_or_update_bean_card" for a in plan.actions
+    )
+    if not targets_create:
+        return plan
+    has_read = any(isinstance(a, dict) and a.get("type") == "read_bean_card_image" for a in plan.actions)
+    new_actions: list[dict[str, Any]] = []
+    for action in plan.actions:
+        if isinstance(action, dict) and action.get("type") == "create_or_update_bean_card":
+            if not has_read:
+                new_actions.append({"type": "read_bean_card_image", "input_ref": "attachment_1"})
+                has_read = True
+            # 已有 read_bean_card_image 则丢弃这个 create 动作（去重）
+        else:
+            new_actions.append(action)
+    if not has_read:  # primary 是 create 但没有对应 action：补一个读图动作
+        new_actions.insert(0, {"type": "read_bean_card_image", "input_ref": "attachment_1"})
+    primary = "read_bean_card_image" if plan.primary_intent == "create_or_update_bean_card" else plan.primary_intent
+    return plan.model_copy(update={"actions": new_actions, "primary_intent": primary})
+
+
 async def dispatch(
     *,
     message: str,
@@ -269,9 +299,9 @@ async def dispatch(
         gateway=gateway,
         failure_reasons=failure_reasons,
     )
-    if plan is not None:
-        return plan
-    plan = local_dispatch(message=message, attachments=attachments, session_state=session_state)
-    if "provider_quota" in failure_reasons:
-        plan = plan.model_copy(update={"degrade_reason": "provider_quota"})
-    return plan
+    if plan is None:
+        plan = local_dispatch(message=message, attachments=attachments, session_state=session_state)
+        if "provider_quota" in failure_reasons:
+            plan = plan.model_copy(update={"degrade_reason": "provider_quota"})
+    # 归一化：带图建豆卡统一走读图链路（model / local 两路都覆盖）。
+    return _redirect_image_bean_card(plan, attachments)

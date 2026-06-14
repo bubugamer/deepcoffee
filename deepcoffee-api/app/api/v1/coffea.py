@@ -7,6 +7,7 @@ POST /v1/coffea/messages —— 维护会话状态、跑 coffea_dispatch、记 u
 
 from __future__ import annotations
 
+import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
@@ -24,7 +25,14 @@ from app.repositories.equipment import equipment_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
 from app.schemas.bean import Bean, BeanDraft
-from app.schemas.coffea import ActionResult, CoffeaMessageRequest, CoffeaMessageResponse, CoffeaSessionState
+from app.schemas.coffea import (
+    ActionResult,
+    CoffeaMessageRequest,
+    CoffeaMessageResponse,
+    CoffeaSessionHistory,
+    CoffeaSessionState,
+    CoffeaSessionTurn,
+)
 from app.services import coffea_dispatch
 from app.services.bean_card_intake import summarize_draft
 from app.services.candidate_service import candidate_service
@@ -33,6 +41,22 @@ from app.services.knowledge_service import KnowledgeService, get_knowledge_servi
 from app.services.langfuse_client import langfuse_tracer
 
 router = APIRouter(prefix="/coffea", tags=["coffea"], dependencies=[Depends(require_member)])
+
+# 持久化到历史时，results 只保留展示安全字段；剥离草稿/原图/原始 OCR 等交互态与大字段。
+_SAFE_OUTPUT_KEYS = frozenset({"sources", "bean_id", "auto_saved"})
+
+
+def _display_safe_results(results: list[ActionResult]) -> list[dict]:
+    safe: list[dict] = []
+    for r in results:
+        item: dict = {"type": r.type, "status": r.status, "message": r.message}
+        output = r.output if isinstance(r.output, dict) else None
+        if output:
+            kept = {k: v for k, v in output.items() if k in _SAFE_OUTPUT_KEYS}
+            if kept:
+                item["output"] = kept
+        safe.append(item)
+    return safe
 
 
 def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | bool | None]:
@@ -167,7 +191,6 @@ async def post_message(
         await ai_usage_repository.record(
             session, user_id=user.id, action="coffea_bean_autosave", trace_id=trace_id
         )
-    coffea_session_repository.append_message(cs, "user", payload.message)
     await session.flush()
     await ai_usage_repository.record(session, user_id=user.id, action="coffea_dispatch", trace_id=trace_id)
     # 真执行了知识/图片能力的，各记一条用量，便于分析。
@@ -199,6 +222,15 @@ async def post_message(
         notice = "AI 服务暂时不可用，本次为基础回复。"
         reply = f"{reply}\n\n{notice}" if reply else notice
 
+    # 落历史（跨设备同步）：用户一轮 + 助手一轮；图片不存，results 取展示安全摘要。
+    now_ms = int(time.time() * 1000)
+    coffea_session_repository.append_turn(cs, "user", payload.message, at=now_ms)
+    if reply or results:
+        coffea_session_repository.append_turn(
+            cs, "assistant", reply or "", results=_display_safe_results(results), at=now_ms
+        )
+    await session.flush()
+
     return CoffeaMessageResponse(
         session_id=cs.session_id,
         primary_intent=plan.primary_intent,
@@ -210,4 +242,31 @@ async def post_message(
         should_answer_directly=plan.should_answer_directly,
         source=plan.source,
         trace_id=trace_id,
+    )
+
+
+@router.get("/session", response_model=CoffeaSessionHistory)
+async def get_session_history(
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CoffeaSessionHistory:
+    """该用户那条永久对话的完整历史（跨设备同步:任意设备打开都看同一份）。"""
+    await profile_repository.get_or_create(session, user.id, user.email)
+    cs = await coffea_session_repository.get_or_create_user_session(session, user_id=user.id)
+    turns: list[CoffeaSessionTurn] = []
+    for m in cs.recent_messages or []:
+        if not isinstance(m, dict):
+            continue
+        turns.append(
+            CoffeaSessionTurn(
+                role=m.get("role", "assistant"),
+                text=m.get("content"),
+                results=m.get("results") or [],
+                at=m.get("at"),
+            )
+        )
+    return CoffeaSessionHistory(
+        session_id=cs.session_id,
+        state=CoffeaSessionState(**(cs.state or {})),
+        turns=turns,
     )

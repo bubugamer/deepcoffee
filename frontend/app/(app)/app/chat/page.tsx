@@ -9,7 +9,7 @@ import {
 import { confirmBean, getBeans, parseBeanInput } from '@/lib/api/beans'
 import { listEquipment, type EquipmentProfile } from '@/lib/api/equipment'
 import { confirmBrew } from '@/lib/api/records'
-import { sendCoffeaMessage, fileToDataUrl, mockSuggestions } from '@/lib/api/chat'
+import { sendCoffeaMessage, getCoffeaSession, fileToDataUrl, mockSuggestions } from '@/lib/api/chat'
 import { isQuotaExceeded } from '@/lib/api/client'
 import { QuotaNotice } from '@/components/QuotaNotice'
 import { ChatMarkdown } from '@/components/ChatMarkdown'
@@ -636,18 +636,9 @@ function persistTurns(key: string, sessionId: string | null, turns: ChatTurn[]) 
 }
 
 function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedBeanId: string | null }) {
-  const isBrew = newMode === '1'
+  const isBrew = newMode === '1'  // 「记录冲煮」快捷入口：只改提示词/placeholder，仍并入同一条对话
   const { profile } = useProfile()
-  const [messages, setMessages] = useState<ChatTurn[]>(() =>
-    isBrew
-      ? [{
-          role: 'assistant',
-          text: linkedBeanId
-            ? '好的，来记录这次冲煮 ☕ 这条记录会关联到当前豆卡。直接用自然语言描述即可，细节越多识别越准。'
-            : '好的，来记录这次冲煮 ☕ 直接描述器具、粉量、水量、水温、时间和风味即可，越详细识别越准。',
-        }]
-      : []
-  )
+  const [messages, setMessages] = useState<ChatTurn[]>([])
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -660,23 +651,41 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
 
   const storageKey = profile ? chatStorageKey(profile.id) : null
 
-  // 恢复历史（仅默认线程；?new=1 的冲煮引导按新对话处理，但后续仍会写盘）
+  // 挂载时加载该用户那条永久对话：服务端为唯一真相（跨设备同步），失败回退本地缓存。
   useEffect(() => {
     if (!storageKey || restoredRef.current) return
     restoredRef.current = true
-    if (isBrew) return
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (!raw) return
-      const saved = JSON.parse(raw) as { v?: number; sessionId?: string | null; turns?: ChatTurn[] }
-      if (saved.v === CHAT_STORE_VERSION && Array.isArray(saved.turns) && saved.turns.length > 0) {
-        setMessages(saved.turns)
-        setSessionId(saved.sessionId ?? null)
+    let cancelled = false
+    ;(async () => {
+      const server = await getCoffeaSession(getToken())
+      if (cancelled) return
+      if (server) {
+        setSessionId(server.session_id)
+        if (server.turns.length > 0) {
+          setMessages(server.turns.map(t => ({
+            role: t.role,
+            text: t.text ?? undefined,
+            results: t.results,
+            at: t.at ?? undefined,
+          })))
+        }
+        return
       }
-    } catch { /* 损坏数据直接忽略 */ }
-  }, [storageKey, isBrew])
+      // 服务端不可达：回退本地缓存
+      try {
+        const raw = localStorage.getItem(storageKey)
+        if (!raw) return
+        const saved = JSON.parse(raw) as { v?: number; sessionId?: string | null; turns?: ChatTurn[] }
+        if (saved.v === CHAT_STORE_VERSION && Array.isArray(saved.turns) && saved.turns.length > 0) {
+          setMessages(saved.turns)
+          setSessionId(saved.sessionId ?? null)
+        }
+      } catch { /* 损坏数据直接忽略 */ }
+    })()
+    return () => { cancelled = true }
+  }, [storageKey])
 
-  // 每次消息变化落盘
+  // 每次消息变化落盘（本地缓存，离线用；服务端才是真相）
   useEffect(() => {
     if (!storageKey || !restoredRef.current) return
     if (messages.some(m => m.role === 'user')) persistTurns(storageKey, sessionId, messages)
@@ -778,14 +787,6 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
       )
       return { ...m, results }
     }))
-  }
-
-  function resetThread() {
-    setMessages([])
-    setSessionId(null)
-    setPendingImages([])
-    setInput('')
-    if (storageKey) localStorage.removeItem(storageKey)
   }
 
   return (
@@ -933,15 +934,6 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
           </div>
         )}
         <div className="flex gap-2 items-end w-full">
-          {hasUserTurn && (
-            <button
-              onClick={resetThread}
-              title="新对话"
-              className="text-dc-text-3 hover:text-dc-text-2 p-2.5 flex-shrink-0"
-            >
-              <RotateCcw size={16} />
-            </button>
-          )}
           <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => handleFiles(e.target.files)} />
           <button
             onClick={() => fileRef.current?.click()}

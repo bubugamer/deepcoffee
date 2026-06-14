@@ -184,3 +184,53 @@ def test_dispatch_tags_provider_quota_on_exhausted_key() -> None:
     plan = asyncio.run(dispatch(message="随便聊聊", model="m", gateway=_QuotaExhaustedGateway()))
     assert plan.source == "local"
     assert plan.degrade_reason == "provider_quota"
+
+
+# ── 带图建豆卡路由安全网：create_or_update_bean_card + 图片 → read_bean_card_image ──
+
+class _BeanCardCreateGateway:
+    """模型把「建立豆卡 + 图片」误判为 create_or_update_bean_card（pending 写库桩）。"""
+
+    enabled = True
+
+    async def chat(self, **kwargs):  # noqa: ANN003
+        return SimpleNamespace(content=json.dumps({
+            "primary_intent": "create_or_update_bean_card",
+            "secondary_intents": [],
+            "actions": [{"type": "create_or_update_bean_card"}],
+            "state_updates": {},
+            "direct_reply": None,
+            "should_answer_directly": False,
+        }), model="fake")
+
+
+def test_image_create_bean_card_redirected_to_read_image() -> None:
+    plan = asyncio.run(dispatch(
+        message="帮我给这只豆子建立豆卡",
+        attachments=[{"type": "image", "data_url": "data:image/png;base64,xx"}],
+        model="m",
+        gateway=_BeanCardCreateGateway(),
+    ))
+    assert plan.primary_intent == "read_bean_card_image"
+    assert any(a["type"] == "read_bean_card_image" for a in plan.actions)
+    assert all(a["type"] != "create_or_update_bean_card" for a in plan.actions)
+
+
+def test_text_only_create_bean_card_not_redirected() -> None:
+    # 无图片：建卡意图照常，不改写
+    plan = asyncio.run(dispatch(
+        message="把这支豆的处理法改成水洗",
+        attachments=None,
+        model="m",
+        gateway=_BeanCardCreateGateway(),
+    ))
+    assert plan.primary_intent == "create_or_update_bean_card"
+
+
+def test_image_already_read_bean_card_unchanged() -> None:
+    plan = local_dispatch(message="帮我读一下这张豆卡", attachments=[{"type": "image"}])
+    # local 已路由 read_bean_card_image；归一化不应重复或破坏
+    from app.services.coffea_dispatch import _redirect_image_bean_card
+    out = _redirect_image_bean_card(plan, [{"type": "image"}])
+    assert out.primary_intent == "read_bean_card_image"
+    assert sum(1 for a in out.actions if a["type"] == "read_bean_card_image") == 1

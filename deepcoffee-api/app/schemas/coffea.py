@@ -98,3 +98,20 @@ class CoffeaMessageResponse(BaseModel):
     should_answer_directly: bool = False
     source: SourceTag
     trace_id: str
+
+
+class CoffeaSessionTurn(BaseModel):
+    """聊天历史中的一轮（跨设备同步回看用）。"""
+
+    role: str
+    text: str | None = None
+    results: list[dict[str, Any]] = Field(default_factory=list)
+    at: int | None = None
+
+
+class CoffeaSessionHistory(BaseModel):
+    """GET /coffea/session：该用户那条永久对话的完整历史。"""
+
+    session_id: str
+    state: CoffeaSessionState
+    turns: list[CoffeaSessionTurn] = Field(default_factory=list)

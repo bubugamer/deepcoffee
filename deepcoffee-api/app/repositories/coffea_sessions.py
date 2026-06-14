@@ -9,14 +9,15 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import CoffeaSession
 
 
 class CoffeaSessionRepository:
-    # 输入上下文预算：近期消息只保留最后 N 条（见 §0「输入 token 预算」）。
-    _MAX_MESSAGES = 20
+    # 聊天历史保留最后 N 轮（recent_messages 同时承担跨设备同步的历史，存完整 turn）。
+    _MAX_TURNS = 80
 
     async def get(self, session: AsyncSession, *, user_id: str, session_id: str) -> CoffeaSession | None:
         cs = await session.get(CoffeaSession, session_id)
@@ -32,6 +33,30 @@ class CoffeaSessionRepository:
             existing = await self.get(session, user_id=user_id, session_id=session_id)
             if existing is not None:
                 return existing
+        cs = CoffeaSession(
+            session_id=f"sess_{uuid4().hex[:16]}",
+            user_id=user_id,
+            state={},
+            recent_messages=[],
+        )
+        session.add(cs)
+        await session.flush()
+        return cs
+
+    async def get_or_create_user_session(self, session: AsyncSession, *, user_id: str) -> CoffeaSession:
+        """该用户那条「永久对话」：取最近活跃的一条；从无则新建。
+
+        产品上 DeepCoffee AI 一个用户只有一条连续对话，不存在重置。跨设备同步即靠此。
+        """
+        result = await session.execute(
+            select(CoffeaSession)
+            .where(CoffeaSession.user_id == user_id)
+            .order_by(CoffeaSession.updated_at.desc())
+            .limit(1)
+        )
+        cs = result.scalar_one_or_none()
+        if cs is not None:
+            return cs
         cs = CoffeaSession(
             session_id=f"sess_{uuid4().hex[:16]}",
             user_id=user_id,
@@ -60,10 +85,27 @@ class CoffeaSessionRepository:
         if changed:
             cs.state = merged
 
-    def append_message(self, cs: CoffeaSession, role: str, content: str) -> None:
-        messages = list(cs.recent_messages or [])
-        messages.append({"role": role, "content": content})
-        cs.recent_messages = messages[-self._MAX_MESSAGES :]
+    def append_turn(
+        self,
+        cs: CoffeaSession,
+        role: str,
+        content: str,
+        *,
+        results: list[dict[str, Any]] | None = None,
+        at: int | None = None,
+    ) -> None:
+        """追加一轮消息（含 assistant 的 results 摘要与时间戳），供跨设备同步回看。
+
+        图片 / 草稿等交互态与大字段由调用方在传入前剥离。
+        """
+        turns = list(cs.recent_messages or [])
+        turn: dict[str, Any] = {"role": role, "content": content or ""}
+        if results:
+            turn["results"] = results
+        if at is not None:
+            turn["at"] = at
+        turns.append(turn)
+        cs.recent_messages = turns[-self._MAX_TURNS :]
 
 
 coffea_session_repository = CoffeaSessionRepository()

@@ -1,4 +1,4 @@
-import type { CoffeaMessageRequest, CoffeaMessageResponse, DraftField } from '@/types'
+import type { ActionResult, CoffeaMessageRequest, CoffeaMessageResponse, DraftField } from '@/types'
 import { apiFetch, isApiEnabled } from './client'
 
 // ── Mock Data ─────────────────────────────────────────────────────────────
@@ -49,6 +49,29 @@ export async function sendCoffeaMessage(
     })
   }
   return mockCoffeaResponse(req)
+}
+
+export interface CoffeaSessionTurn {
+  role: 'user' | 'assistant'
+  text?: string | null
+  results?: ActionResult[]
+  at?: number | null
+}
+
+export interface CoffeaSessionHistory {
+  session_id: string
+  state: Record<string, unknown>
+  turns: CoffeaSessionTurn[]
+}
+
+// GET /coffea/session：该用户那条永久对话（跨设备同步）。失败/未启用返回 null，前端回退本地缓存。
+export async function getCoffeaSession(token?: string | null): Promise<CoffeaSessionHistory | null> {
+  if (!isApiEnabled) return null
+  try {
+    return await apiFetch<CoffeaSessionHistory>('/coffea/session', { token })
+  } catch {
+    return null
+  }
 }
 
 function mockCoffeaResponse(req: CoffeaMessageRequest): CoffeaMessageResponse {
