@@ -193,8 +193,10 @@ function AuthInner() {
     setSuccessMsg('验证完成后，用注册邮箱直接登录即可。')
   }
 
-  // 仅本地开发：用后端 dev token 跳过 Supabase 流程（dev:userId:email）
-  const isDev = process.env.NODE_ENV === 'development'
+  // 仅本地开发且 API 也指向本机时，才允许 dev token 跳过 Supabase 流程。
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? ''
+  const isLocalApi = !apiBase || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/.test(apiBase)
+  const isDev = process.env.NODE_ENV === 'development' && isLocalApi
   function handleDevLogin() {
     setToken('dev:u1:dev@deepcoffee.local')
     router.push('/app')

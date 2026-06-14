@@ -13,6 +13,7 @@ const adminNav = [
   { label: '用户',   href: '/admin/users' },
   { label: '审核',   href: '/admin/review' },
   { label: '知识库', href: '/admin/knowledge' },
+  { label: '关于',   href: '/admin/about' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
