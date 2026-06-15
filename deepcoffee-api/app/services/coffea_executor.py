@@ -36,7 +36,9 @@ _COACH_ACTIONS = frozenset(
     {"adjust_brew_params", "scale_recipe", "grinder_conversion", "storage_resting_advice", "equipment_advice"}
 )
 # 仅作意图、无执行动作（由调度器的 direct_reply 直接回用户）。
-_INTENT_ONLY = frozenset({"direct_answer", "ask_clarification", "out_of_scope"})
+# 注意：direct_answer 不在此列——它要真正调模型生成回答（见 execute_plan），否则回答全靠
+# 调度器顺手填的 direct_reply，常为空导致空回复。
+_INTENT_ONLY = frozenset({"ask_clarification", "out_of_scope"})
 _DISPLAYABLE_RESULT_STATUSES = frozenset({"done", "degraded"})
 # 写库类动作（建/改豆卡、生成建议参数）故意不在聊天单轮自动执行，避免一句话误改用户数据。
 # 给明确的引导语，指向各自的确认流程，而不是笼统的「后续阶段接入」（那会被前端误显示成"处理中"）。
@@ -79,7 +81,14 @@ async def execute_plan(
 ) -> list[ActionResult]:
     results: list[ActionResult] = []
     current_image_urls = image_data_urls(attachments)
-    for action in plan.actions:
+    # direct_answer（不需专项工具的普通咖啡问答）也要真正生成回答：调度器只给意图、没给 action 时
+    # 这里补一个，避免回答全靠（常为空的）direct_reply 而出现空回复。
+    actions = list(plan.actions)
+    if plan.primary_intent == "direct_answer" and not any(
+        isinstance(a, dict) and a.get("type") == "direct_answer" for a in actions
+    ):
+        actions.append({"type": "direct_answer"})
+    for action in actions:
         action_type = action.get("type") if isinstance(action, dict) else None
         if not action_type:
             continue
@@ -137,6 +146,21 @@ async def execute_plan(
                 )
             elif action_type == "brew_record_parse":
                 results.append(await _run_brew_parse(message, model=model, gateway=gateway))
+            elif action_type == "direct_answer":
+                # 不需专项工具的普通咖啡问答：用冲煮教练（自由文本，带历史/画像/活跃上下文）真正生成回答。
+                results.append(
+                    await _run_coach(
+                        "direct_answer",
+                        message=message,
+                        active_context=active_context,
+                        session_state=session_state,
+                        image_urls=current_image_urls,
+                        settings=settings,
+                        model=model,
+                        history=history,
+                        gateway=gateway,
+                    )
+                )
             elif action_type in _INTENT_ONLY:
                 # 调度器已经把要直接说的话放在 direct_reply，这里不重复产出动作结果。
                 continue

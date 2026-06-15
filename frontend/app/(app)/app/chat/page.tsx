@@ -137,7 +137,7 @@ function ActionResultCard({ result, replyText }: { result: ActionResult; replyTe
             </div>
             {sources.map((s, i) => {
               const href = sourceHref(s)
-              const subtitle = s.url ?? s.path ?? s.excerpt
+              const subtitle = s.url ?? s.excerpt
               const time = s.published_at ?? s.time
               const content = (
                 <>
