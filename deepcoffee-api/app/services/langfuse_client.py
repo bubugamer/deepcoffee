@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
@@ -90,20 +91,37 @@ class LangfuseTracer:
         input: Any = None,
         output: Any = None,
         metadata: dict[str, Any] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
     ) -> None:
-        """上报一次 AI 调用 trace。未配置/出错都是 no-op，绝不抛异常打断业务。"""
+        """上报一次 AI 调用 trace。未配置/出错都是 no-op，绝不抛异常打断业务。
+
+        传入 start_time/end_time 时，额外在 trace 下挂一个带起止时间的 span，
+        Langfuse 据此算出本次调用的 duration（响应时间）。
+        """
         client = self._get_client()
         if client is None:
             return
+        masked_input = self._mask_value(input)
+        masked_output = self._mask_value(output)
         try:
-            client.trace(
+            trace_obj = client.trace(
                 id=trace_id,
                 name=name,
                 user_id=user_id,
-                input=self._mask_value(input),
-                output=self._mask_value(output),
+                input=masked_input,
+                output=masked_output,
                 metadata=self._mask_metadata(metadata),
             )
+            # v2 SDK：trace 自身不带耗时，需在其下挂一个带起止时间的 span 让 Langfuse 算 duration。
+            if start_time is not None and end_time is not None:
+                trace_obj.span(
+                    name=name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    input=masked_input,
+                    output=masked_output,
+                )
         except Exception as exc:  # noqa: BLE001 — 观测失败不影响业务
             logger.warning("Langfuse trace '%s' failed: %s", name, exc)
 
