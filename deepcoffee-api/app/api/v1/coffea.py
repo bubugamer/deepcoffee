@@ -8,6 +8,7 @@ POST /v1/coffea/messages —— 维护会话状态、跑 coffea_dispatch、记 u
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
@@ -166,6 +167,9 @@ async def post_message(
     settings: Settings = Depends(get_settings),
     knowledge_service: KnowledgeService = Depends(get_knowledge_service),
 ) -> CoffeaMessageResponse:
+    # trace 耗时起点：覆盖整轮处理（水合上下文 + 调度 + 执行 + 落库），交给 Langfuse 算 duration。
+    trace_started_at = datetime.now(timezone.utc)
+
     # 确保用户档案存在（会话表外键依赖 user_profiles）。
     await profile_repository.get_or_create(session, user.id, user.email)
     cs = await coffea_session_repository.get_or_create(
@@ -219,6 +223,9 @@ async def post_message(
 
     trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
 
+    # 先把图片上传到 Supabase 图床，拿到公开 URL 用于跨设备展示，也用于 Langfuse trace metadata。
+    image_urls = await upload_chat_images(attachments, user_id=user.id, settings=settings)
+
     # 高识别度豆卡自动录入（执行器只判定 auto_save_eligible，落库在端点层，保持执行器无副作用）。
     auto_saved_bean_id = await _autosave_bean_card(
         session, user_id=user.id, results=results, existing_beans=beans, trace_id=trace_id
@@ -239,23 +246,9 @@ async def post_message(
             await ai_usage_repository.record(
                 session, user_id=user.id, action=f"coffea_{result.type}", trace_id=trace_id
             )
-    langfuse_tracer.trace(
-        "coffea_dispatch",
-        trace_id=trace_id,
-        user_id=user.id,
-        input=payload.message,
-        output=plan.model_dump(),
-        metadata={
-            "source": plan.source,
-            "session_id": cs.session_id,
-            "primary_intent": plan.primary_intent,
-            "has_attachments": bool(attachments),
-            "executed": [{"type": r.type, "status": r.status, "source": r.source} for r in results],
-        },
-    )
-
     # 前端只读 reply 作为主气泡正文；results 保留动作明细，不要求前端遍历 results 来找主回复。
     reply = assemble_reply(plan, results)
+
     # 服务端模型 key 配额/欠费导致的降级必须显式告知（否则 AI 只是静默变笨）；
     # 这是管理员要充值的事，不是用户额度问题，文案不引导用户充值。
     if plan.degrade_reason == "provider_quota":
@@ -279,13 +272,33 @@ async def post_message(
 
     # 落历史（跨设备同步）：用户一轮 + 助手一轮。图片传到 Supabase 图床存公开 URL（跨设备可看）。
     now_ms = int(time.time() * 1000)
-    image_urls = await upload_chat_images(attachments, user_id=user.id, settings=settings)
     coffea_session_repository.append_turn(cs, "user", payload.message, at=now_ms, images=image_urls or None)
     if reply or results:
         coffea_session_repository.append_turn(
             cs, "assistant", reply or "", results=_display_safe_results(results), at=now_ms
         )
     await session.flush()
+
+    # Langfuse trace 放在最后：output 取最终 reply（含降级提示/冲煮建议），
+    # input/output 用自然语言，计划/结果/图片放 metadata；start/end 让 Langfuse 算 duration。
+    langfuse_tracer.trace(
+        "coffea_dispatch",
+        trace_id=trace_id,
+        user_id=user.id,
+        input=payload.message,
+        output=reply,
+        metadata={
+            "source": plan.source,
+            "session_id": cs.session_id,
+            "primary_intent": plan.primary_intent,
+            "has_attachments": bool(attachments),
+            "image_urls": image_urls or [],
+            "plan": plan.model_dump(),
+            "executed": [{"type": r.type, "status": r.status, "source": r.source} for r in results],
+        },
+        start_time=trace_started_at,
+        end_time=datetime.now(timezone.utc),
+    )
 
     return CoffeaMessageResponse(
         session_id=cs.session_id,
