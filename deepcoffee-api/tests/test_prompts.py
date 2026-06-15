@@ -41,6 +41,10 @@ _VERBATIM_CONSTANTS = [
     "BREW_COACH_USER_TEMPLATE",
     "WEB_VERIFY_SYSTEM",
     "WEB_VERIFY_USER_TEMPLATE",
+    "MEMORY_EXTRACT_SYSTEM",
+    "MEMORY_EXTRACT_USER_TEMPLATE",
+    "SESSION_SUMMARY_SYSTEM",
+    "SESSION_SUMMARY_USER_TEMPLATE",
 ]
 
 
@@ -66,3 +70,41 @@ def test_raw_text_user_templates_are_passthrough() -> None:
     # 文档里这两处 user 模板是「直接传原文」，代码用 {text} 占位，刻意与文档措辞不同。
     assert prompts.BEAN_PARSE_USER_TEMPLATE == "{text}"
     assert prompts.BREW_PARSE_USER_TEMPLATE == "{text}"
+
+
+# 直接产出「用户可见自由文本回复」的提示词，禁止出现内部能力代号 / 字段名，
+# 防止模型把工具名（如 web_verify）照搬进给用户的回复。
+# 注：COFFEA_DISPATCH_SYSTEM / IMAGE_UNDERSTANDING_SYSTEM / 各 *_PARSE_SYSTEM 是结构化 JSON
+# 能力，功能上必须把这些代号当枚举值列出、不直接展示给终端用户，故刻意不纳入此断言。
+_USER_FACING_FREEFORM = [
+    "KNOWLEDGE_ANSWER_SYSTEM",
+    "BREW_COACH_SYSTEM",
+    "WEB_VERIFY_SYSTEM",
+    "BEAN_RECOMMEND_SYSTEM",
+]
+
+_INTERNAL_CODENAMES = [
+    "web_verify",
+    "knowledge_answer",
+    "read_bean_card_image",
+    "assess_brew_photo",
+    "create_or_update_bean_card",
+    "recommend_brew_params",
+    "adjust_brew_params",
+    "scale_recipe",
+    "grinder_conversion",
+    "brew_record_parse",
+    "equipment_advice",
+    "storage_resting_advice",
+    "ask_clarification",
+    "out_of_scope",
+    "direct_answer",
+    "primary_intent",
+]
+
+
+@pytest.mark.parametrize("name", _USER_FACING_FREEFORM)
+def test_user_facing_prompts_have_no_internal_codenames(name: str) -> None:
+    value = getattr(prompts, name)
+    leaked = [token for token in _INTERNAL_CODENAMES if token in value]
+    assert not leaked, f"{name} 暴露了内部代号: {leaked}"

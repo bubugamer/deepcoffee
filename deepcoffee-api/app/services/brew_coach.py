@@ -42,6 +42,7 @@ async def coach_with_model(
     active_recipe: Any = None,
     image_urls: list[str] | None = None,
     taste_feedback: Any = None,
+    history: list[dict[str, str]] | None = None,
     model: str,
     vision_model: str | None = None,
     gateway: ModelGateway | None = None,
@@ -66,10 +67,12 @@ async def coach_with_model(
         message=message,
     )
     model_to_use = select_model_for_images(text_model=model, vision_model=vision_model if use_images else None, image_urls=image_urls)
-    messages = [
-        {"role": "system", "content": BREW_COACH_SYSTEM},
-        {"role": "user", "content": build_user_content(user_content, image_urls if use_images else None)},
-    ]
+    messages = [{"role": "system", "content": BREW_COACH_SYSTEM}]
+    if history:
+        messages.extend(history)
+    messages.append(
+        {"role": "user", "content": build_user_content(user_content, image_urls if use_images else None)}
+    )
     try:
         result = await gw.chat(
             model=model_to_use, messages=messages, temperature=0.4, max_tokens=900

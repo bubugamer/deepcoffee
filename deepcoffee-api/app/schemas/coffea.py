@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -116,3 +117,23 @@ class CoffeaSessionHistory(BaseModel):
     session_id: str
     state: CoffeaSessionState
     turns: list[CoffeaSessionTurn] = Field(default_factory=list)
+
+
+class UserMemoryItem(BaseModel):
+    """一条用户长期记忆（L3 画像），供「我的口味档案」展示与编辑。"""
+
+    id: str
+    kind: str
+    content: str
+    confidence: float
+    source: str | None = None
+    status: str
+    created_at: datetime
+
+
+class UserMemoryList(BaseModel):
+    memories: list[UserMemoryItem] = Field(default_factory=list)
+
+
+class UserMemoryUpdate(BaseModel):
+    content: str = Field(min_length=1, description="用户修正后的记忆内容")

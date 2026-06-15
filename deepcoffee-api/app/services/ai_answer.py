@@ -27,6 +27,7 @@ async def answer_with_model(
     *,
     model: str,
     image_urls: list[str] | None = None,
+    history: list[dict[str, str]] | None = None,
     vision_model: str | None = None,
     gateway: ModelGateway | None = None,
     failure_reasons: list[str] | None = None,
@@ -50,10 +51,12 @@ async def answer_with_model(
     )
     user_text = f"知识库文章内容：\n{docs}\n\n本轮图片说明：\n{image_note}\n\n用户问题：{question}"
     model_to_use = select_model_for_images(text_model=model, vision_model=vision_model if use_images else None, image_urls=image_urls)
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_content(user_text, image_urls if use_images else None)},
-    ]
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+    messages.append(
+        {"role": "user", "content": build_user_content(user_text, image_urls if use_images else None)}
+    )
     try:
         result = await gw.chat(model=model_to_use, messages=messages, temperature=0.3, max_tokens=700)
     except Exception as exc:  # noqa: BLE001 — 模型失败即回退本地，不影响问答可用性

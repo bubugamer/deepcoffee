@@ -74,6 +74,7 @@ async def execute_plan(
     settings: Settings,
     model: str,
     active_context: dict | None = None,
+    history: list[dict[str, str]] | None = None,
     gateway: ModelGateway | None = None,
 ) -> list[ActionResult]:
     results: list[ActionResult] = []
@@ -91,6 +92,7 @@ async def execute_plan(
                         knowledge_service=knowledge_service,
                         settings=settings,
                         model=model,
+                        history=history,
                         gateway=gateway,
                     )
                 )
@@ -115,6 +117,7 @@ async def execute_plan(
                         image_urls=current_image_urls,
                         settings=settings,
                         model=model,
+                        history=history,
                         gateway=gateway,
                     )
                 )
@@ -128,6 +131,7 @@ async def execute_plan(
                         knowledge_service=knowledge_service,
                         settings=settings,
                         model=model,
+                        history=history,
                         gateway=gateway,
                     )
                 )
@@ -187,6 +191,7 @@ async def _run_knowledge(
     message: str,
     *,
     image_urls: list[str] | None,
+    history: list[dict[str, str]] | None = None,
     knowledge_service: KnowledgeService,
     settings: Settings,
     model: str,
@@ -202,6 +207,7 @@ async def _run_knowledge(
             grounding,
             model=model,
             image_urls=image_urls,
+            history=history,
             vision_model=settings.vision_model,
             gateway=gateway,
         )
@@ -390,6 +396,7 @@ async def _run_coach(
     image_urls: list[str] | None,
     settings: Settings,
     model: str,
+    history: list[dict[str, str]] | None = None,
     gateway: ModelGateway | None,
 ) -> ActionResult:
     # active 实体（端点层按 active_*_id 从库里水合好）分别喂冲煮教练；不可用即本地保守兜底。
@@ -401,6 +408,7 @@ async def _run_coach(
         active_recipe=ctx.get("recipe"),
         image_urls=image_urls,
         taste_feedback=(session_state or {}).get("taste_feedback"),
+        history=history,
         model=model,
         vision_model=settings.vision_model,
         gateway=gateway,
@@ -419,6 +427,7 @@ async def _run_web_verify(
     knowledge_service: KnowledgeService,
     settings: Settings,
     model: str,
+    history: list[dict[str, str]] | None = None,
     gateway: ModelGateway | None,
 ) -> ActionResult:
     """先试真联网检索（Brave Search）+ 模型综合；不可用 / 无结果 / 失败即降级回知识库（§9）。"""
@@ -449,6 +458,7 @@ async def _run_web_verify(
                     model=model,
                     image_context=image_context,
                     image_urls=image_urls,
+                    history=history,
                     vision_model=settings.vision_model,
                     gateway=gateway,
                 )
@@ -467,6 +477,7 @@ async def _run_web_verify(
     kb = await _run_knowledge(
         message,
         image_urls=image_urls,
+        history=history,
         knowledge_service=knowledge_service,
         settings=settings,
         model=model,

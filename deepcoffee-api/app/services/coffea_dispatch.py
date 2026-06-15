@@ -106,6 +106,7 @@ async def dispatch_with_model(
     recent_brews: Any = None,
     equipment_profiles: Any = None,
     taste_preferences: Any = None,
+    recent_dialog: Any = None,
     model: str,
     gateway: ModelGateway | None = None,
     failure_reasons: list[str] | None = None,
@@ -124,6 +125,7 @@ async def dispatch_with_model(
         recent_brews=_as_text(recent_brews),
         equipment_profiles=_as_text(equipment_profiles),
         taste_preferences=_as_text(taste_preferences),
+        recent_dialog=_as_text(recent_dialog),
         message=message,
         attachments=_as_text(_attachments_brief(attachments)),
     )
@@ -281,6 +283,7 @@ async def dispatch(
     recent_brews: Any = None,
     equipment_profiles: Any = None,
     taste_preferences: Any = None,
+    recent_dialog: Any = None,
     model: str,
     gateway: ModelGateway | None = None,
 ) -> DispatchPlan:
@@ -295,6 +298,7 @@ async def dispatch(
         recent_brews=recent_brews,
         equipment_profiles=equipment_profiles,
         taste_preferences=taste_preferences,
+        recent_dialog=recent_dialog,
         model=model,
         gateway=gateway,
         failure_reasons=failure_reasons,

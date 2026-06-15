@@ -554,6 +554,35 @@ class CoffeaSession(Base):
     state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
     # 最近若干轮消息（{"role", "content"}），按预算裁剪；只存当前用户自己的内容。
     recent_messages: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # 主题式长期摘要（L2）：list[{topic, content, time_hint}]，超窗口的老对话增量并入。
+    summary: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UserMemory(Base):
+    """用户长期记忆条目（L3 画像）：从对话 / 冲煮记录沉淀的稳定偏好与事实，跨会话注入。
+
+    条目化便于单条增删改与溯源；用户可在「我的口味档案」查看 / 纠正 / 删除。
+    kind: taste（口味）/ equipment（器具习惯）/ habit（冲煮习惯）/ goal（目标）/ fact（其他事实）。
+    """
+
+    __tablename__ = "user_memories"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.6, server_default="0.6", nullable=False)
+    # 来源：dialog / brew_record；source_ref 存对应轮次时间戳或记录 id，便于溯源。
+    source: Mapped[str | None] = mapped_column(String)
+    source_ref: Mapped[str | None] = mapped_column(String)
+    # active / dismissed：用户删除即置 dismissed（不物理删，避免抽取重复加回同一条）。
+    status: Mapped[str] = mapped_column(String, default="active", server_default="active", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

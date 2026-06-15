@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_ai_quota, require_member
@@ -25,6 +25,7 @@ from app.repositories.coffea_sessions import coffea_session_repository
 from app.repositories.equipment import equipment_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
+from app.repositories.user_memories import user_memory_repository
 from app.schemas.bean import Bean, BeanDraft
 from app.schemas.coffea import (
     ActionResult,
@@ -33,17 +34,25 @@ from app.schemas.coffea import (
     CoffeaSessionHistory,
     CoffeaSessionState,
     CoffeaSessionTurn,
+    UserMemoryItem,
+    UserMemoryList,
+    UserMemoryUpdate,
 )
 from app.services import coffea_dispatch
 from app.services.bean_card_intake import summarize_draft
 from app.services.brew_coach import coach_with_model
 from app.services.candidate_service import candidate_service
 from app.services.coffea_executor import assemble_reply, execute_plan
+from app.services.memory_context import build_memory_context
+from app.services.memory_maintenance import run_memory_maintenance
 from app.services.image_storage import upload_chat_images
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
 from app.services.langfuse_client import langfuse_tracer
 
 router = APIRouter(prefix="/coffea", tags=["coffea"], dependencies=[Depends(require_member)])
+
+# 每多少轮对话后台抽取一次用户画像（控成本，不每轮都调模型）。
+_EXTRACT_EVERY = 6
 
 # 持久化到历史时，results 只保留展示安全字段；剥离草稿/原图/原始 OCR 等交互态与大字段。
 _SAFE_OUTPUT_KEYS = frozenset({"sources", "bean_id", "auto_saved"})
@@ -162,6 +171,7 @@ async def _autosave_bean_card(
 @router.post("/messages", response_model=CoffeaMessageResponse, dependencies=[Depends(require_ai_quota)])
 async def post_message(
     payload: CoffeaMessageRequest,
+    background_tasks: BackgroundTasks,
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
@@ -199,6 +209,10 @@ async def post_message(
         "equipment": _equipment_dict(active_equipment) if active_equipment else None,
     }
 
+    # 记忆注入层：把最近对话（L1）+ 用户画像（L3）汇总成可注入形态，一次构造、分发给调度器与各能力。
+    user_memories = await user_memory_repository.list_active(session, user.id)
+    mc = build_memory_context(cs, user_memories=user_memories)
+
     plan = await coffea_dispatch.dispatch(
         message=payload.message,
         attachments=attachments,
@@ -206,6 +220,8 @@ async def post_message(
         recent_beans=[b.model_dump(mode="json") for b in beans[:5]],
         recent_brews=[b.model_dump(mode="json") for b in brews],
         equipment_profiles=[_equipment_dict(e) for e in equipment],
+        taste_preferences=mc.profile_text or state.get("taste_feedback"),
+        recent_dialog=mc.history_text,
         model=settings.model_default_model,
     )
 
@@ -219,6 +235,7 @@ async def post_message(
         settings=settings,
         model=settings.model_default_model,
         active_context=active_context,
+        history=mc.history_messages,
     )
 
     trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
@@ -272,11 +289,19 @@ async def post_message(
 
     # 落历史（跨设备同步）：用户一轮 + 助手一轮。图片传到 Supabase 图床存公开 URL（跨设备可看）。
     now_ms = int(time.time() * 1000)
-    coffea_session_repository.append_turn(cs, "user", payload.message, at=now_ms, images=image_urls or None)
+    # image_urls 已在上面（trace 用）上传过，这里直接复用。
+    dropped: list[dict] = []
+    dropped += coffea_session_repository.append_turn(
+        cs, "user", payload.message, at=now_ms, images=image_urls or None
+    )
     if reply or results:
-        coffea_session_repository.append_turn(
+        dropped += coffea_session_repository.append_turn(
             cs, "assistant", reply or "", results=_display_safe_results(results), at=now_ms
         )
+    # 轮次计数 → 决定本轮是否后台抽取用户画像（每 _EXTRACT_EVERY 轮一次，控成本）。
+    turn_count = int((cs.state or {}).get("turn_count") or 0) + 1
+    coffea_session_repository.apply_state_updates(cs, {"turn_count": turn_count})
+    do_extract = turn_count % _EXTRACT_EVERY == 0
     await session.flush()
 
     # Langfuse trace 放在最后：output 取最终 reply（含降级提示/冲煮建议），
@@ -299,6 +324,17 @@ async def post_message(
         start_time=trace_started_at,
         end_time=datetime.now(timezone.utc),
     )
+
+    # 记忆后台维护（L2 摘要 + L3 抽取）：响应返回后异步跑、独立 session，绝不阻塞或影响本轮对话。
+    if dropped or do_extract:
+        background_tasks.add_task(
+            run_memory_maintenance,
+            user_id=user.id,
+            session_id=cs.session_id,
+            dropped_turns=dropped,
+            do_extract=do_extract,
+            model=settings.model_default_model,
+        )
 
     return CoffeaMessageResponse(
         session_id=cs.session_id,
@@ -340,3 +376,55 @@ async def get_session_history(
         state=CoffeaSessionState(**(cs.state or {})),
         turns=turns,
     )
+
+
+def _memory_item(m) -> UserMemoryItem:
+    return UserMemoryItem(
+        id=m.id,
+        kind=m.kind,
+        content=m.content,
+        confidence=m.confidence,
+        source=m.source,
+        status=m.status,
+        created_at=m.created_at,
+    )
+
+
+@router.get("/memories", response_model=UserMemoryList)
+async def list_memories(
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserMemoryList:
+    """该用户的长期记忆（L3 画像），供「我的口味档案」展示。"""
+    await profile_repository.get_or_create(session, user.id, user.email)
+    rows = await user_memory_repository.list_active(session, user.id)
+    return UserMemoryList(memories=[_memory_item(m) for m in rows])
+
+
+@router.patch("/memories/{memory_id}", response_model=UserMemoryItem)
+async def update_memory(
+    memory_id: str,
+    payload: UserMemoryUpdate,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserMemoryItem:
+    """用户修正一条记忆内容。"""
+    m = await user_memory_repository.update_content(
+        session, user_id=user.id, memory_id=memory_id, content=payload.content
+    )
+    if m is None:
+        raise HTTPException(status_code=404, detail="memory_not_found")
+    return _memory_item(m)
+
+
+@router.delete("/memories/{memory_id}")
+async def delete_memory(
+    memory_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, bool]:
+    """用户删除一条记忆（置 dismissed，不物理删）。"""
+    ok = await user_memory_repository.dismiss(session, user_id=user.id, memory_id=memory_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="memory_not_found")
+    return {"ok": True}

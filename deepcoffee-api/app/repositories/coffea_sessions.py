@@ -28,20 +28,16 @@ class CoffeaSessionRepository:
     async def get_or_create(
         self, session: AsyncSession, *, user_id: str, session_id: str | None
     ) -> CoffeaSession:
-        """续接本人已有会话；否则新建（含传了未知 / 他人 session_id 的情况）。"""
+        """续接本人已有会话；session_id 缺失 / 未知时回退到该用户的永久对话（与 GET /session 一致）。
+
+        避免本地 session_id 丢失（如清浏览器缓存）后断成新会话、与历史割裂。
+        """
         if session_id:
             existing = await self.get(session, user_id=user_id, session_id=session_id)
             if existing is not None:
                 return existing
-        cs = CoffeaSession(
-            session_id=f"sess_{uuid4().hex[:16]}",
-            user_id=user_id,
-            state={},
-            recent_messages=[],
-        )
-        session.add(cs)
-        await session.flush()
-        return cs
+        # 没传 / 传了未知 / 他人 session_id：回退到该用户那条永久对话（没有才新建）。
+        return await self.get_or_create_user_session(session, user_id=user_id)
 
     async def get_or_create_user_session(self, session: AsyncSession, *, user_id: str) -> CoffeaSession:
         """该用户那条「永久对话」：取最近活跃的一条；从无则新建。
@@ -94,10 +90,11 @@ class CoffeaSessionRepository:
         results: list[dict[str, Any]] | None = None,
         at: int | None = None,
         images: list[str] | None = None,
-    ) -> None:
+    ) -> list[dict[str, Any]]:
         """追加一轮消息（含 assistant 的 results 摘要、时间戳、图片 URL），供跨设备同步回看。
 
         images 是图床公开 URL（图片本身存 Supabase Storage，不存 JSONB）；草稿等交互态在传入前剥离。
+        返回因裁剪而被移出窗口的旧轮次（供 L2 摘要增量并入；未发生裁剪则空列表）。
         """
         turns = list(cs.recent_messages or [])
         turn: dict[str, Any] = {"role": role, "content": content or ""}
@@ -108,7 +105,16 @@ class CoffeaSessionRepository:
         if images:
             turn["images"] = images
         turns.append(turn)
-        cs.recent_messages = turns[-self._MAX_TURNS :]
+        if len(turns) > self._MAX_TURNS:
+            dropped = turns[: len(turns) - self._MAX_TURNS]
+            cs.recent_messages = turns[-self._MAX_TURNS :]
+            return dropped
+        cs.recent_messages = turns
+        return []
+
+    def set_summary(self, cs: CoffeaSession, summary: list[dict[str, Any]]) -> None:
+        """整体替换会话摘要（摘要服务已做增量合并，这里只负责落库 / 触发变更检测）。"""
+        cs.summary = list(summary)
 
 
 coffea_session_repository = CoffeaSessionRepository()

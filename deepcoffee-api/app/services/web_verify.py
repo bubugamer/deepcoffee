@@ -34,6 +34,7 @@ async def verify_with_model(
     model: str,
     image_context: dict | None = None,
     image_urls: list[str] | None = None,
+    history: list[dict[str, str]] | None = None,
     vision_model: str | None = None,
     gateway: ModelGateway | None = None,
 ) -> str | None:
@@ -52,10 +53,12 @@ async def verify_with_model(
         question=question, image_context=image_note, source_summaries=format_sources(sources)
     )
     model_to_use = select_model_for_images(text_model=model, vision_model=vision_model if use_images else None, image_urls=image_urls)
-    messages = [
-        {"role": "system", "content": WEB_VERIFY_SYSTEM},
-        {"role": "user", "content": build_user_content(user_content, image_urls if use_images else None)},
-    ]
+    messages = [{"role": "system", "content": WEB_VERIFY_SYSTEM}]
+    if history:
+        messages.extend(history)
+    messages.append(
+        {"role": "user", "content": build_user_content(user_content, image_urls if use_images else None)}
+    )
     try:
         result = await gw.chat(
             model=model_to_use, messages=messages, temperature=0.2, max_tokens=900
