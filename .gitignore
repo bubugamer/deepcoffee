@@ -5,7 +5,9 @@
 *.local
 
 # ── 按约定不公开的内容(只匹配仓库根目录,避免误伤 frontend 路由等同名目录)──
-/docs/
+/docs/*
+# 例外:prompt 文档是 tests/test_prompts.py 的逐字校验源,必须入库(否则 CI / 新克隆跑不了该测试)。
+!/docs/deepcoffee-ai-prompts.md
 # 第三方播客/文章转写素材(版权考虑)
 /resources/
 # 个人冲煮记录(用户数据,非产品代码)
