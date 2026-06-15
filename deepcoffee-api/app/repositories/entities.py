@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import (
     CoffeeSource,
+    EntityAlias,
     GreenBeanMerchant,
     GreenBeanProduct,
     Origin,
@@ -63,6 +64,28 @@ def normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", value)
 
 
+def disambig_key(value: str) -> str:
+    """形态归一 key：在 normalize_name 基础上再去空格与常见分隔标点，用于「大小写/空格/全半角」
+    差异的自动认同（coffee buff / Coffeebuff / Coffee Buff → coffeebuff）。"""
+    s = unicodedata.normalize("NFKC", value or "").lower()
+    return re.sub(r"[\s\-_/／、，,.。·|｜]+", "", s)
+
+
+# 主名里中英 / 多名常用分隔符；据此拆出可独立匹配的片段（如 "Captain George / 乔治队长"）。
+_NAME_SPLIT_RE = re.compile(r"\s*[/／|｜、]\s*")
+
+
+def alias_fragments(canonical_name: str) -> list[str]:
+    """把主名拆成可独立匹配的片段（含整名本身），用于自动建别名。"""
+    whole = (canonical_name or "").strip()
+    parts = [p.strip() for p in _NAME_SPLIT_RE.split(whole) if p.strip()]
+    out: list[str] = []
+    for p in [whole, *parts]:
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
 def canonical_type(entity_type: str) -> str:
     return _TYPE_ALIASES.get((entity_type or "").strip().lower(), (entity_type or "").strip().lower())
 
@@ -79,8 +102,70 @@ class EntityRepository:
         )
         return result.scalar_one_or_none()
 
+    async def resolve_entity(
+        self, session: AsyncSession, entity_type: str, name: str
+    ) -> PublicEntityORM | None:
+        """统一实体匹配：先 canonical normalized_name 精确，再查别名表（normalize_name / disambig_key 两种 key）。
+
+        形态差异（大小写/空格/全半角）经 disambig_key 自动认同；中英双名 / 译名经拆分别名命中。
+        缩写 / 子串关系不在此处自动匹配（交审核「疑似并入」）。
+        """
+        etype = canonical_type(entity_type)
+        direct = await self.get_by_type_name(session, etype, name)
+        if direct is not None:
+            return direct
+        keys = {k for k in (normalize_name(name), disambig_key(name)) if k}
+        if not keys:
+            return None
+        result = await session.execute(
+            select(PublicEntityORM)
+            .join(EntityAlias, EntityAlias.entity_id == PublicEntityORM.id)
+            .where(
+                PublicEntityORM.entity_type == etype,
+                EntityAlias.normalized_alias.in_(keys),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def register_aliases(
+        self,
+        session: AsyncSession,
+        entity_id: str,
+        canonical_name: str,
+        *,
+        extra: list[str] | None = None,
+        source: str = "auto",
+    ) -> None:
+        """为实体登记匹配别名：主名 + 斜杠/顿号拆分片段 + 额外别名，各按 normalize_name 与 disambig_key 写入。
+
+        幂等：同 (entity_id, normalized_alias) 已存在则跳过。别名表是所有匹配的统一索引（见 resolve_entity）。
+        """
+        names = alias_fragments(canonical_name)
+        for item in extra or []:
+            if isinstance(item, str) and item.strip() and item.strip() not in names:
+                names.append(item.strip())
+        keys: dict[str, str] = {}
+        for nm in names:
+            for key in (normalize_name(nm), disambig_key(nm)):
+                if key:
+                    keys.setdefault(key, nm)
+        if not keys:
+            return
+        rows = await session.execute(
+            select(EntityAlias.normalized_alias).where(EntityAlias.entity_id == entity_id)
+        )
+        have = {row[0] for row in rows.all()}
+        for nkey, alias in keys.items():
+            if nkey in have:
+                continue
+            session.add(
+                EntityAlias(entity_id=entity_id, alias=alias, normalized_alias=nkey, source=source)
+            )
+        await session.flush()
+
     async def exists_active(self, session: AsyncSession, entity_type: str, name: str) -> bool:
-        existing = await self.get_by_type_name(session, entity_type, name)
+        existing = await self.resolve_entity(session, entity_type, name)
         return existing is not None and existing.status == "active"
 
     async def _existing_profile_id(self, session: AsyncSession, user_id: str | None) -> str | None:
@@ -190,7 +275,7 @@ class EntityRepository:
         """幂等写入公共实体（含分类表）。已存在则返回既有实体。"""
         etype = canonical_type(entity_type)
         payload = payload or {}
-        existing = await self.get_by_type_name(session, etype, canonical_name)
+        existing = await self.resolve_entity(session, etype, canonical_name)
         if existing is not None:
             return PublicEntity.model_validate(existing)
 
@@ -213,6 +298,8 @@ class EntityRepository:
         )
         session.add(entity)
         await session.flush()
+        # 自动登记匹配别名（主名拆分 + 形态 key）；payload.aliases 若有则一并登记。
+        await self.register_aliases(session, entity.id, canonical_name, extra=payload.get("aliases"))
         typed = self._create_typed_row(etype, entity.id, payload)
         if typed is not None:
             session.add(typed)

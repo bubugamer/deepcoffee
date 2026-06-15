@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import CandidateFact as CandidateFactORM
 from app.models.tables import UserProfile
-from app.repositories.entities import canonical_type, normalize_name
+from app.repositories.entities import canonical_type, disambig_key, normalize_name
 from app.schemas.candidate import CandidateFact
 
 # 候选事实里仍待审核的状态（用于去重，避免对同一实体反复生成候选）。
@@ -31,8 +31,10 @@ class CandidateRepository:
                 CandidateFactORM.status.in_(_OPEN_STATUSES),
             )
         )
-        target = normalize_name(name)
-        return any(normalize_name(title) == target for (title,) in result.all())
+        target = {normalize_name(name), disambig_key(name)}
+        return any(
+            {normalize_name(title), disambig_key(title)} & target for (title,) in result.all()
+        )
 
     async def create(
         self,
