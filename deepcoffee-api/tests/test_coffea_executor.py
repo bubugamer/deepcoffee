@@ -306,13 +306,14 @@ def test_assemble_reply_prefers_executed_primary_result() -> None:
     assert assemble_reply(plan, results) == "知识库答案带来源。"
 
 
-def test_assemble_reply_picks_primary_result_from_multiple_actions() -> None:
+def test_assemble_reply_combines_multiple_answers_primary_first() -> None:
+    # 一轮多个实质回答（知识库 + 联网核实各答一部分）合并进主回复，主意图在前，卡片只剩链接。
     plan = DispatchPlan(primary_intent="web_verify")
     results = [
         ActionResult(type="knowledge_answer", status="done", message="普通知识答案。"),
         ActionResult(type="web_verify", status="degraded", message="联网核实降级答案。"),
     ]
-    assert assemble_reply(plan, results) == "联网核实降级答案。"
+    assert assemble_reply(plan, results) == "联网核实降级答案。\n\n普通知识答案。"
 
 
 def test_assemble_reply_falls_back_to_first_displayable_result() -> None:
@@ -331,6 +332,30 @@ def test_assemble_reply_returns_none_when_nothing_displayable() -> None:
         ActionResult(type="recommend_brew_params", status="pending", message="待确认流程。"),
     ]
     assert assemble_reply(plan, results) is None
+
+
+def test_assemble_reply_coach_fallback_does_not_override_real_answer() -> None:
+    # 调度器误把问答型请求又附带了教练动作、教练无话可说只回兜底空话；
+    # 主回复应是联网核实的真答案，而不是那句模板空话（修复第 2 条）。
+    from app.services.brew_coach import LOCAL_COACH_FALLBACK
+
+    plan = DispatchPlan(primary_intent="adjust_brew_params")
+    results = [
+        ActionResult(type="adjust_brew_params", status="done", message=LOCAL_COACH_FALLBACK),
+        ActionResult(type="web_verify", status="done", message="幻刺Pro 手冲约 7–12，意式约 2–4。"),
+    ]
+    assert assemble_reply(plan, results) == "幻刺Pro 手冲约 7–12，意式约 2–4。"
+
+
+def test_assemble_reply_keeps_coach_fallback_when_it_is_the_only_answer() -> None:
+    # 用户确实只问了教练类问题、又没给上下文，兜底空话就是该展示的回复，不能被丢成空。
+    from app.services.brew_coach import LOCAL_COACH_FALLBACK
+
+    plan = DispatchPlan(primary_intent="adjust_brew_params")
+    results = [
+        ActionResult(type="adjust_brew_params", status="done", message=LOCAL_COACH_FALLBACK),
+    ]
+    assert assemble_reply(plan, results) == LOCAL_COACH_FALLBACK
 
 
 # ── 聊天记录冲煮：带参数真解析、纯意图回引导 ──

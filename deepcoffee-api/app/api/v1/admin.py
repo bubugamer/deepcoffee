@@ -432,28 +432,33 @@ async def reject_candidate(
 async def list_entities(
     entity_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    locale: str | None = Query(default=None, description="按语言取 display_name（zh/en/ja），缺省回退主名"),
     _admin: AuthenticatedUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[PublicEntity]:
-    return await entity_repository.list(session, entity_type=entity_type, status=status)
+    return await entity_repository.list(session, entity_type=entity_type, status=status, locale=locale)
 
 
 @router.get("/entities/duplicates", response_model=EntityDuplicatesResponse)
 async def list_entity_duplicates(
     entity_type: str | None = Query(default=None),
+    locale: str | None = Query(default=None, description="按语言取 display_name（zh/en/ja），缺省回退主名"),
     _admin: AuthenticatedUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> EntityDuplicatesResponse:
     """疑似重复实体（形态相同 / 缩写子串）+ 仍是混合主名的实体，供管理员合并 / 规范。"""
     groups = await entity_repository.find_duplicate_groups(session, entity_type=entity_type)
     mixed = await entity_repository.find_mixed_names(session, entity_type=entity_type)
-    return EntityDuplicatesResponse(
-        groups=[
-            DuplicateGroup(reason=reason, entities=[PublicEntity.model_validate(e) for e in members])
-            for reason, members in groups
-        ],
-        mixed_names=[PublicEntity.model_validate(e) for e in mixed],
+    out_groups = []
+    for reason, members in groups:
+        entities = await entity_repository.attach_localized(
+            session, [PublicEntity.model_validate(e) for e in members], locale
+        )
+        out_groups.append(DuplicateGroup(reason=reason, entities=entities))
+    mixed_names = await entity_repository.attach_localized(
+        session, [PublicEntity.model_validate(e) for e in mixed], locale
     )
+    return EntityDuplicatesResponse(groups=out_groups, mixed_names=mixed_names)
 
 
 @router.post("/entities/{entity_id}/merge", response_model=PublicEntity)

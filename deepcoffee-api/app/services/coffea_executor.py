@@ -40,6 +40,19 @@ _COACH_ACTIONS = frozenset(
 # 调度器顺手填的 direct_reply，常为空导致空回复。
 _INTENT_ONLY = frozenset({"ask_clarification", "out_of_scope"})
 _DISPLAYABLE_RESULT_STATUSES = frozenset({"done", "degraded"})
+# 会产出「正文型」综合回答、可合并进主回复的动作（区别于豆卡/草稿/图片那类状态型消息）。
+# 一轮可能有多条（如 knowledge_answer 答一部分 + web_verify 补一部分），全部并进主回复，
+# 这样卡片只剩来源链接、内容不被埋进卡片也不丢失。
+_ANSWER_TYPES = frozenset({
+    "knowledge_answer",
+    "web_verify",
+    "direct_answer",
+    "adjust_brew_params",
+    "scale_recipe",
+    "grinder_conversion",
+    "storage_resting_advice",
+    "equipment_advice",
+})
 # 写库类动作（建/改豆卡、生成建议参数）故意不在聊天单轮自动执行，避免一句话误改用户数据。
 # 给明确的引导语，指向各自的确认流程，而不是笼统的「后续阶段接入」（那会被前端误显示成"处理中"）。
 # brew_record_parse 例外：消息里带参数时真解析出草稿（落库仍由用户在草稿卡确认）。
@@ -183,32 +196,40 @@ def assemble_reply(plan: DispatchPlan, results: list[ActionResult]) -> str | Non
 
     direct_reply 只表示调度器自己可直接说的话；知识问答、联网核实、冲煮教练等动作执行后，
     results[].message 才是带上下文 / 来源 / 降级标注的答案，所以非 intent-only 场景优先展示执行结果。
+
+    多个正文型回答合并进主回复（主意图在前），让卡片只剩来源链接、内容不被埋进卡片或丢失。
+    教练兜底空话（LOCAL_COACH_FALLBACK）视为「非实质」：本轮另有实质回答时不让它顶掉真答案——
+    兜住「调度器误把问答型请求又附带教练动作、教练无话可说只回兜底」的情况。
     """
     if plan.primary_intent in _INTENT_ONLY:
         return plan.direct_reply
 
-    primary_result = next(
-        (
-            r.message
-            for r in results
-            if r.type == plan.primary_intent
-            and r.status in _DISPLAYABLE_RESULT_STATUSES
-            and r.message
-        ),
-        None,
-    )
-    if primary_result:
-        return primary_result
+    def _substantive(message: str | None) -> bool:
+        return bool(message) and message.strip() != LOCAL_COACH_FALLBACK.strip()
 
-    first_result = next(
-        (
-            r.message
-            for r in results
-            if r.status in _DISPLAYABLE_RESULT_STATUSES and r.message
-        ),
-        None,
+    displayable = [r for r in results if r.status in _DISPLAYABLE_RESULT_STATUSES and r.message]
+
+    # 状态型主回复（豆卡识别摘要 / 冲煮草稿 / 图片评估）自成主回复，不被正文型综合顶替。
+    primary = next((r for r in displayable if r.type == plan.primary_intent), None)
+    if primary is not None and primary.type not in _ANSWER_TYPES and _substantive(primary.message):
+        return primary.message
+
+    # 正文型实质回答全部合并（主意图在前、去重），即「一轮多个答案」的合并落点。
+    answers = sorted(
+        (r for r in displayable if r.type in _ANSWER_TYPES and _substantive(r.message)),
+        key=lambda r: 0 if r.type == plan.primary_intent else 1,
     )
-    return first_result or plan.direct_reply
+    combined: list[str] = []
+    for r in answers:
+        msg = r.message.strip()
+        if msg not in combined:
+            combined.append(msg)
+    if combined:
+        return "\n\n".join(combined)
+
+    # 兜底：全无实质正文（仅教练兜底空话 / 仅状态型）→ 主意图结果 / 任一结果 / direct_reply。
+    primary_any = primary.message if primary else None
+    return primary_any or (displayable[0].message if displayable else None) or plan.direct_reply
 
 
 async def _run_knowledge(

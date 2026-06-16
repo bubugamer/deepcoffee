@@ -21,6 +21,10 @@ class PublicEntity(BaseModel):
     updated_at: datetime
     # 分类表的明细字段（roaster/origin/process… 各自补充），列表时可为空。
     detail: dict[str, Any] | None = None
+    # 多语言显示名（阶段 2）：display_name 按请求语言取，取不到回退 canonical_name；
+    # localized_names = {locale: 名字}，来自带 locale 的别名，供管理/前端按语言展示。
+    display_name: str | None = None
+    localized_names: dict[str, str] = Field(default_factory=dict)
 
 
 class PublicEntityListResponse(BaseModel):
