@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { Loader2, CheckCircle2, XCircle, ArrowUpCircle, X } from 'lucide-react'
 import {
   listProposals, approveProposal, rejectProposal, markProposalApplied,
-  listCandidates, promoteCandidate, rejectCandidate,
+  listCandidates, promoteCandidate, rejectCandidate, mergeCandidate,
   listEntities,
   type Proposal, type CandidateFact, type PublicEntity,
 } from '@/lib/api/admin'
@@ -261,6 +261,22 @@ function ReviewInner() {
               {/* 操作区：仅待审状态展示 */}
               {(detail.status === 'pending' || detail.status === 'pending_review' || detail.status === 'approved') && (
                 <div className="border-t border-dc-border pt-4 space-y-3">
+                  {!('audit' in detail) && detail.similar_entities && detail.similar_entities.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-dc-yellow">疑似已有实体（点「并入」避免重复建档）：</div>
+                      {detail.similar_entities.map(e => (
+                        <button
+                          key={e.id}
+                          disabled={busy === detail.id}
+                          onClick={() => act(detail.id, () => mergeCandidate(detail.id, e.id, note.trim() || undefined))}
+                          className="w-full text-left px-3 py-2 border border-dc-border rounded-lg text-sm hover:border-dc-accent-hi flex items-center justify-between gap-2 disabled:opacity-60"
+                        >
+                          <span className="truncate text-dc-text-1">{e.canonical_name}</span>
+                          <span className="text-xs text-dc-accent whitespace-nowrap">并入 →</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <textarea
                     className="dc-input text-sm"
                     rows={2}
