@@ -105,14 +105,39 @@ def detect_locale(value: str) -> str | None:
 
 # 主名里中英 / 多名常用分隔符；据此拆出可独立匹配的片段（如 "Captain George / 乔治队长"）。
 _NAME_SPLIT_RE = re.compile(r"\s*[/／|｜、]\s*")
+# 「中文（English）」括号双语名：末尾一对中/英文括号包住另一语言名。
+_PAREN_BILINGUAL_RE = re.compile(r"^(.+?)\s*[（(]([^（）()]+)[）)]\s*$")
+
+
+def _paren_bilingual_split(text: str) -> list[str]:
+    """形如「哥斯达黎加（Costa Rica）」的括号双语名 → [外, 内]。
+
+    仅当括号内外**各自都能干净判成中/英文、且不是同一种语言**时才拆，避免误拆「括号里是注释」
+    的名字（如 "1zpresso ZP6（含 ZP6S 特调版）"，内层判不出语言 → 不拆）。
+    """
+    m = _PAREN_BILINGUAL_RE.match(text.strip())
+    if not m:
+        return []
+    outer, inner = m.group(1).strip(), m.group(2).strip()
+    lo, li = detect_locale(outer), detect_locale(inner)
+    if outer and inner and lo and li and lo != li:
+        return [outer, inner]
+    return []
 
 
 def alias_fragments(canonical_name: str) -> list[str]:
-    """把主名拆成可独立匹配的片段（含整名本身），用于自动建别名。"""
+    """把主名拆成可独立匹配的片段（含整名本身），用于自动建别名。
+
+    切分依据：① 斜杠 / 顿号等分隔符；② 形如「中文（English）」的括号双语名（仅内外各是干净
+    且不同的语言时才拆，见 _paren_bilingual_split）。
+    """
     whole = (canonical_name or "").strip()
     parts = [p.strip() for p in _NAME_SPLIT_RE.split(whole) if p.strip()]
-    out: list[str] = []
+    extra: list[str] = []
     for p in [whole, *parts]:
+        extra.extend(_paren_bilingual_split(p))
+    out: list[str] = []
+    for p in [whole, *parts, *extra]:
         if p and p not in out:
             out.append(p)
     return out
