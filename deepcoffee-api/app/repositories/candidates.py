@@ -113,5 +113,21 @@ class CandidateRepository:
         await session.refresh(row)
         return CandidateFact.model_validate(row)
 
+    async def merge_into(
+        self, session: AsyncSession, candidate_id: str, *, entity_id: str, reviewer_id: str, note: str | None
+    ) -> CandidateFact | None:
+        """把候选并入已有实体（不建新实体）：标记 merged + 记录目标实体；别名登记由 service 负责。"""
+        row = await session.get(CandidateFactORM, candidate_id)
+        if row is None:
+            return None
+        row.status = "merged"
+        row.proposed_entity_id = entity_id
+        row.reviewer_id = await self._existing_profile_id(session, reviewer_id)
+        row.reviewer_note = note
+        row.reviewed_at = datetime.now(timezone.utc)
+        await session.flush()
+        await session.refresh(row)
+        return CandidateFact.model_validate(row)
+
 
 candidate_repository = CandidateRepository()

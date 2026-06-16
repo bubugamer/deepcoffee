@@ -94,3 +94,52 @@ def test_exists_active_is_alias_aware() -> None:
             await session.rollback()
 
     asyncio.run(_run())
+
+
+# ---------- 阶段 2：疑似提示 + 并入 ----------
+
+
+def test_find_similar_includes_abbreviation_substring() -> None:
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await entity_repository.upsert(
+                session, entity_type="roaster", canonical_name="SEY Coffee"
+            )
+            sims = await entity_repository.find_similar(session, "roaster", "SEY")
+            assert any(e.canonical_name == "SEY Coffee" for e in sims)  # 缩写子串 → 疑似提示
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
+def test_merge_candidate_into_entity_registers_alias() -> None:
+    from app.repositories.candidates import candidate_repository
+    from app.repositories.profiles import profile_repository
+    from app.services.candidate_service import candidate_service
+
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await profile_repository.get_or_create(session, "admin-merge", "a@x.com")
+            ent = await entity_repository.upsert(
+                session, entity_type="roaster", canonical_name="SEY Coffee"
+            )
+            cand = await candidate_repository.create(
+                session,
+                entity_type="roaster",
+                title="SEY",
+                payload={"name": "SEY"},
+                source_table=None,
+                source_record_id=None,
+                source_user_id=None,
+            )
+            merged = await candidate_service.merge_candidate_into_entity(
+                session, cand.id, entity_id=ent.id, reviewer_id="admin-merge"
+            )
+            assert merged is not None
+            assert merged.status == "merged" and merged.proposed_entity_id == ent.id
+            # 并入后 "SEY" 能解析到该实体（别名已登记），不再会建新实体
+            r = await entity_repository.resolve_entity(session, "roaster", "SEY")
+            assert r is not None and r.id == ent.id
+            await session.rollback()
+
+    asyncio.run(_run())
