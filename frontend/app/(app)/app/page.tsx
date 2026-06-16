@@ -5,7 +5,26 @@ import { ArrowRight, Plus, Search, Coffee, BookOpen, DropletIcon, Settings2 } fr
 import { getRecords } from '@/lib/api/records'
 import { getKbCategories } from '@/lib/api/knowledge'
 import { getToken } from '@/lib/auth'
+import { useProfile } from '@/components/ProfileContext'
 import type { BrewRecord, KBCategory } from '@/types'
+
+// 按用户时区的当前小时取问候语；拿不到时区就退回浏览器本地时区。
+function greetingFor(timezone?: string | null): string {
+  let hour = new Date().getHours()
+  try {
+    const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' }).formatToParts(new Date())
+    const parsed = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '', 10)
+    if (!Number.isNaN(parsed)) hour = parsed
+  } catch {
+    /* 无效时区等异常时用浏览器本地小时 */
+  }
+  if (hour < 5) return '夜深了'
+  if (hour < 11) return '早安'
+  if (hour < 13) return '中午好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
+}
 
 const iconMap: Record<string, ElementType> = {
   origin: Coffee,
@@ -28,6 +47,8 @@ function ScoreDot({ score }: { score: number }) {
 }
 
 export default function DashboardPage() {
+  const { profile } = useProfile()
+  const greeting = greetingFor(profile?.timezone)
   const [recentBrews, setRecentBrews] = useState<BrewRecord[]>([])
   const [categories, setCategories] = useState<KBCategory[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,7 +88,7 @@ export default function DashboardPage() {
     <div className="p-4 sm:p-8 max-w-content mx-auto">
       {/* Greeting */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-dc-text-1 mb-1">早安</h1>
+        <h1 className="text-2xl font-bold text-dc-text-1 mb-1">{greeting}</h1>
         <p className="text-sm text-dc-text-2">今天冲了什么？</p>
       </div>
 

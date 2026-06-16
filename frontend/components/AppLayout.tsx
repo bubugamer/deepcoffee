@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import {
   MessageCircle, BookOpen, ClipboardList,
-  Settings, ChevronRight, LayoutGrid, Menu, X, ShieldCheck, Wrench,
+  Settings, LayoutGrid, Menu, X, ShieldCheck, Wrench, LogOut,
 } from 'lucide-react'
 import InviteGateModal from '@/components/InviteGateModal'
 import { ProfileContext } from '@/components/ProfileContext'
@@ -86,6 +86,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => data.subscription.unsubscribe()
   }, [])
 
+  async function handleLogout() {
+    try { await supabase.auth.signOut() } catch { /* 忽略：本地仍会清 token 并跳转 */ }
+    removeToken()
+    router.replace('/auth')
+  }
+
   const displayName = profile?.display_name ?? profile?.email ?? '账户'
   const initial = displayName.charAt(0) || '?'
   const planLabel  = profile?.plan === 'pro' ? 'Pro 版' : profile ? '免费版' : '载入中'
@@ -102,7 +108,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <>
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-dc-border flex-shrink-0">
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link href="/app" className="flex items-center gap-2.5">
           <img src="/logo.png" alt="DeepCoffee" className="h-8 w-8 object-contain" />
           <span className="text-lg font-extrabold tracking-tight text-dc-text-1">DeepCoffee</span>
         </Link>
@@ -153,16 +159,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             升级会员 →
           </Link>
         </div>
-        <Link href="/app/settings" className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-dc-subtle">
-          <div className="w-7 h-7 rounded-full bg-dc-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {initial}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-dc-text-1 truncate">{displayName}</div>
-            <div className="text-xs text-dc-text-3">{planLabel}</div>
-          </div>
-          <ChevronRight size={14} className="text-dc-text-3" />
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link href="/app/settings" className="flex-1 flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-dc-subtle min-w-0">
+            <div className="w-7 h-7 rounded-full bg-dc-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+              {initial}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-dc-text-1 truncate">{displayName}</div>
+              <div className="text-xs text-dc-text-3">{planLabel}</div>
+            </div>
+          </Link>
+          <button
+            onClick={handleLogout}
+            title="退出登录"
+            aria-label="退出登录"
+            className="p-2 rounded-lg text-dc-text-3 hover:bg-dc-subtle hover:text-dc-red flex-shrink-0"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     </>
   )
@@ -216,7 +231,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           >
             <Menu size={22} />
           </button>
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/app" className="flex items-center gap-2">
             <img src="/logo.png" alt="DeepCoffee" className="h-7 w-7 object-contain" />
             <span className="text-base font-extrabold tracking-tight text-dc-text-1">DeepCoffee</span>
           </Link>
