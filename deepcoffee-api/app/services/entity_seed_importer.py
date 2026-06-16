@@ -33,7 +33,7 @@ from app.models.tables import (
     KnowledgeSyncRecord,
     PublicEntity as PublicEntityORM,
 )
-from app.repositories.entities import EntityRepository, canonical_type, normalize_name
+from app.repositories.entities import EntityRepository, canonical_type, detect_locale, normalize_name
 from app.services.knowledge_service import (
     _meta_date,
     _meta_list,
@@ -393,6 +393,7 @@ class EntitySeedImporter:
                     entity_id=entity_id,
                     alias=alias,
                     normalized_alias=normalize_name(alias),
+                    locale=detect_locale(alias),
                     source=ALIAS_SOURCE,
                 )
             )

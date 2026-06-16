@@ -37,6 +37,14 @@ GRINDER_SCALES: tuple[GrinderScale, ...] = (
         note="逆时针放粗；浅烘可向 26–28 格放粗，深烘可收到 18–22 格。",
     ),
     GrinderScale(
+        canonical_name="MAVO 幻刺 Pro",
+        aliases=("mavo 幻刺 pro", "mavo幻刺pro", "mavo 幻刺", "幻刺 pro", "幻刺pro", "幻刺", "mavo"),
+        scale_unit="数字刻度（外调旋钮）",
+        pour_over_range="约 7–12",
+        medium_ref="约 9–11（中度）",
+        note="外调 120 格/圈、每格 0.0167mm；数字越大越粗、可到负数（负数最细），重量归零。意式约 2–4，杯测约 6.3。与 C40 换算：C40≈17 格对应幻刺 6.3，C40 每粗 1 格≈幻刺 +0.5（C40 19–25 格区间最接近）。数值多为用户实测/换算，较粗略。",
+    ),
+    GrinderScale(
         canonical_name="1zpresso ZP6（含 ZP6S 特调版）",
         aliases=("zp6s", "zp6 特调", "zp6特调", "zp6"),
         scale_unit="圈",

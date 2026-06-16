@@ -77,6 +77,32 @@ def disambig_key(value: str) -> str:
     return re.sub(r"[\s\-_/／、，,.。·|｜]+", "", s)
 
 
+# 语言判定用的脚本区段（NFKC 归一后判定）。
+_HAN_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿]")  # 汉字
+_KANA_RE = re.compile(r"[぀-ヿㇰ-ㇿｦ-ﾝ]")  # 平/片假名
+_LATIN_RE = re.compile(r"[A-Za-zÀ-ɏ]")  # 拉丁字母（含西欧重音）
+
+
+def detect_locale(value: str) -> str | None:
+    """把一个「干净的单语言名」判到 zh / ja / en，供阶段 2 按语言取显示名用。
+
+    启发式（仅作初值，管理员可改）：含假名→ja；纯汉字→zh；纯拉丁→en。
+    中英混写（如 "二氧化碳浸渍 / Carbonic Maceration"）等多脚本混合，或纯符号/数字 → None，
+    即不把它当作任一语言的显示名（只继续参与匹配）。纯汉字的日文名会被判成 zh，属已知取舍。
+    """
+    s = unicodedata.normalize("NFKC", value or "")
+    has_kana = bool(_KANA_RE.search(s))
+    has_han = bool(_HAN_RE.search(s))
+    has_latin = bool(_LATIN_RE.search(s))
+    if has_kana and not has_latin:
+        return "ja"
+    if has_han and not has_kana and not has_latin:
+        return "zh"
+    if has_latin and not has_han and not has_kana:
+        return "en"
+    return None
+
+
 # 主名里中英 / 多名常用分隔符；据此拆出可独立匹配的片段（如 "Captain George / 乔治队长"）。
 _NAME_SPLIT_RE = re.compile(r"\s*[/／|｜、]\s*")
 
@@ -168,7 +194,13 @@ class EntityRepository:
             if nkey in have:
                 continue
             session.add(
-                EntityAlias(entity_id=entity_id, alias=alias, normalized_alias=nkey, source=source)
+                EntityAlias(
+                    entity_id=entity_id,
+                    alias=alias,
+                    normalized_alias=nkey,
+                    locale=detect_locale(alias),
+                    source=source,
+                )
             )
         await session.flush()
 
@@ -359,12 +391,47 @@ class EntityRepository:
             created_by=proposal.proposer_id,
         )
 
+    async def localized_names_for(
+        self, session: AsyncSession, entity_ids: list[str]
+    ) -> dict[str, dict[str, str]]:
+        """批量取每个实体的 {locale: 显示名}：locale 非空的别名，每种语言取首条（按 id 稳定）。
+
+        混合名 / 形态变体的 locale 为空，自然不会被选作显示名（见 detect_locale）。
+        """
+        ids = [i for i in entity_ids if i]
+        if not ids:
+            return {}
+        rows = await session.execute(
+            select(EntityAlias.entity_id, EntityAlias.locale, EntityAlias.alias)
+            .where(EntityAlias.entity_id.in_(ids), EntityAlias.locale.is_not(None))
+            .order_by(EntityAlias.id)
+        )
+        out: dict[str, dict[str, str]] = {}
+        for eid, loc, alias in rows.all():
+            out.setdefault(eid, {}).setdefault(loc, alias)
+        return out
+
+    async def attach_localized(
+        self, session: AsyncSession, items: list[PublicEntity], locale: str | None = None
+    ) -> list[PublicEntity]:
+        """给一批 PublicEntity 就地填 display_name + localized_names 并返回。
+
+        display_name 按 locale 取，取不到（或未传 locale）回退 canonical_name。
+        """
+        names_map = await self.localized_names_for(session, [pe.id for pe in items])
+        for pe in items:
+            names = names_map.get(pe.id, {})
+            pe.localized_names = names
+            pe.display_name = (names.get(locale) if locale else None) or pe.canonical_name
+        return items
+
     async def list(
         self,
         session: AsyncSession,
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        locale: str | None = None,
     ) -> list[PublicEntity]:
         conditions = []
         if entity_type:
@@ -374,7 +441,8 @@ class EntityRepository:
         result = await session.execute(
             select(PublicEntityORM).where(*conditions).order_by(PublicEntityORM.created_at.desc())
         )
-        return [PublicEntity.model_validate(row) for row in result.scalars().all()]
+        items = [PublicEntity.model_validate(row) for row in result.scalars().all()]
+        return await self.attach_localized(session, items, locale)
 
     async def count(self, session: AsyncSession, *, status: str = "active") -> int:
         result = await session.execute(
@@ -485,7 +553,7 @@ class EntityRepository:
         source.status = "merged"
         await session.flush()
         await session.refresh(target)
-        return PublicEntity.model_validate(target)
+        return (await self.attach_localized(session, [PublicEntity.model_validate(target)]))[0]
 
     async def rename_canonical(
         self,
@@ -522,7 +590,7 @@ class EntityRepository:
         await self.register_aliases(session, entity_id, old_canonical, source="rename")
         await self.register_aliases(session, entity_id, new_canonical, source="rename")
         await session.refresh(entity)
-        return PublicEntity.model_validate(entity)
+        return (await self.attach_localized(session, [PublicEntity.model_validate(entity)]))[0]
 
     async def find_duplicate_groups(
         self, session: AsyncSession, *, entity_type: str | None = None, limit: int = 50

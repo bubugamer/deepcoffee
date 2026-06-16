@@ -103,16 +103,30 @@ function getSources(output?: Record<string, unknown> | null): WebVerifySource[] 
   return raw.filter((s): s is WebVerifySource => typeof s === 'object' && s !== null)
 }
 
+// 「正文型」回答（与后端 coffea_executor._ANSWER_TYPES 对应）：其综合正文已并入顶层 reply，
+// 卡片只展示来源链接、不再重复正文。其余类型（如待确认引导）的正文不进 reply，仍在卡片显示。
+const ANSWER_RESULT_TYPES = new Set([
+  'knowledge_answer',
+  'web_verify',
+  'direct_answer',
+  'adjust_brew_params',
+  'scale_recipe',
+  'grinder_conversion',
+  'storage_resting_advice',
+  'equipment_advice',
+])
+
 function ActionResultCard({ result, replyText }: { result: ActionResult; replyText?: string | null }) {
   const meta = statusMeta(result.status)
   const { Icon } = meta
   // 动作名只显示中文标签；未知类型一律「处理结果」，绝不裸显内部英文动作名
   const label = ACTION_LABEL[result.type] ?? '处理结果'
   const sources = getSources(result.output)
-  // message 已被组装进顶层 reply 时不在卡片里重复；原始 output JSON 不再展示给用户
+  // 正文型回答已在 reply 里、不在卡片重复；正文已并入 reply（合并多答案）时也用包含判断兜住。
+  // 原始 output JSON 不展示给用户。
   const message = result.message?.trim()
-  const duplicateOfReply = !!message && replyText?.trim() === message
-  const showMessage = !!message && !duplicateOfReply
+  const inReply = !!message && !!replyText && replyText.trim().includes(message)
+  const showMessage = !!message && !ANSWER_RESULT_TYPES.has(result.type) && !inReply
   if (!showMessage && sources.length === 0) return null
 
   return (
