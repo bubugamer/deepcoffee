@@ -28,7 +28,13 @@ from app.schemas.auth import (
     InviteCodeInfo,
     InviteCreateRequest,
 )
-from app.schemas.candidate import CandidateFact, CandidatePromoteResponse, CandidateReviewRequest
+from app.schemas.candidate import (
+    CandidateFact,
+    CandidateMergeRequest,
+    CandidatePromoteResponse,
+    CandidateReviewRequest,
+    SimilarEntity,
+)
 from app.schemas.entity import PublicEntity
 from app.schemas.proposal import Proposal, ProposalMarkAppliedRequest, ProposalReviewRequest
 from app.services.candidate_service import candidate_service
@@ -322,6 +328,20 @@ async def mark_proposal_applied(
 # ---- 候选事实审核（自下而上链路）----
 
 
+async def _attach_similar(session: AsyncSession, facts: list[CandidateFact]) -> None:
+    """给待审候选填充「疑似已有实体」（仅 pending_review，供管理员「并入」决策；不自动合）。"""
+    for fact in facts:
+        if fact.status != "pending_review":
+            continue
+        sims = await entity_repository.find_similar(session, fact.entity_type, fact.title)
+        fact.similar_entities = [
+            SimilarEntity(
+                id=e.id, entity_type=e.entity_type, canonical_name=e.canonical_name, status=e.status
+            )
+            for e in sims
+        ]
+
+
 @router.get("/candidates", response_model=list[CandidateFact])
 async def list_candidates(
     status: str | None = Query(default=None),
@@ -333,7 +353,9 @@ async def list_candidates(
 ) -> list[CandidateFact]:
     items = await candidate_repository.list(session, status=status, entity_type=entity_type)
     start = (page - 1) * page_size
-    return items[start : start + page_size]
+    page_items = items[start : start + page_size]
+    await _attach_similar(session, page_items)
+    return page_items
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateFact)
@@ -345,7 +367,9 @@ async def get_candidate(
     row = await candidate_repository.get_orm(session, candidate_id)
     if row is None:
         raise AppError(404, "candidate_not_found", "Candidate fact not found.")
-    return CandidateFact.model_validate(row)
+    fact = CandidateFact.model_validate(row)
+    await _attach_similar(session, [fact])
+    return fact
 
 
 @router.post("/candidates/{candidate_id}/promote", response_model=CandidatePromoteResponse)
@@ -362,6 +386,22 @@ async def promote_candidate(
         raise AppError(404, "candidate_not_found", "Candidate fact not found.")
     candidate_id, proposal_id = result
     return CandidatePromoteResponse(candidate_id=candidate_id, proposal_id=proposal_id, status="promoted")
+
+
+@router.post("/candidates/{candidate_id}/merge", response_model=CandidateFact)
+async def merge_candidate(
+    candidate_id: str,
+    payload: CandidateMergeRequest,
+    admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> CandidateFact:
+    """把候选「并入」已有实体：候选名登记为该实体别名、候选标记 merged，不建新实体。"""
+    result = await candidate_service.merge_candidate_into_entity(
+        session, candidate_id, entity_id=payload.entity_id, reviewer_id=admin.id, note=payload.reviewer_note
+    )
+    if result is None:
+        raise AppError(404, "candidate_or_entity_not_found", "候选或目标实体不存在。")
+    return result
 
 
 @router.post("/candidates/{candidate_id}/reject", response_model=CandidateFact)
