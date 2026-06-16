@@ -168,6 +168,38 @@ class EntityRepository:
         existing = await self.resolve_entity(session, entity_type, name)
         return existing is not None and existing.status == "active"
 
+    async def find_similar(
+        self, session: AsyncSession, entity_type: str, name: str, *, limit: int = 5
+    ) -> list[PublicEntityORM]:
+        """找「疑似已有实体」供审核人工判断（不自动合）。
+
+        包含：① resolve_entity 精确/别名/形态命中；② canonical 的 disambig 形态与现有实体
+        互为子串（覆盖缩写↔全称，如 SEY ↔ SEY Coffee）。子串只作提示，是否并入由管理员决定。
+        """
+        etype = canonical_type(entity_type)
+        out: list[PublicEntityORM] = []
+        hit = await self.resolve_entity(session, etype, name)
+        if hit is not None:
+            out.append(hit)
+        dk = disambig_key(name)
+        if dk and len(dk) >= 2:
+            rows = await session.execute(
+                select(PublicEntityORM).where(
+                    PublicEntityORM.entity_type == etype,
+                    PublicEntityORM.status == "active",
+                )
+            )
+            seen = {e.id for e in out}
+            for e in rows.scalars().all():
+                if e.id in seen:
+                    continue
+                ek = disambig_key(e.canonical_name)
+                if ek and len(ek) >= 2 and (dk in ek or ek in dk):
+                    out.append(e)
+                    if len(out) >= limit:
+                        break
+        return out[:limit]
+
     async def _existing_profile_id(self, session: AsyncSession, user_id: str | None) -> str | None:
         if not user_id:
             return None

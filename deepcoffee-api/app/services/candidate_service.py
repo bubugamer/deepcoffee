@@ -15,6 +15,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.tables import PublicEntity as PublicEntityORM
 from app.models.tables import UserBeanCard as UserBeanCardORM
 from app.repositories.candidates import candidate_repository
 from app.repositories.entities import entity_repository
@@ -110,6 +111,28 @@ class CandidateService:
             session, candidate_id, proposal_id=proposal.id, reviewer_id=reviewer_id
         )
         return candidate_id, proposal.id
+
+    async def merge_candidate_into_entity(
+        self,
+        session: AsyncSession,
+        candidate_id: str,
+        *,
+        entity_id: str,
+        reviewer_id: str,
+        note: str | None = None,
+    ):
+        """管理员把候选「并入」已有实体：候选名登记为该实体别名（source='admin'），候选标记 merged，
+        不建新实体。专治缩写/中英等需人工判断的重复（如 SEY → SEY Coffee）。"""
+        candidate = await candidate_repository.get_orm(session, candidate_id)
+        if candidate is None:
+            return None
+        entity = await session.get(PublicEntityORM, entity_id)
+        if entity is None:
+            return None
+        await entity_repository.register_aliases(session, entity_id, candidate.title, source="admin")
+        return await candidate_repository.merge_into(
+            session, candidate_id, entity_id=entity_id, reviewer_id=reviewer_id, note=note
+        )
 
 
 candidate_service = CandidateService()
