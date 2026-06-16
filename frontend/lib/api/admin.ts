@@ -114,6 +114,16 @@ export interface PublicEntity {
   detail?: Record<string, unknown> | null
 }
 
+export interface DuplicateGroup {
+  reason: string // form（写法相同）/ substring（缩写↔全称）
+  entities: PublicEntity[]
+}
+
+export interface EntityDuplicatesResponse {
+  groups: DuplicateGroup[]
+  mixed_names: PublicEntity[] // 仍是中英混合主名、建议规范的实体
+}
+
 export interface KnowledgeReloadResult {
   article_count: number
   public_article_count: number
@@ -221,6 +231,27 @@ export function listEntities(params?: { entity_type?: string; status?: string })
   if (params?.status) q.set('status', params.status)
   const qs = q.toString()
   return apiFetch(`/admin/entities${qs ? `?${qs}` : ''}`)
+}
+
+export function listEntityDuplicates(params?: { entity_type?: string }): Promise<EntityDuplicatesResponse> {
+  const q = params?.entity_type ? `?entity_type=${encodeURIComponent(params.entity_type)}` : ''
+  return apiFetch(`/admin/entities/duplicates${q}`)
+}
+
+// 把 entityId 并入 targetId（entityId 标记 merged，引用/别名迁到 target）。
+export function mergeEntity(entityId: string, targetId: string, note?: string): Promise<PublicEntity> {
+  return apiFetch(`/admin/entities/${encodeURIComponent(entityId)}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ target_id: targetId, reviewer_note: note ?? null }),
+  })
+}
+
+// 规范实体主名（旧名转别名）。
+export function renameEntity(entityId: string, canonicalName: string, note?: string): Promise<PublicEntity> {
+  return apiFetch(`/admin/entities/${encodeURIComponent(entityId)}/rename`, {
+    method: 'POST',
+    body: JSON.stringify({ canonical_name: canonicalName, reviewer_note: note ?? null }),
+  })
 }
 
 // ── Knowledge ops ───────────────────────────────────────────────────────────

@@ -11,19 +11,25 @@ import unicodedata
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import (
+    CandidateFact as CandidateFactORM,
     CoffeeSource,
     EntityAlias,
     GreenBeanMerchant,
     GreenBeanProduct,
+    GreenBeanProductVarietal,
     Origin,
     ProcessMethod,
+    Proposal as ProposalORM,
     PublicEntity as PublicEntityORM,
     Roaster,
     RoasterProduct,
+    RoasterProductVarietal,
+    UserBeanCard as UserBeanCardORM,
+    UserBeanCardVarietal,
     UserProfile,
     Varietal,
 )
@@ -112,7 +118,8 @@ class EntityRepository:
         """
         etype = canonical_type(entity_type)
         direct = await self.get_by_type_name(session, etype, name)
-        if direct is not None:
+        # 已合并（merged）的旧实体不再作为有效匹配——它的写法已迁成目标实体的别名，走下面别名查询命中目标。
+        if direct is not None and direct.status != "merged":
             return direct
         keys = {k for k in (normalize_name(name), disambig_key(name)) if k}
         if not keys:
@@ -122,6 +129,7 @@ class EntityRepository:
             .join(EntityAlias, EntityAlias.entity_id == PublicEntityORM.id)
             .where(
                 PublicEntityORM.entity_type == etype,
+                PublicEntityORM.status != "merged",
                 EntityAlias.normalized_alias.in_(keys),
             )
             .limit(1)
@@ -373,6 +381,200 @@ class EntityRepository:
             select(func.count()).select_from(PublicEntityORM).where(PublicEntityORM.status == status)
         )
         return int(result.scalar_one())
+
+    # ---- 阶段 4：规范主名 + 合并已有重复实体（管理员清理工具）----
+
+    # 合并时把「指向 source 的外键」整体改指 target 的普通列（无唯一约束，直接 UPDATE）。
+    _MERGE_REF_COLUMNS: list[tuple[type, list[str]]] = [
+        (
+            UserBeanCardORM,
+            [
+                "roaster_entity_id",
+                "roaster_product_entity_id",
+                "coffee_source_entity_id",
+                "green_bean_merchant_entity_id",
+                "green_bean_product_entity_id",
+                "origin_entity_id",
+                "process_entity_id",
+            ],
+        ),
+        (
+            RoasterProduct,
+            [
+                "roaster_entity_id",
+                "origin_entity_id",
+                "coffee_source_entity_id",
+                "green_bean_merchant_entity_id",
+                "green_bean_product_entity_id",
+                "process_entity_id",
+            ],
+        ),
+        (
+            GreenBeanProduct,
+            ["merchant_entity_id", "coffee_source_entity_id", "origin_entity_id", "process_entity_id"],
+        ),
+        (CandidateFactORM, ["proposed_entity_id"]),
+        (ProposalORM, ["applied_entity_id"]),
+    ]
+
+    async def _merge_aliases(self, session: AsyncSession, source_id: str, target_id: str) -> None:
+        """source 的别名迁到 target；与 target 已有 normalized_alias 重复的丢弃（避免唯一冲突）。"""
+        existing = await session.execute(
+            select(EntityAlias.normalized_alias).where(EntityAlias.entity_id == target_id)
+        )
+        have = {row[0] for row in existing.all()}
+        rows = await session.execute(select(EntityAlias).where(EntityAlias.entity_id == source_id))
+        for alias in rows.scalars().all():
+            if alias.normalized_alias in have:
+                await session.delete(alias)
+            else:
+                alias.entity_id = target_id
+                have.add(alias.normalized_alias)
+        await session.flush()
+
+    async def _merge_varietal_links(self, session: AsyncSession, source_id: str, target_id: str) -> None:
+        """品种关联表 varietal_entity_id 指 source → 改 target；会撞复合主键的先删（去重）。"""
+        specs = [
+            (GreenBeanProductVarietal, "green_bean_product_entity_id"),
+            (RoasterProductVarietal, "roaster_product_entity_id"),
+            (UserBeanCardVarietal, "bean_card_id"),
+        ]
+        for orm, owner_col in specs:
+            rows = await session.execute(select(orm).where(orm.varietal_entity_id == source_id))
+            for link in rows.scalars().all():
+                owner = getattr(link, owner_col)
+                dup = await session.execute(
+                    select(orm).where(
+                        getattr(orm, owner_col) == owner, orm.varietal_entity_id == target_id
+                    )
+                )
+                if dup.scalar_one_or_none() is not None:
+                    await session.delete(link)
+                else:
+                    link.varietal_entity_id = target_id
+            await session.flush()
+
+    async def merge_entities(
+        self,
+        session: AsyncSession,
+        *,
+        source_id: str,
+        target_id: str,
+        reviewer_id: str | None = None,
+    ) -> PublicEntity | None:
+        """把 source 实体并入 target：迁移全部外键引用 + 别名，source 主名登记为 target 别名，
+        source 标记 merged（不物理删，保留溯源）。返回合并后的 target。
+
+        误合防护：仅由管理员显式触发；自合 / 实体不存在 / 类型不同一律拒绝（返回 None）。
+        """
+        if source_id == target_id:
+            return None
+        source = await session.get(PublicEntityORM, source_id)
+        target = await session.get(PublicEntityORM, target_id)
+        if source is None or target is None or source.entity_type != target.entity_type:
+            return None
+        for orm, cols in self._MERGE_REF_COLUMNS:
+            for col in cols:
+                await session.execute(
+                    update(orm).where(getattr(orm, col) == source_id).values(**{col: target_id})
+                )
+        await self._merge_varietal_links(session, source_id, target_id)
+        await self._merge_aliases(session, source_id, target_id)
+        # source 主名（及其拆分片段）登记为 target 别名，今后该写法直接命中 target。
+        await self.register_aliases(session, target_id, source.canonical_name, source="merge")
+        source.status = "merged"
+        await session.flush()
+        await session.refresh(target)
+        return PublicEntity.model_validate(target)
+
+    async def rename_canonical(
+        self,
+        session: AsyncSession,
+        *,
+        entity_id: str,
+        new_canonical: str,
+        reviewer_id: str | None = None,
+    ) -> PublicEntity | None:
+        """规范实体主名（把混合名 "X / 中文" 收成单一干净主名）：旧名转别名，主名与归一名改新值。
+
+        若新名归一后与同类型其他实体撞名 → 抛 ValueError("rename_target_exists")（该走合并而非改名）。
+        """
+        entity = await session.get(PublicEntityORM, entity_id)
+        if entity is None:
+            return None
+        new_norm = normalize_name(new_canonical)
+        if not new_norm:
+            return None
+        clash = await session.execute(
+            select(PublicEntityORM).where(
+                PublicEntityORM.entity_type == entity.entity_type,
+                PublicEntityORM.normalized_name == new_norm,
+                PublicEntityORM.id != entity_id,
+            )
+        )
+        if clash.scalar_one_or_none() is not None:
+            raise ValueError("rename_target_exists")
+        old_canonical = entity.canonical_name
+        entity.canonical_name = new_canonical
+        entity.normalized_name = new_norm
+        await session.flush()
+        # 旧名仍可被搜到；新名拆分片段也各登记。
+        await self.register_aliases(session, entity_id, old_canonical, source="rename")
+        await self.register_aliases(session, entity_id, new_canonical, source="rename")
+        await session.refresh(entity)
+        return PublicEntity.model_validate(entity)
+
+    async def find_duplicate_groups(
+        self, session: AsyncSession, *, entity_type: str | None = None, limit: int = 50
+    ) -> list[tuple[str, list[PublicEntityORM]]]:
+        """扫描疑似重复实体组（仅 active），供管理员人工合并：
+        - "form"：disambig_key 完全相同（大小写/空格/全半角差异，多为阶段 1 前的历史遗留）。
+        - "substring"：一方 disambig 是另一方子串（缩写↔全称，如 SEY ↔ SEY Coffee）。
+        """
+        conds = [PublicEntityORM.status == "active"]
+        if entity_type:
+            conds.append(PublicEntityORM.entity_type == canonical_type(entity_type))
+        rows = await session.execute(select(PublicEntityORM).where(*conds))
+        ents = list(rows.scalars().all())
+
+        groups: list[tuple[str, list[PublicEntityORM]]] = []
+        buckets: dict[tuple[str, str], list[PublicEntityORM]] = {}
+        for e in ents:
+            dk = disambig_key(e.canonical_name)
+            if dk:
+                buckets.setdefault((e.entity_type, dk), []).append(e)
+        paired: set[str] = set()
+        for members in buckets.values():
+            if len(members) > 1:
+                groups.append(("form", members))
+                paired.update(m.id for m in members)
+
+        by_type: dict[str, list[PublicEntityORM]] = {}
+        for e in ents:
+            by_type.setdefault(e.entity_type, []).append(e)
+        for members in by_type.values():
+            for i in range(len(members)):
+                for j in range(i + 1, len(members)):
+                    a, b = members[i], members[j]
+                    if a.id in paired and b.id in paired:
+                        continue
+                    ka, kb = disambig_key(a.canonical_name), disambig_key(b.canonical_name)
+                    if ka and kb and ka != kb and len(ka) >= 2 and len(kb) >= 2 and (ka in kb or kb in ka):
+                        groups.append(("substring", [a, b]))
+                        if len(groups) >= limit:
+                            return groups[:limit]
+        return groups[:limit]
+
+    async def find_mixed_names(
+        self, session: AsyncSession, *, entity_type: str | None = None, limit: int = 100
+    ) -> list[PublicEntityORM]:
+        """canonical 仍是混合主名（含 / ｜ 、 等分隔、可拆成多片段）的 active 实体，建议规范成单一主名。"""
+        conds = [PublicEntityORM.status == "active"]
+        if entity_type:
+            conds.append(PublicEntityORM.entity_type == canonical_type(entity_type))
+        rows = await session.execute(select(PublicEntityORM).where(*conds))
+        out = [e for e in rows.scalars().all() if len(alias_fragments(e.canonical_name)) > 1]
+        return out[:limit]
 
 
 entity_repository = EntityRepository()

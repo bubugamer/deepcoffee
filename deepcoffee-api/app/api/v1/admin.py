@@ -35,7 +35,13 @@ from app.schemas.candidate import (
     CandidateReviewRequest,
     SimilarEntity,
 )
-from app.schemas.entity import PublicEntity
+from app.schemas.entity import (
+    DuplicateGroup,
+    EntityDuplicatesResponse,
+    EntityMergeRequest,
+    EntityRenameRequest,
+    PublicEntity,
+)
 from app.schemas.proposal import Proposal, ProposalMarkAppliedRequest, ProposalReviewRequest
 from app.services.candidate_service import candidate_service
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
@@ -430,3 +436,58 @@ async def list_entities(
     session: AsyncSession = Depends(get_session),
 ) -> list[PublicEntity]:
     return await entity_repository.list(session, entity_type=entity_type, status=status)
+
+
+@router.get("/entities/duplicates", response_model=EntityDuplicatesResponse)
+async def list_entity_duplicates(
+    entity_type: str | None = Query(default=None),
+    _admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> EntityDuplicatesResponse:
+    """疑似重复实体（形态相同 / 缩写子串）+ 仍是混合主名的实体，供管理员合并 / 规范。"""
+    groups = await entity_repository.find_duplicate_groups(session, entity_type=entity_type)
+    mixed = await entity_repository.find_mixed_names(session, entity_type=entity_type)
+    return EntityDuplicatesResponse(
+        groups=[
+            DuplicateGroup(reason=reason, entities=[PublicEntity.model_validate(e) for e in members])
+            for reason, members in groups
+        ],
+        mixed_names=[PublicEntity.model_validate(e) for e in mixed],
+    )
+
+
+@router.post("/entities/{entity_id}/merge", response_model=PublicEntity)
+async def merge_entity(
+    entity_id: str,
+    payload: EntityMergeRequest,
+    admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> PublicEntity:
+    """把当前实体并入目标实体：引用与别名迁移到目标，当前实体标记 merged（不物理删）。"""
+    if entity_id == payload.target_id:
+        raise AppError(400, "merge_self", "不能并入自身。")
+    result = await entity_repository.merge_entities(
+        session, source_id=entity_id, target_id=payload.target_id, reviewer_id=admin.id
+    )
+    if result is None:
+        raise AppError(400, "merge_failed", "合并失败：实体不存在或类型不一致。")
+    return result
+
+
+@router.post("/entities/{entity_id}/rename", response_model=PublicEntity)
+async def rename_entity(
+    entity_id: str,
+    payload: EntityRenameRequest,
+    admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> PublicEntity:
+    """规范实体主名（旧名转别名）。若与同类型其他实体撞名，应改用「合并」。"""
+    try:
+        result = await entity_repository.rename_canonical(
+            session, entity_id=entity_id, new_canonical=payload.canonical_name, reviewer_id=admin.id
+        )
+    except ValueError:
+        raise AppError(409, "rename_target_exists", "已有同名实体，请改用「合并」。")
+    if result is None:
+        raise AppError(404, "entity_not_found", "实体不存在。")
+    return result

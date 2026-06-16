@@ -7,8 +7,8 @@ import { Loader2, CheckCircle2, XCircle, ArrowUpCircle, X } from 'lucide-react'
 import {
   listProposals, approveProposal, rejectProposal, markProposalApplied,
   listCandidates, promoteCandidate, rejectCandidate, mergeCandidate,
-  listEntities,
-  type Proposal, type CandidateFact, type PublicEntity,
+  listEntities, listEntityDuplicates, mergeEntity, renameEntity,
+  type Proposal, type CandidateFact, type PublicEntity, type EntityDuplicatesResponse,
 } from '@/lib/api/admin'
 
 type Tab = 'proposals' | 'candidates' | 'entities'
@@ -54,6 +54,7 @@ function ReviewInner() {
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [candidates, setCandidates] = useState<CandidateFact[] | null>(null)
   const [entities, setEntities] = useState<PublicEntity[] | null>(null)
+  const [dupes, setDupes] = useState<EntityDuplicatesResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [detail, setDetail] = useState<Proposal | CandidateFact | null>(null)
@@ -70,7 +71,10 @@ function ReviewInner() {
       listCandidates(statusFilter ? { status: statusFilter } : undefined).then(setCandidates).catch(fail)
     } else {
       setEntities(null)
+      setDupes(null)
       listEntities(statusFilter ? { status: statusFilter } : undefined).then(setEntities).catch(fail)
+      // 清理建议（疑似重复 + 待规范主名）只看 active，不随状态筛选变化。
+      listEntityDuplicates().then(setDupes).catch(() => setDupes(null))
     }
   }, [tab, statusFilter])
 
@@ -89,6 +93,21 @@ function ReviewInner() {
       setError(err instanceof Error ? err.message : '操作失败')
     } finally {
       setBusy(null)
+    }
+  }
+
+  // 阶段 4：把整组重复实体并入选中的「保留」实体；改名走 prompt 收单一主名。
+  function mergeGroup(keepId: string, members: PublicEntity[]) {
+    const others = members.filter(m => m.id !== keepId)
+    if (others.length === 0) return
+    act(keepId, async () => {
+      for (const m of others) await mergeEntity(m.id, keepId)
+    })
+  }
+  function renamePrompt(en: PublicEntity) {
+    const next = window.prompt(`把「${en.canonical_name}」规范成单一主名：`, en.canonical_name)
+    if (next && next.trim() && next.trim() !== en.canonical_name) {
+      act(en.id, () => renameEntity(en.id, next.trim()))
     }
   }
 
@@ -175,9 +194,57 @@ function ReviewInner() {
         </div>
       )}
 
-      {/* ── 实体库（只读） ── */}
+      {/* ── 实体库（含阶段 4 清理建议） ── */}
       {tab === 'entities' && entities && (
-        <div className="dc-card overflow-x-auto">
+        <div className="space-y-4">
+          {dupes && (dupes.groups.length > 0 || dupes.mixed_names.length > 0) && (
+            <div className="dc-card p-4 space-y-3">
+              <div className="text-sm font-bold text-dc-text-1">清理建议</div>
+              {dupes.groups.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-dc-yellow">疑似重复：点你想保留的那一个，组内其余并入它</div>
+                  {dupes.groups.map((g, gi) => (
+                    <div key={gi} className="border border-dc-border rounded-lg p-2.5 space-y-1.5">
+                      <div className="text-xs text-dc-text-3">
+                        {g.reason === 'form' ? '写法相同' : '缩写/全称'} · {g.entities[0]?.entity_type}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.entities.map(e => (
+                          <button
+                            key={e.id}
+                            disabled={busy !== null}
+                            onClick={() => mergeGroup(e.id, g.entities)}
+                            title="保留它，其余并入"
+                            className="px-2.5 py-1 text-xs border border-dc-border rounded-md hover:border-dc-accent-hi disabled:opacity-60"
+                          >
+                            {e.canonical_name} <span className="text-dc-accent">· 保留</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {dupes.mixed_names.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-dc-yellow">待规范主名（中英混写，建议收成单一主名）</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {dupes.mixed_names.map(en => (
+                      <button
+                        key={en.id}
+                        disabled={busy !== null}
+                        onClick={() => renamePrompt(en)}
+                        className="px-2.5 py-1 text-xs border border-dc-border rounded-md hover:border-dc-accent-hi disabled:opacity-60"
+                      >
+                        {en.canonical_name} <span className="text-dc-accent">· 规范</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="dc-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-dc-text-3 border-b border-dc-border">
@@ -203,6 +270,7 @@ function ReviewInner() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

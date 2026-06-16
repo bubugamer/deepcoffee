@@ -143,3 +143,137 @@ def test_merge_candidate_into_entity_registers_alias() -> None:
             await session.rollback()
 
     asyncio.run(_run())
+
+
+# ---------- 阶段 3：豆卡关联实体 + 搜索聚合 ----------
+
+
+def test_bean_links_roaster_and_search_aggregates() -> None:
+    from app.repositories.beans import bean_repository
+    from app.repositories.profiles import profile_repository
+    from app.schemas.bean import BeanDraft
+
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await profile_repository.get_or_create(session, "u-bean", "u@x.com")
+            await entity_repository.upsert(session, entity_type="roaster", canonical_name="Coffee Buff")
+            id1 = await bean_repository.create(
+                session,
+                user_id="u-bean",
+                draft=BeanDraft(name="豆A", roaster_name="coffee buff"),
+                source_type="text",
+                raw_input=None,
+                trace_id="t1",
+            )
+            id2 = await bean_repository.create(
+                session,
+                user_id="u-bean",
+                draft=BeanDraft(name="豆B", roaster_name="Coffeebuff"),
+                source_type="text",
+                raw_input=None,
+                trace_id="t2",
+            )
+            b1 = await bean_repository.get(session, user_id="u-bean", bean_id=id1)
+            b2 = await bean_repository.get(session, user_id="u-bean", bean_id=id2)
+            # 两种写法都回填到同一烘焙商实体，规范名统一
+            assert b1.roaster_entity_id is not None
+            assert b1.roaster_entity_id == b2.roaster_entity_id
+            assert b1.roaster_canonical == "Coffee Buff"
+            # 搜其中一种写法 → 聚合搜出两张
+            beans, _ = await bean_repository.list(session, user_id="u-bean", q="coffeebuff")
+            assert {"豆A", "豆B"} <= {b.name for b in beans}
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
+# ---------- 阶段 4：合并 / 规范主名 / 扫描重复 ----------
+
+
+def test_merge_entities_migrates_refs_and_alias() -> None:
+    from app.models.tables import PublicEntity as PE
+    from app.repositories.beans import bean_repository
+    from app.repositories.profiles import profile_repository
+    from app.schemas.bean import BeanDraft
+
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await profile_repository.get_or_create(session, "u-merge", "m@x.com")
+            target = await entity_repository.upsert(
+                session, entity_type="roaster", canonical_name="SEY Coffee"
+            )
+            source = await entity_repository.upsert(session, entity_type="roaster", canonical_name="SEY")
+            bid = await bean_repository.create(
+                session,
+                user_id="u-merge",
+                draft=BeanDraft(name="豆", roaster_name="SEY"),
+                source_type="text",
+                raw_input=None,
+                trace_id="t",
+            )
+            b = await bean_repository.get(session, user_id="u-merge", bean_id=bid)
+            assert b.roaster_entity_id == source.id  # 合并前关联到 source
+            merged = await entity_repository.merge_entities(
+                session, source_id=source.id, target_id=target.id
+            )
+            assert merged is not None and merged.id == target.id
+            # source 标记 merged；"SEY" 改为解析到 target；豆卡引用迁到 target
+            src = await session.get(PE, source.id)
+            assert src.status == "merged"
+            r = await entity_repository.resolve_entity(session, "roaster", "SEY")
+            assert r is not None and r.id == target.id
+            b2 = await bean_repository.get(session, user_id="u-merge", bean_id=bid)
+            assert b2.roaster_entity_id == target.id
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
+def test_rename_canonical_keeps_old_name_searchable() -> None:
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            ent = await entity_repository.upsert(
+                session, entity_type="roaster", canonical_name="Captain George / 乔治队长"
+            )
+            renamed = await entity_repository.rename_canonical(
+                session, entity_id=ent.id, new_canonical="乔治队长"
+            )
+            assert renamed is not None and renamed.canonical_name == "乔治队长"
+            # 旧的英文名 / 混合名仍能解析到同一实体（旧名转成了别名）
+            r1 = await entity_repository.resolve_entity(session, "roaster", "Captain George")
+            r2 = await entity_repository.resolve_entity(session, "roaster", "Captain George / 乔治队长")
+            assert r1 is not None and r1.id == ent.id
+            assert r2 is not None and r2.id == ent.id
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
+def test_find_duplicate_groups_detects_form_dupes() -> None:
+    from app.models.tables import PublicEntity as PE
+    from app.repositories.entities import normalize_name
+
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await entity_repository.upsert(session, entity_type="roaster", canonical_name="Coffee Buff")
+            # 直接造一个形态重复实体（绕过 upsert 判重，模拟阶段 1 前的历史遗留）
+            session.add(
+                PE(
+                    id="ent_dupe_cb",
+                    entity_type="roaster",
+                    canonical_name="Coffeebuff",
+                    normalized_name=normalize_name("Coffeebuff"),
+                    scope="public",
+                    status="active",
+                    created_from="seed",
+                )
+            )
+            await session.flush()
+            groups = await entity_repository.find_duplicate_groups(session, entity_type="roaster")
+            assert any(
+                {e.canonical_name for e in members} >= {"Coffee Buff", "Coffeebuff"}
+                for _reason, members in groups
+            )
+            await session.rollback()
+
+    asyncio.run(_run())

@@ -107,6 +107,8 @@ class Bean(BaseModel):
     bean_id: str
     name: str
     roaster: str | None = None
+    roaster_entity_id: str | None = None  # 关联到的公共烘焙商实体（消歧聚合用）
+    roaster_canonical: str | None = None  # 该实体的规范名（不同写法归一后的统一显示名）
     roaster_product: str | None = None
     coffee_source: str | None = None
     green_bean_merchant: str | None = None

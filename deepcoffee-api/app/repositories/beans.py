@@ -6,7 +6,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import BrewRecord as BrewRecordORM
+from app.models.tables import PublicEntity as PublicEntityORM
 from app.models.tables import UserBeanCard as UserBeanCardORM
+from app.repositories.entities import entity_repository
 from app.schemas.bean import (
     Bean,
     BeanDraft,
@@ -76,7 +78,43 @@ class BeanRepository:
         )
         session.add(card)
         await session.flush()
+        await self._link_entities(session, card)
+        await session.flush()
         return card.id
+
+    async def _link_entities(self, session: AsyncSession, card: UserBeanCardORM) -> None:
+        """把豆卡里的名称解析到公共实体，回填各 *_entity_id（命中 active 才填，否则清空）。
+
+        消歧匹配（别名 / 形态）让「同一烘焙商不同写法」聚合到同一实体；解析失败不阻断建档。
+        """
+        mapping = [
+            ("roaster", card.roaster_name, "roaster_entity_id"),
+            ("origin", card.origin_name, "origin_entity_id"),
+            ("process_method", card.process_name, "process_entity_id"),
+            ("coffee_source", card.coffee_source_name, "coffee_source_entity_id"),
+            ("green_bean_merchant", card.green_bean_merchant_name, "green_bean_merchant_entity_id"),
+        ]
+        for etype, name, attr in mapping:
+            if not name:
+                setattr(card, attr, None)
+                continue
+            try:
+                ent = await entity_repository.resolve_entity(session, etype, name)
+            except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
+                ent = None
+            setattr(card, attr, ent.id if (ent is not None and ent.status == "active") else None)
+
+    async def _roaster_canonicals(
+        self, session: AsyncSession, cards: list[UserBeanCardORM]
+    ) -> dict[str, str]:
+        """批量取豆卡所关联烘焙商实体的规范名（id → canonical_name），避免逐卡查询。"""
+        ids = {c.roaster_entity_id for c in cards if c.roaster_entity_id}
+        if not ids:
+            return {}
+        rows = await session.execute(
+            select(PublicEntityORM.id, PublicEntityORM.canonical_name).where(PublicEntityORM.id.in_(ids))
+        )
+        return {row[0]: row[1] for row in rows.all()}
 
     # ---- 统计：用户可见的「user」冲煮记录聚合到豆子（均分 / 条数）。----
     async def _stats(self, session: AsyncSession, bean_ids: list[str]) -> dict[str, tuple[float | None, int]]:
@@ -118,12 +156,15 @@ class BeanRepository:
         card: UserBeanCardORM,
         stats: tuple[float | None, int],
         rec_params: BeanRecommendedParams | None,
+        roaster_canonical: str | None = None,
     ) -> Bean:
         avg_score, record_count = stats
         return Bean(
             bean_id=card.id,
             name=card.name,
             roaster=card.roaster_name,
+            roaster_entity_id=card.roaster_entity_id,
+            roaster_canonical=roaster_canonical,
             roaster_product=card.roaster_product_name,
             coffee_source=card.coffee_source_name,
             green_bean_merchant=card.green_bean_merchant_name,
@@ -153,7 +194,8 @@ class BeanRepository:
             return None
         stats = (await self._stats(session, [card.id]))[card.id]
         rec = await self._recommended_params(session, card.recommended_record_id)
-        return self._to_bean(card, stats, rec)
+        canon = await self._roaster_canonicals(session, [card])
+        return self._to_bean(card, stats, rec, canon.get(card.roaster_entity_id))
 
     async def list(
         self,
@@ -167,14 +209,18 @@ class BeanRepository:
         conditions = [UserBeanCardORM.user_id == user_id, UserBeanCardORM.status == "active"]
         if q:
             like = f"%{q.strip()}%"
-            conditions.append(
-                or_(
-                    UserBeanCardORM.name.ilike(like),
-                    UserBeanCardORM.roaster_name.ilike(like),
-                    UserBeanCardORM.origin_name.ilike(like),
-                    UserBeanCardORM.process_name.ilike(like),
-                )
-            )
+            name_conditions = [
+                UserBeanCardORM.name.ilike(like),
+                UserBeanCardORM.roaster_name.ilike(like),
+                UserBeanCardORM.origin_name.ilike(like),
+                UserBeanCardORM.process_name.ilike(like),
+            ]
+            # 消歧聚合：搜索词若能解析到某烘焙商实体，则把「回填了该实体」的豆卡一并纳入，
+            # 让同一烘焙商的不同写法（coffee buff / Coffeebuff）一起被搜出。
+            roaster_ent = await entity_repository.resolve_entity(session, "roaster", q.strip())
+            if roaster_ent is not None:
+                name_conditions.append(UserBeanCardORM.roaster_entity_id == roaster_ent.id)
+            conditions.append(or_(*name_conditions))
         if process:
             conditions.append(UserBeanCardORM.process_name.ilike(f"%{process.strip()}%"))
 
@@ -183,10 +229,11 @@ class BeanRepository:
         )
         cards = list(result.scalars().all())
         stats = await self._stats(session, [c.id for c in cards])
+        canon = await self._roaster_canonicals(session, cards)
         beans: list[Bean] = []
         for card in cards:
             rec = await self._recommended_params(session, card.recommended_record_id)
-            bean = self._to_bean(card, stats.get(card.id, (None, 0)), rec)
+            bean = self._to_bean(card, stats.get(card.id, (None, 0)), rec, canon.get(card.roaster_entity_id))
             if min_score is not None and (bean.avg_score is None or bean.avg_score < min_score):
                 continue
             beans.append(bean)
