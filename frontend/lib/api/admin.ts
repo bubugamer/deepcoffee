@@ -90,6 +90,14 @@ export interface CandidateFact {
   trace_id?: string | null
   created_at: string
   updated_at: string
+  similar_entities?: SimilarEntity[]
+}
+
+export interface SimilarEntity {
+  id: string
+  entity_type: string
+  canonical_name: string
+  status: string
 }
 
 export interface PublicEntity {
@@ -198,6 +206,13 @@ export function promoteCandidate(id: string, note?: string): Promise<{ candidate
 
 export function rejectCandidate(id: string, note?: string): Promise<CandidateFact> {
   return apiFetch(`/admin/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify({ reviewer_note: note ?? null }) })
+}
+
+export function mergeCandidate(id: string, entityId: string, note?: string): Promise<CandidateFact> {
+  return apiFetch(`/admin/candidates/${id}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ entity_id: entityId, reviewer_note: note ?? null }),
+  })
 }
 
 export function listEntities(params?: { entity_type?: string; status?: string }): Promise<PublicEntity[]> {
