@@ -58,7 +58,7 @@ async def answer_with_model(
         {"role": "user", "content": build_user_content(user_text, image_urls if use_images else None)}
     )
     try:
-        result = await gw.chat(model=model_to_use, messages=messages, temperature=0.3, max_tokens=700)
+        result = await gw.chat(model=model_to_use, messages=messages, temperature=0.3, max_tokens=3000)
     except Exception as exc:  # noqa: BLE001 — 模型失败即回退本地，不影响问答可用性
         if is_provider_quota_error(exc):
             # 服务端模型 key 配额/欠费：ERROR 级（Sentry 可捕获），管理员需充值。

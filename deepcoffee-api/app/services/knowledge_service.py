@@ -74,6 +74,27 @@ def drop_internal_sections(markdown: str) -> str:
     return "\n".join(kept).strip("\n") + ("\n" if kept else "")
 
 
+def strip_internal_source_lines(markdown: str) -> str:
+    """删除「## 来源」段中指向内部素材文件（resources/…）的列表项。
+
+    用户可见的来源里不该出现内部文件路径；公开链接与站内文章来源原样保留。
+    只在「## 来源」段内生效，遇到下一个 ## 标题即退出该段。
+    """
+    lines = markdown.splitlines()
+    kept: list[str] = []
+    in_sources = False
+    for line in lines:
+        h2 = re.match(r"^##\s+(.+?)\s*$", line)
+        if h2:
+            in_sources = h2.group(1).strip() == "来源"
+            kept.append(line)
+            continue
+        if in_sources and "resources/" in line:
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip("\n") + ("\n" if kept else "")
+
+
 def _meta_str(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
@@ -289,6 +310,8 @@ class KnowledgeService:
             meta, markdown = split_frontmatter(raw)
             # 内部章节兜底剔除：下游（展示/章节/目录/grounding）全部派生自干净正文。
             markdown = drop_internal_sections(markdown)
+            # 来源段里指向内部素材（resources/）的条目也剔除，避免暴露内部路径。
+            markdown = strip_internal_source_lines(markdown)
             rel_without_suffix = rel.with_suffix("")
             # slug / category 仍由路径 / 文件夹决定（不读 meta.slug / meta.category，避免改 URL、断关联）。
             slug = normalize_slug("__".join(rel_without_suffix.parts))

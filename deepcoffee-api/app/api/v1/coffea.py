@@ -265,6 +265,9 @@ async def post_message(
             )
     # 前端只读 reply 作为主气泡正文；results 保留动作明细，不要求前端遍历 results 来找主回复。
     reply = assemble_reply(plan, results)
+    # 兜底：任何意图都没产出可显示回复时，给一句引导，绝不把空气泡甩给用户。
+    if not (reply and reply.strip()):
+        reply = "我可以帮你聊咖啡豆、冲煮方案、器具这些。你想了解点什么？"
 
     # 服务端模型 key 配额/欠费导致的降级必须显式告知（否则 AI 只是静默变笨）；
     # 这是管理员要充值的事，不是用户额度问题，文案不引导用户充值。

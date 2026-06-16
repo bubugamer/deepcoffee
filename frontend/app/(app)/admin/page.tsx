@@ -53,9 +53,6 @@ export default function AdminDashboardPage() {
             </div>
           ))}
         </div>
-        <div className="text-xs text-dc-text-3 mt-2">
-          公共实体库现有 active 实体 {stats.active_entity_count} 个。
-        </div>
       </div>
     </div>
   )
