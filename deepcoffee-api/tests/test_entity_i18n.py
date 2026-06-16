@@ -4,10 +4,26 @@ from __future__ import annotations
 
 import asyncio
 
-from app.repositories.entities import detect_locale, entity_repository
+from app.repositories.entities import alias_fragments, detect_locale, entity_repository
 
 
 # ---------- 纯函数：语言判定 ----------
+
+
+def test_alias_fragments_splits_parenthetical_bilingual() -> None:
+    # 「中文（English）」括号双语名拆成中、英两半，整名保留
+    f = alias_fragments("哥斯达黎加（Costa Rica）")
+    assert "哥斯达黎加" in f and "Costa Rica" in f
+    assert "哥斯达黎加（Costa Rica）" in f
+    # 英文（中文）方向同样拆
+    f2 = alias_fragments("Finca Santo Niño（圣尼佐庄园）")
+    assert "Finca Santo Niño" in f2 and "圣尼佐庄园" in f2
+
+
+def test_alias_fragments_keeps_parenthetical_note_intact() -> None:
+    # 括号里是注释（判不出干净语言）→ 不拆，避免误把注释当成别名
+    f = alias_fragments("1zpresso ZP6（含 ZP6S 特调版）")
+    assert f == ["1zpresso ZP6（含 ZP6S 特调版）"]
 
 
 def test_detect_locale_basic_scripts() -> None:
