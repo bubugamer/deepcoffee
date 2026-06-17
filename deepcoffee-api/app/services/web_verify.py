@@ -61,7 +61,7 @@ async def verify_with_model(
     )
     try:
         result = await gw.chat(
-            model=model_to_use, messages=messages, temperature=0.2, max_tokens=900
+            model=model_to_use, messages=messages, temperature=0.2, max_tokens=3000
         )
     except Exception as exc:  # noqa: BLE001 — 模型失败即降级（调用方退回知识库）
         logger.warning("web_verify model synthesis failed, fallback: %s", exc)

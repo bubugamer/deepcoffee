@@ -162,7 +162,7 @@ async def _model_turn(
             model=model,
             messages=messages,
             temperature=0.3,
-            max_tokens=900,
+            max_tokens=3000,
             required_keys=["status"],
             allowed_keys=_PLAN_KEYS,
         )

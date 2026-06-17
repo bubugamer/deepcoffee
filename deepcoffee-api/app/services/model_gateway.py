@@ -73,15 +73,27 @@ class ModelGateway:
         # （[{"type":"text",...}, {"type":"image_url","image_url":{"url":"data:image/...;base64,..."}}]），
         # 让 vision 模型（如 kimi-k2.6）能收图片。见 docs/deepcoffee-ai-prompts.md §2。
         base, api_key = self._endpoint_for_model(model)
-        payload: dict = {"model": model, "messages": messages, "temperature": temperature}
+        is_vision = bool(self.settings.vision_model and model == self.settings.vision_model)
+        # 思考类模型（deepseek-v4-pro / kimi-k2.6）默认开思考：慢到几十秒（超前端等待）、把 max_tokens
+        # 吃光导致正文为空、且对 temperature 有古怪限制（开思考只认 1、关思考又只认某值）。开此配置后
+        # 下发 {"thinking":{"type":"disabled"}} 关掉思考、并**省略 temperature** 用模型默认，
+        # 实测变 1~3 秒、正文完整、不再被 temperature 报错打回。
+        disable_thinking = (
+            self.settings.vision_model_disable_thinking if is_vision else self.settings.model_disable_thinking
+        )
+        payload: dict = {"model": model, "messages": messages}
+        if not disable_thinking:
+            payload["temperature"] = temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         # 抽取/结构化类能力传 {"type": "json_object"}，让模型只吐 JSON（见 prompts 清单 §0 默认入参）。
         if response_format is not None:
             payload["response_format"] = response_format
-        # 透传厂商专有参数（如 Moonshot 关思考 {"thinking": {"type": "disabled"}}）。
-        if extra_body:
-            payload.update(extra_body)
+        effective_extra: dict = dict(extra_body or {})
+        if disable_thinking:
+            effective_extra.setdefault("thinking", {"type": "disabled"})
+        if effective_extra:
+            payload.update(effective_extra)
         async with httpx.AsyncClient(base_url=base, timeout=60) as client:
             resp = await client.post(
                 "/v1/chat/completions",

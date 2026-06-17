@@ -15,7 +15,7 @@ def default_repo_root() -> Path:
 
 class Settings(BaseSettings):
     app_name: str = "DeepCoffee API"
-    app_version: str = "0.14.0"
+    app_version: str = "0.15.0"
     app_env: str = Field(default="local", validation_alias=AliasChoices("DEEPCOFFEE_APP_ENV", "APP_ENV"))
     api_prefix: str = "/v1"
     docs_enabled: bool = True
@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     vision_model: str | None = Field(
         default="kimi-k2.6",
         validation_alias=AliasChoices("DEEPCOFFEE_VISION_MODEL", "VISION_MODEL"),
+    )
+    # 思考类模型（如 deepseek-v4-pro / kimi-k2.6）默认开「思考」：单次几十秒（超前端等待）、把
+    # max_tokens 预算吃光导致正文为空、且只接受 temperature=1。置 true 让网关下发
+    # {"thinking": {"type": "disabled"}} 关掉思考——实测变 1~3 秒、正文完整、temperature 也恢复可用。
+    model_disable_thinking: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("DEEPCOFFEE_MODEL_DISABLE_THINKING", "MODEL_DISABLE_THINKING"),
+    )
+    vision_model_disable_thinking: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("DEEPCOFFEE_VISION_MODEL_DISABLE_THINKING", "VISION_MODEL_DISABLE_THINKING"),
     )
     # 对话豆卡识图自动录入的识别度阈值：综合识别度（vision 自报与字段完整度取 min）达到即直接建档，
     # 低于则出草稿卡让用户确认。
