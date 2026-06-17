@@ -31,7 +31,7 @@ export function fileToDataUrl(file: File): Promise<string> {
 
 // 上传前压缩：手机原图常有数 MB，等比缩到长边 ≤maxDim 并转 JPEG，
 // 大幅减小请求体（弱网更不易卡住），对豆卡文字识别足够。解码失败则回退原图。
-export async function compressImage(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
+export async function compressImage(file: File, maxDim = 1024, quality = 0.82): Promise<string> {
   if (!file.type.startsWith('image/') || typeof document === 'undefined') {
     return fileToDataUrl(file)
   }

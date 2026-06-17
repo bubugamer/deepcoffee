@@ -94,7 +94,8 @@ class ModelGateway:
             effective_extra.setdefault("thinking", {"type": "disabled"})
         if effective_extra:
             payload.update(effective_extra)
-        async with httpx.AsyncClient(base_url=base, timeout=60) as client:
+        # 视觉模型（kimi-k2.6）较慢，单张图可达数十秒、两张图更久；放宽到 120s 避免调用被中途掐断回退。
+        async with httpx.AsyncClient(base_url=base, timeout=120) as client:
             resp = await client.post(
                 "/v1/chat/completions",
                 json=payload,
