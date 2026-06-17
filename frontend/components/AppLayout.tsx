@@ -41,55 +41,74 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // 路由变化时自动关闭移动端抽屉
   useEffect(() => { setOpen(false) }, [path])
 
-  // Auth guard：无 token 跳转登录页
+  // Auth guard：以 Supabase 会话为登录态权威。getSession() 会按需用长效 refresh token 自动换新
+  // access_token（持久），拿不到会话=未登录/已过期 → 清本地并回 landing 登出，绝不卡在登录后页面。
+  // dev token（dev: 前缀）走旁路、不依赖 Supabase，保留本地开发。
   useEffect(() => {
-    const token = getToken()
-    if (!token) {
-      router.replace('/auth')
-      return
-    }
     let cancelled = false
-    setAccountLoading(true)
-    setAccountError('')
-    Promise.all([getUserProfile(token), getUserQuota(token)])
-      .then(([nextProfile, nextQuota]) => {
+    async function init() {
+      setAccountLoading(true)
+      setAccountError('')
+      let token = getToken()
+      const isDevToken = token?.startsWith('dev:') ?? false
+      if (!isDevToken) {
+        const { data } = await supabase.auth.getSession()
+        if (cancelled) return
+        if (!data.session) {
+          // 无有效会话（未登录或 refresh token 已失效）→ 登出回 landing
+          removeToken()
+          router.replace('/')
+          return
+        }
+        token = data.session.access_token
+        setToken(token) // 写回刷新后的最新 token，后续请求都用它
+      }
+      if (!token) {
+        router.replace('/')
+        return
+      }
+      try {
+        const [nextProfile, nextQuota] = await Promise.all([getUserProfile(token), getUserQuota(token)])
         if (cancelled) return
         setProfile(nextProfile)
         setQuota(nextQuota)
-      })
-      .catch((error) => {
+      } catch (error) {
         if (cancelled) return
+        // token 被后端拒（401）→ 视为已登出，清理并回 landing
         if (error instanceof ApiError && error.status === 401) {
           removeToken()
-          router.replace('/auth')
+          supabase.auth.signOut().catch(() => {})
+          router.replace('/')
           return
         }
+        // 其它（网络 / 超时等暂时性错误）：用户仍登录，只提示、不误登出
         setAccountError(error instanceof Error ? error.message : '账户信息加载失败')
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setAccountLoading(false)
-      })
+      }
+    }
+    void init()
     return () => { cancelled = true }
   }, [router])
 
-  // 同步 Supabase 会话 token：access_token 默认 1 小时过期，客户端会自动刷新，
-  // 这里把刷新后的新 token 写回 dc_auth_token，避免请求带着过期 token 变 401。
-  // 仅处理刷新/登入/登出事件，忽略 INITIAL_SESSION，以免清掉本地 dev token。
+  // 运行期同步 Supabase 会话 token：刷新后写回 dc_auth_token；登出则清理并回 landing。
+  // 不处理 INITIAL_SESSION（冷启动由上面的守卫 getSession 负责），也不在无会话时清掉本地 dev token。
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
         setToken(session.access_token)
       } else if (event === 'SIGNED_OUT') {
         removeToken()
+        router.replace('/')
       }
     })
     return () => data.subscription.unsubscribe()
-  }, [])
+  }, [router])
 
   async function handleLogout() {
     try { await supabase.auth.signOut() } catch { /* 忽略：本地仍会清 token 并跳转 */ }
     removeToken()
-    router.replace('/auth')
+    router.replace('/')
   }
 
   const displayName = profile?.display_name ?? profile?.email ?? '账户'
