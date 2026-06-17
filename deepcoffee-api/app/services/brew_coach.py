@@ -75,7 +75,7 @@ async def coach_with_model(
     )
     try:
         result = await gw.chat(
-            model=model_to_use, messages=messages, temperature=0.4, max_tokens=900
+            model=model_to_use, messages=messages, temperature=0.4, max_tokens=3000
         )
     except Exception as exc:  # noqa: BLE001 — 失败即回退本地保守建议
         logger.warning("brew_coach model failed, fallback local: %s", exc)
