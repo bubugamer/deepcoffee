@@ -13,6 +13,7 @@ import { sendCoffeaMessage, getCoffeaSession, compressImage, mockSuggestions } f
 import { isQuotaExceeded } from '@/lib/api/client'
 import { QuotaNotice } from '@/components/QuotaNotice'
 import { ChatMarkdown } from '@/components/ChatMarkdown'
+import ImageLightbox from '@/components/ImageLightbox'
 import { useProfile } from '@/components/ProfileContext'
 import { getToken } from '@/lib/auth'
 import { isExternalSourceHref, sourceHref } from '@/lib/knowledge-source-links'
@@ -655,6 +656,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
   const [messages, setMessages] = useState<ChatTurn[]>([])
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<string[]>([])
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)  // 点击放大查看的聊天图片
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const msgsRef = useRef<HTMLDivElement>(null)
@@ -858,7 +860,15 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                 {m.images && m.images.length > 0 && (
                   <div className="flex flex-wrap gap-2 justify-end">
                     {m.images.map((src, j) => (
-                      <img key={j} src={src} alt="附件" className="w-24 h-24 object-cover rounded-lg border border-dc-border" />
+                      <button
+                        key={j}
+                        type="button"
+                        onClick={() => setLightboxSrc(src)}
+                        aria-label="查看大图"
+                        className="block rounded-lg overflow-hidden border border-dc-border cursor-zoom-in hover:opacity-90 transition-opacity"
+                      >
+                        <img src={src} alt="附件" className="w-24 h-24 object-cover" />
+                      </button>
                     ))}
                   </div>
                 )}
@@ -994,6 +1004,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
           )}
         </div>
       </div>
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </div>
   )
 }
