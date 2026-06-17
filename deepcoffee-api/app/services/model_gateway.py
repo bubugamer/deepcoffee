@@ -7,12 +7,35 @@ provider key is server-side only; callers never pass per-user model tokens.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
+
+# 模型不知道「今天」会把过去日期当成未来（如把 2025-11 当未来）。每次调用注入当前日期作上下文，
+# 让养豆天数、是否过期、产季新旧等日期推算有准。用 Asia/Shanghai（主要用户时区）到「天」即可。
+_WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+def _today_note() -> str:
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    return (
+        f"当前日期：{now:%Y-%m-%d}（{_WEEKDAYS[now.weekday()]}，北京时间）。"
+        "凡涉及日期推算（养豆天数、是否过期、产季新旧、是否未来日期等）都以此为准。"
+    )
+
+
+def _inject_today(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把当前日期并入首条 system 提示；没有 system 则在最前补一条。不改调用方原列表。"""
+    note = _today_note()
+    if messages and messages[0].get("role") == "system" and isinstance(messages[0].get("content"), str):
+        head = {**messages[0], "content": f"{messages[0]['content']}\n\n{note}"}
+        return [head, *messages[1:]]
+    return [{"role": "system", "content": note}, *messages]
 
 
 @dataclass
@@ -81,7 +104,7 @@ class ModelGateway:
         disable_thinking = (
             self.settings.vision_model_disable_thinking if is_vision else self.settings.model_disable_thinking
         )
-        payload: dict = {"model": model, "messages": messages}
+        payload: dict = {"model": model, "messages": _inject_today(messages)}
         if not disable_thinking:
             payload["temperature"] = temperature
         if max_tokens is not None:
