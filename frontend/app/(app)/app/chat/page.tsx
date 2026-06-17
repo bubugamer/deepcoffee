@@ -745,7 +745,8 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
     const controller = new AbortController()
     abortRef.current = controller
     // 自动超时：网络卡住/请求丢失时别让界面永久转圈（区别于用户手动「停止」）。
-    const timeout = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), 90_000)
+    // 带图轮要走视觉模型（较慢），给足时间，避免后端其实成功了前端却先判超时。
+    const timeout = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), 150_000)
     try {
       const res = await sendCoffeaMessage(
         { message: t, session_id: sessionId, attachments },
@@ -983,7 +984,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
             disabled={sending}
             rows={1}
             className="dc-input flex-1 resize-none max-h-28 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
-            placeholder={sending ? 'Coffea 思考中…' : isBrew ? '描述这次冲煮，例如：今天用 V60 冲了瑰夏…' : '描述冲煮，或随便问…'}
+            placeholder={sending ? 'Coffea 思考中…' : ''}
           />
           {sending ? (
             <button
