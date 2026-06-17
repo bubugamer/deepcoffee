@@ -387,12 +387,25 @@ class EntitySeedImporter:
         typed = self.repo._create_typed_row(seed.entity_type, entity_id, seed.payload)
         if typed is not None:
             session.add(typed)
+        # 幂等：同一实体下 normalized_alias 已存在（可能来自 auto / admin 等其它来源）就跳过，
+        # 否则会撞唯一约束 (entity_id, normalized_alias)。删除上面只清了本来源(ALIAS_SOURCE)的别名。
+        existing_keys = set(
+            (
+                await session.execute(
+                    select(EntityAlias.normalized_alias).where(EntityAlias.entity_id == entity_id)
+                )
+            ).scalars().all()
+        )
         for alias in seed.aliases:
+            na = normalize_name(alias)
+            if not na or na in existing_keys:
+                continue
+            existing_keys.add(na)
             session.add(
                 EntityAlias(
                     entity_id=entity_id,
                     alias=alias,
-                    normalized_alias=normalize_name(alias),
+                    normalized_alias=na,
                     locale=detect_locale(alias),
                     source=ALIAS_SOURCE,
                 )

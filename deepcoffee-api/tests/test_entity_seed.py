@@ -90,6 +90,50 @@ def test_resync_is_idempotent() -> None:
     asyncio.run(_run())
 
 
+def test_resync_skips_alias_already_present_from_other_source() -> None:
+    """frontmatter 别名已以其它来源（如 auto 回填）存在时，重导应跳过、不撞唯一约束。"""
+    async def _run() -> None:
+        from sqlalchemy import delete as sqldelete, update as sqlupdate
+        from app.models.tables import KnowledgeSyncRecord
+
+        sm = get_sessionmaker()
+        async with sm() as session:
+            imp = _importer()
+            await imp.run(session, dry_run=False)
+            await session.flush()
+            # 取一个有 frontmatter 别名的实体（哥斯达黎加 origin，别名 Costa Rica）
+            ent = (
+                await session.execute(
+                    select(PublicEntity).where(PublicEntity.normalized_name == normalize_name("哥斯达黎加"))
+                )
+            ).scalar_one()
+            key = normalize_name("Costa Rica")
+            # 把这条 markdown_seed 别名改成 auto 来源，并删掉台账逼重导走「按名匹配 → update」
+            await session.execute(
+                sqlupdate(EntityAlias)
+                .where(EntityAlias.entity_id == ent.id, EntityAlias.normalized_alias == key)
+                .values(source="auto")
+            )
+            await session.execute(
+                sqldelete(KnowledgeSyncRecord).where(KnowledgeSyncRecord.entity_id == ent.id)
+            )
+            await session.flush()
+            # 重导：修复前这里会因 (entity_id, normalized_alias) 唯一约束 IntegrityError
+            await imp.run(session, dry_run=False)
+            await session.flush()
+            cnt = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(EntityAlias)
+                    .where(EntityAlias.entity_id == ent.id, EntityAlias.normalized_alias == key)
+                )
+            ).scalar_one()
+            assert cnt == 1
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
 def test_same_batch_links_product_to_merchant() -> None:
     async def _run() -> None:
         sm = get_sessionmaker()
