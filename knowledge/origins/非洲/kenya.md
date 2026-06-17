@@ -1,5 +1,5 @@
 ---
-title: 肯尼亚（Kenya）
+title: 肯尼亚
 slug: kenya
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 肯尼亚（Kenya）
-
+# 肯尼亚
 以拍卖、分级和明亮酸质闻名，Nairobi Coffee Exchange 是交易体系来源。
 
 ## 快速了解

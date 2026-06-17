@@ -1,5 +1,5 @@
 ---
-title: 巴西（Brazil）
+title: 巴西
 slug: brazil
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 巴西（Brazil）
-
+# 巴西
 全球最大咖啡生产国，精品咖啡信息以 BSCA 等行业组织为基础来源。
 
 ## 快速了解

@@ -1,5 +1,5 @@
 ---
-title: 泰国（Thailand）
+title: 泰国
 slug: thailand
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 泰国（Thailand）
-
+# 泰国
 东南亚精品咖啡增长产地之一，适合放入基础产区。
 
 ## 快速了解

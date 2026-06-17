@@ -1,5 +1,5 @@
 ---
-title: 印度尼西亚（Indonesia）
+title: 印度尼西亚
 slug: indonesia
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 印度尼西亚（Indonesia）
-
+# 印度尼西亚
 苏门答腊湿刨法和多岛屿产区构成主要识别标签。
 
 ## 快速了解

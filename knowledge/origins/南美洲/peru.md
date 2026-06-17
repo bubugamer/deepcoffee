@@ -1,5 +1,5 @@
 ---
-title: 秘鲁（Peru）
+title: 秘鲁
 slug: peru
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 秘鲁（Peru）
-
+# 秘鲁
 南美洲高海拔小农产地，合作社和有机认证批次较常见。
 
 ## 快速了解

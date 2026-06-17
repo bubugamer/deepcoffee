@@ -1,5 +1,5 @@
 ---
-title: 中国云南（Yunnan, China）
+title: 中国云南
 slug: china-yunnan
 entity_type: origin
 category: origins
@@ -10,6 +10,7 @@ last_updated: '2026-06-03'
 country: China
 region: 亚太
 aliases:
+- Yunnan, China
 - China
 source_quality: official_or_authoritative
 sources:
@@ -24,8 +25,7 @@ search:
   exclude: true
 ---
 
-# 中国云南（Yunnan, China）
-
+# 中国云南
 中国精品咖啡最核心产区，可帮助理解中国咖啡产区信息。
 
 ## 快速了解

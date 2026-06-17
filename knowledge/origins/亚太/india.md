@@ -1,5 +1,5 @@
 ---
-title: 印度（India）
+title: 印度
 slug: india
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 印度（India）
-
+# 印度
 季风咖啡和南部高地阿拉比卡是常见识别信息。
 
 ## 快速了解

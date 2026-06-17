@@ -1,5 +1,5 @@
 ---
-title: 乌干达（Uganda）
+title: 乌干达
 slug: uganda
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 乌干达（Uganda）
-
+# 乌干达
 同时具备罗布斯塔传统和精品阿拉比卡增长空间。
 
 ## 快速了解

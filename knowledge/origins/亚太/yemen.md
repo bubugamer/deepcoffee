@@ -1,5 +1,5 @@
 ---
-title: 也门（Yemen）
+title: 也门
 slug: yemen
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 也门（Yemen）
-
+# 也门
 历史悠久的传统咖啡产地，精品市场关注其古老品种和干旱环境风味。
 
 ## 快速了解

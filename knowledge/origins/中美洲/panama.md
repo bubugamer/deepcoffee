@@ -1,5 +1,5 @@
 ---
-title: 巴拿马（Panama）
+title: 巴拿马
 slug: panama
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 巴拿马（Panama）
-
+# 巴拿马
 以瑰夏、庄园拍卖和 Best of Panama 闻名，是高端精品咖啡核心产地。
 
 ## 快速了解

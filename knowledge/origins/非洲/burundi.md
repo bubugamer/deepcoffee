@@ -1,5 +1,5 @@
 ---
-title: 布隆迪（Burundi）
+title: 布隆迪
 slug: burundi
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 布隆迪（Burundi）
-
+# 布隆迪
 小农和水洗站体系是布隆迪精品咖啡的主要组织方式。
 
 ## 快速了解

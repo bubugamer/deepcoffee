@@ -1,5 +1,5 @@
 ---
-title: 玻利维亚（Bolivia）
+title: 玻利维亚
 slug: bolivia
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 玻利维亚（Bolivia）
-
+# 玻利维亚
 产量不大但高海拔精品批次具备较高识别度。
 
 ## 快速了解
