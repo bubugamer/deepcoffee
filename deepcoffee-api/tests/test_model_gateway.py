@@ -73,6 +73,28 @@ def test_chat_uses_server_side_model_key(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "thinking" not in _FakeClient.calls[0]["json"]
 
 
+def test_chat_injects_current_date_into_system(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    _FakeClient.calls = []
+    monkeypatch.setattr(model_gateway_module.httpx, "AsyncClient", _FakeClient)
+    gateway = ModelGateway(_settings())
+
+    asyncio.run(
+        gateway.chat(
+            model="text-model",
+            messages=[{"role": "system", "content": "你是助手"}, {"role": "user", "content": "hi"}],
+        )
+    )
+
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+    sys_msg = _FakeClient.calls[0]["json"]["messages"][0]
+    assert sys_msg["role"] == "system"
+    assert "你是助手" in sys_msg["content"]  # 原 system 仍在
+    assert "当前日期" in sys_msg["content"] and today in sys_msg["content"]  # 注入了今天
+
+
 def test_chat_disable_thinking_omits_temperature_and_sends_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     _FakeClient.calls = []
     monkeypatch.setattr(model_gateway_module.httpx, "AsyncClient", _FakeClient)
