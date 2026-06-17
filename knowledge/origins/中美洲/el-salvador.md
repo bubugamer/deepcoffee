@@ -1,5 +1,5 @@
 ---
-title: 萨尔瓦多（El Salvador）
+title: 萨尔瓦多
 slug: el-salvador
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 萨尔瓦多（El Salvador）
-
+# 萨尔瓦多
 波旁、帕卡斯和帕卡玛拉相关批次常见于精品市场。
 
 ## 快速了解

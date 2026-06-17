@@ -1,5 +1,5 @@
 ---
-title: 哥斯达黎加（Costa Rica）
+title: 哥斯达黎加
 slug: costa-rica
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 哥斯达黎加（Costa Rica）
-
+# 哥斯达黎加
 官方划分多个咖啡产区，蜜处理和微处理厂模式是精品市场常见标签。
 
 ## 快速了解

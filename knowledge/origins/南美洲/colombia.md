@@ -1,5 +1,5 @@
 ---
-title: 哥伦比亚（Colombia）
+title: 哥伦比亚
 slug: colombia
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 哥伦比亚（Colombia）
-
+# 哥伦比亚
 全球核心阿拉比卡产地之一，FNC 是产区信息和行业体系的重要来源。
 
 ## 快速了解

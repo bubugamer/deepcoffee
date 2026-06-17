@@ -1,5 +1,5 @@
 ---
-title: 越南（Vietnam）
+title: 越南
 slug: vietnam
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 越南（Vietnam）
-
+# 越南
 以罗布斯塔和增长中的精品阿拉比卡批次进入知识库。
 
 ## 快速了解

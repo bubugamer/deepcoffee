@@ -1,5 +1,5 @@
 ---
-title: 洪都拉斯（Honduras）
+title: 洪都拉斯
 slug: honduras
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 洪都拉斯（Honduras）
-
+# 洪都拉斯
 IHCAFE 发布的官方产区资料，是理解洪都拉斯精品咖啡的重要参考。
 
 ## 快速了解

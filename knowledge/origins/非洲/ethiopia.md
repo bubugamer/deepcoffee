@@ -1,5 +1,5 @@
 ---
-title: 埃塞俄比亚（Ethiopia）
+title: 埃塞俄比亚
 slug: ethiopia
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 埃塞俄比亚（Ethiopia）
-
+# 埃塞俄比亚
 阿拉比卡咖啡起源地之一，官方机构信息用于校准国家级背景。
 
 ## 快速了解

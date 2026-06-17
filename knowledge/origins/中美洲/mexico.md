@@ -1,5 +1,5 @@
 ---
-title: 墨西哥（Mexico）
+title: 墨西哥
 slug: mexico
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 墨西哥（Mexico）
-
+# 墨西哥
 恰帕斯、瓦哈卡等地区是精品市场中常见来源。
 
 ## 快速了解

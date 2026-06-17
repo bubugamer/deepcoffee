@@ -1,5 +1,5 @@
 ---
-title: 卢旺达（Rwanda）
+title: 卢旺达
 slug: rwanda
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 卢旺达（Rwanda）
-
+# 卢旺达
 以水洗站体系、清晰酸质和官方出口信息进入精品咖啡市场。
 
 ## 快速了解

@@ -1,5 +1,5 @@
 ---
-title: 坦桑尼亚（Tanzania）
+title: 坦桑尼亚
 slug: tanzania
 entity_type: origin
 category: origins
@@ -24,8 +24,7 @@ search:
   exclude: true
 ---
 
-# 坦桑尼亚（Tanzania）
-
+# 坦桑尼亚
 乞力马扎罗、阿鲁沙等区域常出现在东非精品咖啡语境中。
 
 ## 快速了解
