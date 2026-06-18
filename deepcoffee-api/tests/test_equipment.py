@@ -15,14 +15,17 @@ def test_equipment_crud_and_ownership() -> None:
 
     # 创建
     created = client.post("/v1/equipment", headers=owner, json={
-        "brew_method": "V60", "grinder": "C40", "filter_media": "纸滤", "water": "农夫山泉", "label": "日常手冲",
+        "brew_method": "滤杯冲煮", "dripper": "V60", "grinder": "C40", "filter_media": "纸滤",
+        "water": "农夫山泉", "label": "日常手冲",
     })
     assert created.status_code == 200
     eq_id = created.json()["id"]
+    assert created.json()["dripper"] == "V60"
+    assert created.json()["brew_method"] == "滤杯冲煮"
 
-    # 同 (brew_method, grinder, filter_media) 再建 → upsert 合并，不重复
+    # 同 (brew_method, dripper, grinder, filter_media) 再建 → upsert 合并，不重复
     again = client.post("/v1/equipment", headers=owner, json={
-        "brew_method": "V60", "grinder": "C40", "filter_media": "纸滤", "water": "Vivid",
+        "brew_method": "滤杯冲煮", "dripper": "V60", "grinder": "C40", "filter_media": "纸滤", "water": "Vivid",
     })
     assert again.json()["id"] == eq_id
     assert again.json()["water"] == "Vivid"
@@ -56,7 +59,7 @@ def test_equipment_default_invariant() -> None:
 
     # 第一套自动设为默认
     a = client.post("/v1/equipment", headers=owner, json={
-        "brew_method": "V60", "grinder": "ZP6S", "filter_media": "纸滤",
+        "brew_method": "滤杯冲煮", "dripper": "V60", "grinder": "ZP6S", "filter_media": "纸滤",
     }).json()
     assert a["is_default"] is True
 

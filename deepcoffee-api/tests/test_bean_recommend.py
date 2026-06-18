@@ -54,8 +54,8 @@ _NEEDS_INPUT = json.dumps(
         "status": "needs_input",
         "intent": "ask_equipment",
         "assistant_message": "你用什么冲煮方式、磨豆机、过滤介质？",
-        "equipment": {"brew_method": None, "grinder": None, "filter_media": None, "water": None},
-        "missing_fields": ["brew_method", "grinder", "filter_media"],
+        "equipment": {"dripper": None, "grinder": None, "filter_media": None, "water": None},
+        "missing_fields": ["dripper", "grinder", "filter_media"],
         "recommendation": None,
     }
 )
@@ -65,7 +65,7 @@ _COMPLETED = json.dumps(
         "status": "completed",
         "intent": "generate_recommendation",
         "assistant_message": "器具够了，给你一组起手参数。",
-        "equipment": {"brew_method": "V60", "grinder": "C40", "filter_media": "Hario 滤纸", "water": None},
+        "equipment": {"dripper": "V60", "grinder": "C40", "filter_media": "Hario 滤纸", "water": None},
         "missing_fields": [],
         "recommendation": {
             "device": "V60",
@@ -87,7 +87,7 @@ def test_model_needs_input() -> None:
     turn = _run(gateway=_FakeGateway(_NEEDS_INPUT))
     assert turn.status == "needs_input"
     assert turn.source == "model"
-    assert set(turn.missing_fields) == {"brew_method", "grinder", "filter_media"}
+    assert set(turn.missing_fields) == {"dripper", "grinder", "filter_media"}
     assert turn.recommendation is None
 
 
@@ -126,7 +126,7 @@ def test_invalid_json_falls_back() -> None:
 def test_local_completes_with_complete_draft() -> None:
     turn = _run(
         gateway=None,
-        equipment_draft={"brew_method": "Origami", "grinder": "ZP6", "filter_media": "锥形滤纸"},
+        equipment_draft={"dripper": "Origami", "grinder": "ZP6", "filter_media": "锥形滤纸"},
     )
     assert turn.status == "completed"
     assert turn.source == "local"
@@ -144,8 +144,8 @@ def test_local_prefers_default_profile() -> None:
     turn = _run(
         gateway=None,
         equipment_profiles=[
-            {"brew_method": "V60", "grinder": "C40", "filter_media": "纸滤", "is_default": False},
-            {"brew_method": "Orea", "grinder": "ZP6S", "filter_media": "锥形滤纸", "is_default": True},
+            {"dripper": "V60", "grinder": "C40", "filter_media": "纸滤", "is_default": False},
+            {"dripper": "Orea", "grinder": "ZP6S", "filter_media": "锥形滤纸", "is_default": True},
         ],
     )
     assert turn.status == "completed"
@@ -157,8 +157,8 @@ def test_local_no_default_uses_first_complete() -> None:
     turn = _run(
         gateway=None,
         equipment_profiles=[
-            {"brew_method": "V60", "grinder": "未知磨", "filter_media": "纸滤"},
-            {"brew_method": "爱乐压", "grinder": "C40", "filter_media": "金属滤网"},
+            {"dripper": "V60", "grinder": "未知磨", "filter_media": "纸滤"},
+            {"dripper": "爱乐压", "grinder": "C40", "filter_media": "金属滤网"},
         ],
     )
     assert turn.status == "completed"
@@ -169,7 +169,7 @@ def test_local_grind_setting_from_scale_table() -> None:
     # 磨豆机命中刻度表 → grind_setting 用表中的中度参考区间，而不是「中度」。
     turn = _run(
         gateway=None,
-        equipment_draft={"brew_method": "Orea", "grinder": "1zpresso ZP6S 特调版", "filter_media": "锥形滤纸"},
+        equipment_draft={"dripper": "Orea", "grinder": "1zpresso ZP6S 特调版", "filter_media": "锥形滤纸"},
     )
     assert turn.status == "completed"
     assert turn.recommendation["grind_setting"] == "4.5–5.5 圈（中度偏粗）"
@@ -178,7 +178,7 @@ def test_local_grind_setting_from_scale_table() -> None:
 def test_local_grind_setting_unknown_grinder_keeps_relative() -> None:
     turn = _run(
         gateway=None,
-        equipment_draft={"brew_method": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
+        equipment_draft={"dripper": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
     )
     assert turn.status == "completed"
     assert turn.recommendation["grind_setting"] == "中度"
@@ -189,7 +189,7 @@ def test_model_prompt_includes_grinder_reference() -> None:
     _run(
         gateway=gateway,
         equipment_profiles=[
-            {"brew_method": "V60", "grinder": "Comandante C40", "filter_media": "纸滤", "is_default": True},
+            {"dripper": "V60", "grinder": "Comandante C40", "filter_media": "纸滤", "is_default": True},
         ],
     )
     user_content = gateway.last_messages[1]["content"]
@@ -205,7 +205,7 @@ def test_model_prompt_unknown_grinder_no_reference() -> None:
     _run(
         gateway=gateway,
         equipment_profiles=[
-            {"brew_method": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
+            {"dripper": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
         ],
     )
     user_content = gateway.last_messages[1]["content"]

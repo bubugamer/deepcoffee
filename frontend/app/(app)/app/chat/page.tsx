@@ -382,12 +382,12 @@ function ChatBrewDraft({
   useEffect(() => {
     if (equipment === null || equipInitRef.current) return
     equipInitRef.current = true
-    const brewMethods = equipment.map(e => e.brew_method).filter(Boolean) as string[]
+    const drippers = equipment.map(e => e.dripper).filter(Boolean) as string[]
     const grinders = equipment.map(e => e.grinder).filter(Boolean) as string[]
     const def = equipment.find(e => e.is_default)
     setDevice(cur => {
-      if (parsedDevice && brewMethods.includes(parsedDevice)) return { choice: parsedDevice, custom: '' }
-      if (!parsedDevice && def?.brew_method) return { choice: def.brew_method, custom: '' }
+      if (parsedDevice && drippers.includes(parsedDevice)) return { choice: parsedDevice, custom: '' }
+      if (!parsedDevice && def?.dripper) return { choice: def.dripper, custom: '' }
       return cur
     })
     setGrinder(cur => {
@@ -422,7 +422,7 @@ function ChatBrewDraft({
 
   const beanOptions = (beans ?? []).map(b => ({ value: b.bean_id, label: b.name }))
   const uniq = (values: (string | null | undefined)[]) => [...new Set(values.filter(Boolean) as string[])]
-  const deviceOptions = uniq((equipment ?? []).map(e => e.brew_method)).map(v => ({ value: v, label: v }))
+  const deviceOptions = uniq((equipment ?? []).map(e => e.dripper)).map(v => ({ value: v, label: v }))
   const grinderOptions = uniq((equipment ?? []).map(e => e.grinder)).map(v => ({ value: v, label: v }))
 
   // 手输豆名且豆仓里没有同名豆 → 显示「顺手建豆卡」勾选

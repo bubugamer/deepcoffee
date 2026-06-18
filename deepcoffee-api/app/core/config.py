@@ -15,7 +15,7 @@ def default_repo_root() -> Path:
 
 class Settings(BaseSettings):
     app_name: str = "DeepCoffee API"
-    app_version: str = "0.20.0"
+    app_version: str = "0.21.0"
     app_env: str = Field(default="local", validation_alias=AliasChoices("DEEPCOFFEE_APP_ENV", "APP_ENV"))
     api_prefix: str = "/v1"
     docs_enabled: bool = True

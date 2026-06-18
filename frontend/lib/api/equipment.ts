@@ -3,7 +3,8 @@ import { apiFetch } from './client'
 
 export interface EquipmentProfile {
   id: string
-  brew_method?: string | null
+  brew_method?: string | null   // 冲煮方式（下拉枚举）
+  dripper?: string | null       // 滤杯 / 冲煮器具（自由文本）
   grinder?: string | null
   filter_media?: string | null
   water?: string | null
@@ -15,6 +16,7 @@ export interface EquipmentProfile {
 
 export interface EquipmentInput {
   brew_method?: string
+  dripper?: string
   grinder?: string
   filter_media?: string
   water?: string

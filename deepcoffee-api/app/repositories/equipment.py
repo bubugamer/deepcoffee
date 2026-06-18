@@ -1,6 +1,6 @@
 """用户器具资料读写（bean_recommend_params 多轮闭环用）。
 
-只读写当前用户自己的器具；completed 时按 (brew_method, grinder, filter_media) 去重保存，
+只读写当前用户自己的器具；completed 时按 (brew_method, dripper, grinder, filter_media) 去重保存，
 避免每轮重复建一套。
 """
 
@@ -33,16 +33,22 @@ class EquipmentRepository:
         *,
         user_id: str,
         brew_method: str | None,
-        grinder: str | None,
-        filter_media: str | None,
+        dripper: str | None = None,
+        grinder: str | None = None,
+        filter_media: str | None = None,
         water: str | None = None,
         label: str | None = None,
     ) -> UserEquipmentProfile:
-        """按 (brew_method, grinder, filter_media) 去重：命中则更新 water/label，否则新建。"""
+        """按 (brew_method, dripper, grinder, filter_media) 去重：命中则更新 water/label，否则新建。"""
         existing = await self.list_for_user(session, user_id)
-        key = (_norm(brew_method), _norm(grinder), _norm(filter_media))
+        key = (_norm(brew_method), _norm(dripper), _norm(grinder), _norm(filter_media))
         for profile in existing:
-            if (_norm(profile.brew_method), _norm(profile.grinder), _norm(profile.filter_media)) == key:
+            if (
+                _norm(profile.brew_method),
+                _norm(profile.dripper),
+                _norm(profile.grinder),
+                _norm(profile.filter_media),
+            ) == key:
                 if water:
                     profile.water = water
                 if label:
@@ -53,6 +59,7 @@ class EquipmentRepository:
             id=f"eq_{uuid4().hex[:16]}",
             user_id=user_id,
             brew_method=brew_method,
+            dripper=dripper,
             grinder=grinder,
             filter_media=filter_media,
             water=water,

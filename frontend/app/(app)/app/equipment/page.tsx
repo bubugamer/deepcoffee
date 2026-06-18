@@ -11,9 +11,13 @@ import {
 // 表单只编辑文本字段；is_default 用列表上的「设为默认」按钮维护。
 type EquipmentTextField = Exclude<keyof EquipmentInput, 'is_default'>
 
-const FIELDS: { key: EquipmentTextField; label: string; placeholder: string }[] = [
-  { key: 'label',        label: '名称备注',  placeholder: '如：日常手冲一套' },
-  { key: 'brew_method',  label: '冲煮方式',  placeholder: '如：V60 / 爱乐压 / 法压' },
+// 冲煮方式是下拉枚举，默认「滤杯冲煮」；滤杯（V60 等）是单独的自由文本字段。
+const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
+const DEFAULT_BREW_METHOD = '滤杯冲煮'
+
+// 除「冲煮方式」（下拉）外的文本字段，按表单展示顺序排列。
+const TEXT_FIELDS: { key: EquipmentTextField; label: string; placeholder: string }[] = [
+  { key: 'dripper',      label: '滤杯',      placeholder: '如：V60 / Origami / Kalita' },
   { key: 'grinder',      label: '磨豆机',    placeholder: '如：Comandante C40' },
   { key: 'filter_media', label: '过滤介质',  placeholder: '如：纸滤 / 金属滤网' },
   { key: 'water',        label: '用水',      placeholder: '如：农夫山泉 / 自配水' },
@@ -27,15 +31,37 @@ function EquipmentForm({
   onSubmit: (values: EquipmentInput) => void
   onCancel: () => void
 }) {
-  const [values, setValues] = useState<EquipmentInput>(initial)
-  const hasContent = Object.values(values).some(v => v?.trim())
+  const [values, setValues] = useState<EquipmentInput>({ brew_method: DEFAULT_BREW_METHOD, ...initial })
+  // 冲煮方式自带默认值，判定「是否填了内容」时忽略它，避免空表单也能保存。
+  const hasContent = [values.label, values.dripper, values.grinder, values.filter_media, values.water]
+    .some(v => v?.trim())
   return (
     <form
       onSubmit={e => { e.preventDefault(); if (hasContent) onSubmit(values) }}
       className="space-y-3"
     >
       <div className="grid sm:grid-cols-2 gap-3">
-        {FIELDS.map(({ key, label, placeholder }) => (
+        <label className="block">
+          <span className="text-xs text-dc-text-3 mb-1 block">名称备注</span>
+          <input
+            className="dc-input text-sm"
+            value={values.label ?? ''}
+            placeholder="如：日常手冲一套"
+            maxLength={120}
+            onChange={e => setValues(cur => ({ ...cur, label: e.target.value }))}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs text-dc-text-3 mb-1 block">冲煮方式</span>
+          <select
+            className="dc-input text-sm"
+            value={values.brew_method || DEFAULT_BREW_METHOD}
+            onChange={e => setValues(cur => ({ ...cur, brew_method: e.target.value }))}
+          >
+            {BREW_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
+        {TEXT_FIELDS.map(({ key, label, placeholder }) => (
           <label key={key} className="block">
             <span className="text-xs text-dc-text-3 mb-1 block">{label}</span>
             <input
@@ -115,7 +141,7 @@ export default function EquipmentPage() {
   }
 
   async function handleDelete(item: EquipmentProfile) {
-    const name = item.label || item.brew_method || '这套器具'
+    const name = item.label || item.dripper || item.brew_method || '这套器具'
     if (!window.confirm(`删除「${name}」？`)) return
     try {
       await deleteEquipment(item.id)
@@ -170,7 +196,8 @@ export default function EquipmentPage() {
               <EquipmentForm
                 initial={{
                   label: item.label ?? '',
-                  brew_method: item.brew_method ?? '',
+                  brew_method: item.brew_method || DEFAULT_BREW_METHOD,
+                  dripper: item.dripper ?? '',
                   grinder: item.grinder ?? '',
                   filter_media: item.filter_media ?? '',
                   water: item.water ?? '',
@@ -184,7 +211,7 @@ export default function EquipmentPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm font-semibold text-dc-text-1">
-                      {item.label || item.brew_method || '未命名器具'}
+                      {item.label || item.dripper || item.brew_method || '未命名器具'}
                     </span>
                     {item.is_default && (
                       <span className="text-xs px-1.5 py-0.5 rounded bg-dc-accent/10 text-dc-accent flex items-center gap-1">
@@ -193,7 +220,8 @@ export default function EquipmentPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-dc-text-2">
-                    {item.brew_method  && <span><span className="text-dc-text-3 text-xs mr-1.5">冲煮</span>{item.brew_method}</span>}
+                    {item.brew_method  && <span><span className="text-dc-text-3 text-xs mr-1.5">冲煮方式</span>{item.brew_method}</span>}
+                    {item.dripper      && <span><span className="text-dc-text-3 text-xs mr-1.5">滤杯</span>{item.dripper}</span>}
                     {item.grinder      && <span><span className="text-dc-text-3 text-xs mr-1.5">磨豆机</span>{item.grinder}</span>}
                     {item.filter_media && <span><span className="text-dc-text-3 text-xs mr-1.5">滤材</span>{item.filter_media}</span>}
                     {item.water        && <span><span className="text-dc-text-3 text-xs mr-1.5">用水</span>{item.water}</span>}

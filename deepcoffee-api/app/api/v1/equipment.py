@@ -42,11 +42,12 @@ async def create_equipment(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> EquipmentProfile:
-    # 与对话自动保存同一条 upsert 路径：(brew_method, grinder, filter_media) 相同则合并而非重复建。
+    # 与对话自动保存同一条 upsert 路径：(brew_method, dripper, grinder, filter_media) 相同则合并而非重复建。
     row = await equipment_repository.upsert(
         session,
         user_id=user.id,
         brew_method=payload.brew_method,
+        dripper=payload.dripper,
         grinder=payload.grinder,
         filter_media=payload.filter_media,
         water=payload.water,

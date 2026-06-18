@@ -180,6 +180,7 @@ export type RecommendParamsStatus = 'needs_input' | 'completed' | 'fallback'
 
 export interface RecommendEquipment {
   brew_method?: string | null
+  dripper?: string | null
   grinder?: string | null
   filter_media?: string | null
   water?: string | null

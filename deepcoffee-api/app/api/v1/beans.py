@@ -196,6 +196,7 @@ async def recommend_params(
     profile_dicts = [
         {
             "brew_method": p.brew_method,
+            "dripper": p.dripper,
             "grinder": p.grinder,
             "filter_media": p.filter_media,
             "water": p.water,
@@ -221,6 +222,7 @@ async def recommend_params(
             session,
             user_id=user.id,
             brew_method=turn.equipment.get("brew_method"),
+            dripper=turn.equipment.get("dripper"),
             grinder=turn.equipment.get("grinder"),
             filter_media=turn.equipment.get("filter_media"),
             water=turn.equipment.get("water"),
