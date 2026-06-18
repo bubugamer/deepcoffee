@@ -9,7 +9,8 @@ class EquipmentProfile(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    brew_method: str | None = None
+    brew_method: str | None = None  # 冲煮方式（下拉枚举）
+    dripper: str | None = None  # 滤杯 / 冲煮器具（自由文本）
     grinder: str | None = None
     filter_media: str | None = None
     water: str | None = None
@@ -21,6 +22,7 @@ class EquipmentProfile(BaseModel):
 
 class EquipmentCreateRequest(BaseModel):
     brew_method: str | None = Field(default=None, max_length=120)
+    dripper: str | None = Field(default=None, max_length=120)
     grinder: str | None = Field(default=None, max_length=120)
     filter_media: str | None = Field(default=None, max_length=120)
     water: str | None = Field(default=None, max_length=120)
@@ -29,6 +31,7 @@ class EquipmentCreateRequest(BaseModel):
 
 class EquipmentUpdateRequest(BaseModel):
     brew_method: str | None = Field(default=None, max_length=120)
+    dripper: str | None = Field(default=None, max_length=120)
     grinder: str | None = Field(default=None, max_length=120)
     filter_media: str | None = Field(default=None, max_length=120)
     water: str | None = Field(default=None, max_length=120)

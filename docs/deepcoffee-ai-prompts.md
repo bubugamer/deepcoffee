@@ -435,18 +435,19 @@ equipment_fields 仅 equipment_photo 时填写，可包含：
 - status: "needs_input" 或 "completed"
 - intent: "ask_equipment" 或 "generate_recommendation"
 - assistant_message: 给用户看的中文回复
-- equipment: 对象，包含 brew_method / grinder / filter_media / water
-- missing_fields: 字符串数组，只能包含 brew_method / grinder / filter_media
+- equipment: 对象，包含 dripper / brew_method / grinder / filter_media / water
+- missing_fields: 字符串数组，只能包含 dripper / grinder / filter_media
 - recommendation: 对象或 null
 
 equipment 字段规则：
-- brew_method: 字符串或 null。冲煮方式 / 滤杯。
+- dripper: 字符串或 null。滤杯 / 冲煮器具，如 V60、Origami、Kalita、爱乐压、法压壶。
+- brew_method: 字符串或 null。冲煮方式，如 滤杯冲煮 / 意式 / 法压壶 / 爱乐压 / 浸泡式；不确定填 null。
 - grinder: 字符串或 null。磨豆机。
 - filter_media: 字符串或 null。过滤介质；没有独立滤材时可填「无」或「内置滤网」。
 - water: 字符串或 null。水不是必填项；用户没有提供就填 null，不要追问。
 
 recommendation 字段规则（仅 completed 时填写；needs_input 时必须为 null）：
-- device: 字符串，等于 equipment.brew_method。
+- device: 字符串，等于 equipment.dripper。
 - grinder: 字符串，等于 equipment.grinder。
 - filter: 字符串，等于 equipment.filter_media。
 - dose_g: 数字，粉量克数。
@@ -458,7 +459,7 @@ recommendation 字段规则（仅 completed 时填写；needs_input 时必须为
 - notes: 字符串，一句中文，说明为什么这样建议；只能引用给定豆子信息和本轮已知器具信息，不要假设未提供的烘焙度或杯测表现。
 
 规则：
-1. 如果 brew_method、grinder、filter_media 任一缺失，必须返回 needs_input / ask_equipment，不得生成 recommendation。
+1. 如果 dripper、grinder、filter_media 任一缺失，必须返回 needs_input / ask_equipment，不得生成 recommendation。
 2. 追问时只问缺失的必填器具项；不要追问水。
 3. 如果用户设有默认器具（资料里 is_default 为 true）且本轮没有指定其他器具，直接用默认套生成建议，不要追问；用户只有一套完整器具资料时同样直接使用；多套且无默认、本轮也无法判断使用哪套时，才追问本次用哪套。
 4. 如果本轮用户提供完整器具信息，直接生成建议，不要再问“是否确认保存”。
@@ -507,12 +508,13 @@ recommendation 字段规则（仅 completed 时填写；needs_input 时必须为
   "intent": "ask_equipment",
   "assistant_message": "我先确认一下这次用的器具。你准备用什么冲煮方式或滤杯、哪台磨豆机，以及什么过滤介质？",
   "equipment": {
+    "dripper": null,
     "brew_method": null,
     "grinder": null,
     "filter_media": null,
     "water": null
   },
-  "missing_fields": ["brew_method", "grinder", "filter_media"],
+  "missing_fields": ["dripper", "grinder", "filter_media"],
   "recommendation": null
 }
 ```
@@ -525,7 +527,8 @@ recommendation 字段规则（仅 completed 时填写；needs_input 时必须为
   "intent": "generate_recommendation",
   "assistant_message": "器具信息已经够了。我先按这套器具给你一组稳定的起手参数。",
   "equipment": {
-    "brew_method": "V60",
+    "dripper": "V60",
+    "brew_method": "滤杯冲煮",
     "grinder": "Comandante C40",
     "filter_media": "Hario V60 滤纸",
     "water": null

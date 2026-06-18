@@ -221,7 +221,7 @@ def test_coach_receives_hydrated_active_entities() -> None:
     plan = DispatchPlan(primary_intent="adjust_brew_params", actions=[{"type": "adjust_brew_params"}])
     active_context = {
         "bean": {"name": "巴拿马 瑰夏"},
-        "equipment": {"brew_method": "V60", "grinder": "C40"},
+        "equipment": {"brew_method": "滤杯冲煮", "dripper": "V60", "grinder": "C40"},
         "recipe": {"dose_g": 15, "water_ml": 240},
     }
     results = _run(plan, gateway=_CaptureGW(), active_context=active_context)

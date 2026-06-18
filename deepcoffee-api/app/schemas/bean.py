@@ -162,7 +162,8 @@ class SetRecommendParamsRequest(BaseModel):
 
 
 class RecommendEquipment(BaseModel):
-    brew_method: str | None = None
+    brew_method: str | None = None  # 冲煮方式（下拉枚举）
+    dripper: str | None = None  # 滤杯 / 冲煮器具
     grinder: str | None = None
     filter_media: str | None = None
     water: str | None = None

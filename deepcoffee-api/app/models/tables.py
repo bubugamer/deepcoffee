@@ -513,7 +513,7 @@ class AdminAuditEvent(Base):
 
 
 class UserEquipmentProfile(Base):
-    """用户器具资料（冲煮方式 / 磨豆机 / 过滤介质 / 水）。可多套。
+    """用户器具资料（冲煮方式 / 滤杯 / 磨豆机 / 过滤介质 / 水）。可多套。
 
     bean_recommend_params 多轮闭环在 completed 时保存（见 docs/deepcoffee-ai-prompts.md §5）；
     下次建议直接带上，不必再问。
@@ -525,7 +525,10 @@ class UserEquipmentProfile(Base):
     user_id: Mapped[str] = mapped_column(
         String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # 冲煮方式（下拉枚举：滤杯冲煮 / 意式 / 法压壶 / 爱乐压 / 浸泡式 / 摩卡壶 / 虹吸壶 / 冷萃），默认滤杯冲煮。
     brew_method: Mapped[str | None] = mapped_column(String)
+    # 滤杯 / 冲煮器具（自由文本，如 V60、Kalita、Origami）；recommend 闭环用它当 device。
+    dripper: Mapped[str | None] = mapped_column(String)
     grinder: Mapped[str | None] = mapped_column(String)
     filter_media: Mapped[str | None] = mapped_column(String)
     water: Mapped[str | None] = mapped_column(String)

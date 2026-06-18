@@ -11,7 +11,7 @@ from app.models.tables import UserEquipmentProfile
 HEADERS = {"Authorization": "Bearer dev:bean-user-1:bean@example.com"}
 
 
-def _seed_equipment(user_id: str, brew_method: str = "V60", grinder: str = "Comandante C40", filter_media: str = "Hario V60 滤纸") -> None:
+def _seed_equipment(user_id: str, dripper: str = "V60", grinder: str = "Comandante C40", filter_media: str = "Hario V60 滤纸") -> None:
     """直接塞一套完整器具资料（用户档案需已存在，先调一次端点即可）。"""
 
     async def _do() -> None:
@@ -21,7 +21,8 @@ def _seed_equipment(user_id: str, brew_method: str = "V60", grinder: str = "Coma
                 UserEquipmentProfile(
                     id="eq_seed_1",
                     user_id=user_id,
-                    brew_method=brew_method,
+                    brew_method="滤杯冲煮",
+                    dripper=dripper,
                     grinder=grinder,
                     filter_media=filter_media,
                 )

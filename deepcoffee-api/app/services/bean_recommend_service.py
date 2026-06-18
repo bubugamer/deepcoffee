@@ -26,8 +26,8 @@ from app.services.recommend_service import generate_recommended_params
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_EQUIPMENT = ["brew_method", "grinder", "filter_media"]
-_EQUIPMENT_KEYS = ["brew_method", "grinder", "filter_media", "water"]
+REQUIRED_EQUIPMENT = ["dripper", "grinder", "filter_media"]
+_EQUIPMENT_KEYS = ["dripper", "brew_method", "grinder", "filter_media", "water"]
 _PLAN_KEYS = ["status", "intent", "assistant_message", "equipment", "missing_fields", "recommendation"]
 _REC_KEYS = [
     "device", "grinder", "filter", "dose_g", "water_ml", "water_temp_c",
@@ -93,7 +93,7 @@ def _validate_recommendation(rec: dict[str, Any], equipment: dict[str, Any]) -> 
             rec.get("water_temp_c"), field="water_temp_c", low=WATER_TEMP_MIN, high=WATER_TEMP_MAX
         )
         draft = BrewDraft(
-            device=equipment.get("brew_method") or rec.get("device"),
+            device=equipment.get("dripper") or rec.get("device"),
             grinder=equipment.get("grinder") or rec.get("grinder"),
             grind_setting=rec.get("grind_setting"),
             dose_g=rec.get("dose_g"),
@@ -216,7 +216,7 @@ def _local_turn(
     use = draft_equipment if not _missing(draft_equipment) else _first_complete_profile(equipment_profiles)
     if use:
         params, _note = generate_recommended_params(bean)
-        updates: dict[str, Any] = {"device": use["brew_method"], "grinder": use["grinder"]}
+        updates: dict[str, Any] = {"device": use["dripper"], "grinder": use["grinder"]}
         # 磨豆机命中刻度表时给具体区间，替换本地启发式的「中度」。
         scale = lookup_grinder_scale(use.get("grinder"))
         if scale is not None:
@@ -234,7 +234,7 @@ def _local_turn(
     return RecommendTurn(
         status="fallback",
         intent="ask_equipment",
-        assistant_message="我先记下了。要生成方案，请告诉我冲煮方式 / 滤杯、磨豆机和过滤介质。",
+        assistant_message="我先记下了。要生成方案，请告诉我滤杯（冲煮器具）、磨豆机和过滤介质。",
         equipment=draft_equipment,
         missing_fields=_missing(draft_equipment),
         source="local",

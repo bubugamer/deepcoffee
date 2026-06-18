@@ -114,6 +114,7 @@ def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | bool | None]:
     return {
         "id": e.id,
         "brew_method": e.brew_method,
+        "dripper": e.dripper,
         "grinder": e.grinder,
         "filter_media": e.filter_media,
         "water": e.water,
