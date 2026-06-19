@@ -124,6 +124,18 @@ _WATER_PATTERNS = (
     (r"自配水|自制水", "自配水"),
     (r"矿泉水", "矿泉水"),
 )
+_EQUIPMENT_CAPTURE_HINTS = (
+    "我买了",
+    "我用了",
+    "我用",
+    "我的",
+    "新买",
+    "存",
+    "保存",
+    "录入",
+    "记录器具",
+    "要存",
+)
 _PENDING_FALLBACK = "这一步要走专门的确认流程，避免在聊天里直接改动你的数据。"
 # 暂无联网检索能力，web_verify 降级时的显式标注（§9 降级）。
 _WEB_VERIFY_DISCLAIMER = "（暂不能联网实时核实，以下基于本地知识库与一般经验，不代表最新网络信息）"
@@ -650,6 +662,10 @@ def _known_equipment_set(active_context: dict | None) -> set[tuple[str, str]]:
     return known
 
 
+def _contains_equipment_capture_hint(message: str) -> bool:
+    return any(hint in (message or "") for hint in _EQUIPMENT_CAPTURE_HINTS)
+
+
 async def _run_equipment_capture(
     message: str,
     *,
@@ -675,7 +691,7 @@ async def _run_equipment_capture(
             type="equipment_capture",
             status="done",
             source=source,
-            message="这件器具已经在「我的器具」里了，不需要重复保存。",
+            message="这件器具之前已经保存到「我的器具」了。若确实要再建一份，请明确说“仍然新建”。",
         )
     label_text = "、".join(f"{_EQUIPMENT_CATEGORY_LABELS.get(i['category'], i['category'])}：{i['name']}" for i in new_items)
     return ActionResult(
@@ -722,6 +738,43 @@ def ensure_equipment_capture_for_brew(results: list[ActionResult], *, active_con
             )
         )
         return
+
+
+async def ensure_equipment_capture_result(
+    results: list[ActionResult],
+    *,
+    message: str,
+    model: str,
+    gateway: ModelGateway | None = None,
+    history: list[dict[str, str]] | None = None,
+    active_context: dict | None = None,
+) -> None:
+    """端点级兜底：该存器具时，即使调度没派发，也补器具草稿卡。"""
+    if any(r.type == "equipment_capture" and isinstance(r.output, dict) and r.output.get("items") for r in results):
+        return
+
+    ensure_equipment_capture_for_brew(results, active_context=active_context)
+    if any(r.type == "equipment_capture" and isinstance(r.output, dict) and r.output.get("items") for r in results):
+        return
+
+    has_brew_draft = any(
+        r.type == "brew_record_parse" and isinstance(r.output, dict) and r.output.get("draft")
+        for r in results
+    )
+    if not (_contains_equipment_capture_hint(message) or has_brew_draft):
+        return
+
+    candidate = await _run_equipment_capture(
+        message,
+        model=model,
+        gateway=gateway,
+        history=history,
+        active_context=active_context,
+    )
+    if isinstance(candidate.output, dict) and candidate.output.get("items"):
+        results.append(candidate)
+    elif _contains_equipment_capture_hint(message) and candidate.message:
+        results.append(candidate)
 
 
 async def _run_coach(

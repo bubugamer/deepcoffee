@@ -14,7 +14,13 @@ import {
   type EquipmentProfile,
 } from '@/lib/api/equipment'
 import { confirmBrew } from '@/lib/api/records'
-import { sendCoffeaMessage, getCoffeaSession, compressImage, mockSuggestions } from '@/lib/api/chat'
+import {
+  sendCoffeaMessage,
+  getCoffeaSession,
+  patchCoffeaSessionResult,
+  compressImage,
+  mockSuggestions,
+} from '@/lib/api/chat'
 import { isQuotaExceeded } from '@/lib/api/client'
 import { QuotaNotice } from '@/components/QuotaNotice'
 import { ChatMarkdown } from '@/components/ChatMarkdown'
@@ -197,13 +203,15 @@ function ActionResultCard({ result, replyText }: { result: ActionResult; replyTe
   )
 }
 
+type ResultPatchFn = (patch: Record<string, unknown>, message?: string) => void | Promise<void>
+
 // ── 聊天内豆卡草稿确认（read_bean_card_image 低识别度路径）──
 function ChatBeanDraft({
   result,
   onPatch,
 }: {
   result: ActionResult
-  onPatch: (patch: Record<string, unknown>) => void
+  onPatch: ResultPatchFn
 }) {
   const output = result.output ?? {}
   const savedBeanId = typeof output.saved_bean_id === 'string' ? output.saved_bean_id : null
@@ -211,7 +219,13 @@ function ChatBeanDraft({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  if (output.dismissed === true) return null
+  if (output.dismissed === true) {
+    return (
+      <div className="dc-card px-4 py-3 text-sm text-dc-text-3">
+        已忽略这张豆卡草稿
+      </div>
+    )
+  }
   if (savedBeanId) {
     return (
       <div className="dc-card px-4 py-3 flex items-center justify-between gap-2 text-sm">
@@ -233,7 +247,7 @@ function ChatBeanDraft({
     try {
       const rawInput = typeof output.raw_input === 'string' ? output.raw_input : undefined
       const res = await confirmBean(draft, rawInput, getToken(), 'image')
-      onPatch({ saved_bean_id: res.bean_id })
+      await onPatch({ saved_bean_id: res.bean_id }, '已保存到豆仓。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
     } finally {
@@ -251,7 +265,7 @@ function ChatBeanDraft({
       saving={saving}
       onChange={setDraft}
       onConfirm={confirm}
-      onRetry={() => onPatch({ dismissed: true })}
+      onRetry={() => void onPatch({ dismissed: true }, '已忽略这张豆卡草稿。')}
       retryLabel="忽略"
     />
   )
@@ -331,7 +345,7 @@ function ChatBrewDraft({
 }: {
   result: ActionResult
   linkedBeanId: string | null
-  onPatch: (patch: Record<string, unknown>) => void
+  onPatch: ResultPatchFn
 }) {
   const output = result.output ?? {}
   const savedRecordId = typeof output.saved_record_id === 'string' ? output.saved_record_id : null
@@ -429,7 +443,13 @@ function ChatBrewDraft({
     })
   }, [equipment, parsedDevice, parsedGrinder, parsedFilterMedia, parsedWater])
 
-  if (output.dismissed === true) return null
+  if (output.dismissed === true) {
+    return (
+      <div className="dc-card px-4 py-3 text-sm text-dc-text-3">
+        已忽略这条冲煮记录草稿
+      </div>
+    )
+  }
   if (savedRecordId) {
     return (
       <div className="dc-card px-4 py-3 text-sm space-y-1.5">
@@ -437,7 +457,7 @@ function ChatBrewDraft({
           <span className="flex items-center gap-1.5 text-dc-green">
             <CheckCircle2 size={14} /> 已保存到冲煮记录
           </span>
-          <Link href="/app/records" className="text-dc-accent hover:underline text-xs">
+          <Link href={`/app/records/${savedRecordId}`} className="text-dc-accent hover:underline text-xs">
             查看记录 →
           </Link>
         </div>
@@ -516,11 +536,11 @@ function ChatBrewDraft({
         brew_time_seconds: parseBrewTimeText(fields.time),
       }
       const res = await confirmBrew(merged, rawInput, beanCardId, token)
-      onPatch({
+      await onPatch({
         saved_record_id: res.brew_id,
         saved_recap: res.recap,
         ...(createdBeanId ? { saved_bean_id: createdBeanId, saved_bean_name: beanName } : {}),
-      })
+      }, '已保存到冲煮记录。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
     } finally {
@@ -640,7 +660,7 @@ function ChatBrewDraft({
         >
           {saving ? '保存中…' : '确认保存'}
         </button>
-        <button onClick={() => onPatch({ dismissed: true })} className="btn-secondary text-sm py-2">忽略</button>
+        <button onClick={() => void onPatch({ dismissed: true }, '已忽略这条冲煮记录草稿。')} className="btn-secondary text-sm py-2">忽略</button>
       </div>
     </div>
   )
@@ -683,14 +703,20 @@ function ChatEquipmentDraft({
   onPatch,
 }: {
   result: ActionResult
-  onPatch: (patch: Record<string, unknown>) => void
+  onPatch: ResultPatchFn
 }) {
   const output = result.output ?? {}
   const [items, setItems] = useState<EquipmentDraftItem[]>(() => normalizeEquipmentDraftItems(output.items))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  if (output.dismissed === true) return null
+  if (output.dismissed === true) {
+    return (
+      <div className="dc-card px-4 py-3 text-sm text-dc-text-3">
+        已忽略这组器具草稿
+      </div>
+    )
+  }
   if (output.saved === true) {
     const savedCount = typeof output.saved_count === 'number' ? output.saved_count : items.length
     return (
@@ -725,7 +751,7 @@ function ChatEquipmentDraft({
           notes: item.notes || undefined,
         })
       }
-      onPatch({ saved: true, saved_count: validItems.length })
+      await onPatch({ saved: true, saved_count: validItems.length }, `已保存 ${validItems.length} 件器具。`)
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
     } finally {
@@ -787,7 +813,7 @@ function ChatEquipmentDraft({
         >
           {saving ? '保存中…' : '确认保存'}
         </button>
-        <button onClick={() => onPatch({ dismissed: true })} className="btn-secondary text-sm py-2">忽略</button>
+        <button onClick={() => void onPatch({ dismissed: true }, '已忽略这组器具草稿。')} className="btn-secondary text-sm py-2">忽略</button>
       </div>
     </div>
   )
@@ -1024,14 +1050,37 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
   }
 
   // 草稿确认/忽略后把状态写回该轮 result.output（随消息一起持久化，刷新后不丢）
-  function patchResultOutput(msgIdx: number, resIdx: number, patch: Record<string, unknown>) {
+  async function patchResultOutput(msgIdx: number, resIdx: number, patch: Record<string, unknown>, message?: string) {
+    const target = messages[msgIdx]?.results?.[resIdx]
+    const uiStateId = typeof target?.output?.ui_state_id === 'string' ? target.output.ui_state_id : null
     setMessages(cur => cur.map((m, i) => {
       if (i !== msgIdx || !m.results) return m
-      const results = m.results.map((r, j) =>
-        j === resIdx ? { ...r, output: { ...(r.output ?? {}), ...patch } } : r,
-      )
-      return { ...m, results }
+      let nextText = m.text
+      const results = m.results.map((r, j) => {
+        if (j !== resIdx) return r
+        if (message) {
+          const oldMessage = r.message?.trim()
+          if (oldMessage && nextText?.includes(oldMessage)) {
+            nextText = nextText.replace(oldMessage, message)
+          } else if (!nextText?.trim()) {
+            nextText = message
+          }
+        }
+        return {
+          ...r,
+          message: message ?? r.message,
+          output: { ...(r.output ?? {}), ...patch },
+        }
+      })
+      return { ...m, text: nextText, results }
     }))
+    if (uiStateId) {
+      try {
+        await patchCoffeaSessionResult(uiStateId, patch, message, getToken())
+      } catch (err) {
+        console.warn('Failed to persist Coffea card state', err)
+      }
+    }
   }
 
   return (
@@ -1124,7 +1173,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                       return <AutoSavedBeanCard key={j} beanId={r.output.bean_id} />
                     }
                     if (r.type === 'read_bean_card_image' && r.output?.draft) {
-                      return <ChatBeanDraft key={j} result={r} onPatch={(patch) => patchResultOutput(i, j, patch)} />
+                      return <ChatBeanDraft key={j} result={r} onPatch={(patch, message) => patchResultOutput(i, j, patch, message)} />
                     }
                     if (r.type === 'brew_record_parse' && r.output?.draft) {
                       return (
@@ -1132,12 +1181,12 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                           key={j}
                           result={r}
                           linkedBeanId={linkedBeanId}
-                          onPatch={(patch) => patchResultOutput(i, j, patch)}
+                          onPatch={(patch, message) => patchResultOutput(i, j, patch, message)}
                         />
                       )
                     }
                     if (r.type === 'equipment_capture' && r.output?.items) {
-                      return <ChatEquipmentDraft key={j} result={r} onPatch={(patch) => patchResultOutput(i, j, patch)} />
+                      return <ChatEquipmentDraft key={j} result={r} onPatch={(patch, message) => patchResultOutput(i, j, patch, message)} />
                     }
                     return <ActionResultCard key={j} result={r} replyText={m.text} />
                   })}

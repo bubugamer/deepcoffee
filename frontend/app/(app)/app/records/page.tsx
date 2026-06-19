@@ -19,6 +19,17 @@ function ScoreChip({ score }: { score: number }) {
   )
 }
 
+function isMethodLikeDevice(value?: string | null) {
+  const text = (value ?? '').trim()
+  return ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃'].includes(text)
+}
+
+function displayDevice(record: BrewRecord) {
+  const device = (record.device ?? '').trim()
+  if (!device || device === record.brew_method || isMethodLikeDevice(device)) return null
+  return device
+}
+
 function isThisMonth(dateString: string) {
   const date = new Date(dateString)
   const now = new Date()
@@ -151,13 +162,12 @@ export default function RecordsPage() {
       )}
 
       {/* Table header (desktop) */}
-      <div className="hidden md:grid grid-cols-[1fr_80px_120px_80px_80px_36px] gap-3 px-4 py-2 text-xs text-dc-text-3 border-b border-dc-border mb-1">
+      <div className="hidden md:grid grid-cols-[minmax(0,1fr)_120px_150px_90px_80px] gap-3 px-4 py-2 text-xs text-dc-text-3 border-b border-dc-border mb-1">
         <span>豆子</span>
         <span>器具</span>
         <span>参数</span>
         <span>水温</span>
         <span>评分</span>
-        <span />
       </div>
 
       {/* Records */}
@@ -183,23 +193,29 @@ export default function RecordsPage() {
               r.ratio,
             ].filter(Boolean).join(' / ')
 
-            const meta = [date, r.origin, r.brew_method, r.grinder, r.device, r.filter_media].filter(Boolean).join(' · ')
+            const device = displayDevice(r)
+            const meta = [date, r.origin, r.brew_method, r.grinder, device, r.filter_media].filter(Boolean).join(' · ')
 
             return (
               <Link
                 key={r.id}
                 href={`/app/records/${r.id}`}
-                className="dc-card flex items-center gap-3 px-4 py-3.5 hover:border-dc-accent-hi transition-colors block"
+                className="dc-card block px-4 py-3.5 hover:border-dc-accent-hi transition-colors"
               >
-                {score !== undefined && <ScoreChip score={score} />}
-                <div className="flex-1 min-w-0 md:grid md:grid-cols-[1fr_80px_120px_80px_36px] md:gap-3 md:items-center">
-                  <div>
+                <div className="flex items-center gap-3 md:grid md:grid-cols-[minmax(0,1fr)_120px_150px_90px_80px] md:gap-3 md:items-center">
+                  <div className="flex-1 min-w-0 md:flex-none">
                     <div className="text-sm font-medium text-dc-text-1 truncate">{r.bean_name ?? '未命名'}</div>
                     <div className="text-xs text-dc-text-3 mt-0.5 truncate">{meta}</div>
                   </div>
-                  <span className="hidden md:block dc-tag text-center">{r.device}</span>
+                  <span className={`hidden md:block text-center ${device ? 'dc-tag' : 'text-xs text-dc-text-3'}`}>
+                    {device ?? '未填写'}
+                  </span>
                   <span className="hidden md:block text-xs text-dc-text-2">{params}</span>
                   <span className="hidden md:block text-xs text-dc-text-2">{r.water_temp_c !== undefined ? `${r.water_temp_c}°C` : ''}</span>
+                  <span className="hidden md:block text-xs text-dc-text-2 text-center">
+                    {score !== undefined ? `${score}/5` : '—'}
+                  </span>
+                  {score !== undefined && <span className="md:hidden"><ScoreChip score={score} /></span>}
                 </div>
               </Link>
             )

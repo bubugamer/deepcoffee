@@ -1,9 +1,9 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { ArrowLeft, MessageSquare } from 'lucide-react'
-import { getComparisons, getRecord } from '@/lib/api/records'
+import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft, MessageSquare, Pencil, Trash2, X } from 'lucide-react'
+import { deleteRecord, getComparisons, getRecord, updateRecord } from '@/lib/api/records'
 import { getToken } from '@/lib/auth'
 import type { BrewComparisonItem, BrewEvaluation, BrewRecord } from '@/types'
 import SetRecommendedBtn from '@/components/SetRecommendedBtn'
@@ -38,13 +38,65 @@ const EVAL_DIMENSIONS: { key: keyof BrewEvaluation; label: string }[] = [
   { key: 'balance',    label: '平衡度' },
 ]
 
+type RecordEditForm = {
+  bean_name: string
+  brew_method: string
+  device: string
+  grinder: string
+  grind_setting: string
+  filter_media: string
+  water: string
+  dose_g: string
+  water_ml: string
+  water_temp_c: string
+  ratio: string
+  brew_time_seconds: string
+  notes: string
+}
+
+function formFromRecord(record: BrewRecord): RecordEditForm {
+  return {
+    bean_name: record.bean_name ?? '',
+    brew_method: record.brew_method ?? '',
+    device: record.device ?? '',
+    grinder: record.grinder ?? '',
+    grind_setting: record.grind_setting ?? '',
+    filter_media: record.filter_media ?? '',
+    water: record.water ?? '',
+    dose_g: record.dose_g != null ? String(record.dose_g) : '',
+    water_ml: record.water_ml != null ? String(record.water_ml) : '',
+    water_temp_c: record.water_temp_c != null ? String(record.water_temp_c) : '',
+    ratio: record.ratio ?? '',
+    brew_time_seconds: record.brew_time_seconds != null ? String(record.brew_time_seconds) : '',
+    notes: record.notes ?? '',
+  }
+}
+
+function optionalText(value: string): string | null {
+  const text = value.trim()
+  return text || null
+}
+
+function optionalNumber(value: string): number | null {
+  const text = value.trim()
+  if (!text) return null
+  const n = Number(text)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 export default function RecordDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
   const [record, setRecord] = useState<BrewRecord | null>(null)
   const [comparison, setComparison] = useState<BrewComparisonItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<RecordEditForm | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [actionError, setActionError] = useState('')
 
   useEffect(() => {
     const token = getToken()
@@ -58,6 +110,7 @@ export default function RecordDetailPage() {
       .then(async (nextRecord) => {
         if (cancelled) return
         setRecord(nextRecord)
+        setForm(nextRecord ? formFromRecord(nextRecord) : null)
         if (nextRecord?.bean_name) {
           const nextComparison = await getComparisons(nextRecord.bean_name, token)
           if (!cancelled) {
@@ -74,6 +127,50 @@ export default function RecordDetailPage() {
 
     return () => { cancelled = true }
   }, [id])
+
+  async function saveEdit() {
+    if (!form) return
+    setSaving(true)
+    setActionError('')
+    try {
+      const token = getToken()
+      const updated = await updateRecord(id, {
+        bean_name: optionalText(form.bean_name),
+        brew_method: optionalText(form.brew_method),
+        device: optionalText(form.device),
+        grinder: optionalText(form.grinder),
+        grind_setting: optionalText(form.grind_setting),
+        filter_media: optionalText(form.filter_media),
+        water: optionalText(form.water),
+        dose_g: optionalNumber(form.dose_g),
+        water_ml: optionalNumber(form.water_ml),
+        water_temp_c: optionalNumber(form.water_temp_c),
+        ratio: optionalText(form.ratio),
+        brew_time_seconds: optionalNumber(form.brew_time_seconds),
+        notes: optionalText(form.notes),
+      }, token)
+      setRecord(updated)
+      setForm(formFromRecord(updated))
+      setEditing(false)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeRecord() {
+    if (!record || !window.confirm(`删除「${record.bean_name ?? '这条冲煮记录'}」？`)) return
+    setDeleting(true)
+    setActionError('')
+    try {
+      await deleteRecord(record.id, getToken())
+      router.push('/app/records')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '删除失败，请稍后重试。')
+      setDeleting(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -156,15 +253,93 @@ export default function RecordDetailPage() {
             <span className="text-xs text-dc-text-3">{date}</span>
           </div>
         </div>
-        {score !== undefined && (
-          <div className="w-14 h-14 rounded-full bg-dc-accent-light flex items-center justify-center flex-shrink-0">
-            <div className="text-center">
-              <span className="text-xl font-extrabold text-dc-accent">{score}</span>
-              <span className="text-xs text-dc-text-3 block leading-none">/5</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => { setEditing(true); setForm(formFromRecord(record)) }}
+            className="btn-secondary text-sm flex items-center gap-1.5 py-2"
+          >
+            <Pencil size={14} /> 编辑
+          </button>
+          <button
+            onClick={removeRecord}
+            disabled={deleting}
+            className="btn-secondary text-sm flex items-center gap-1.5 py-2 text-dc-red hover:text-dc-red disabled:opacity-50"
+          >
+            <Trash2 size={14} /> {deleting ? '删除中…' : '删除'}
+          </button>
+          {score !== undefined && (
+            <div className="w-14 h-14 rounded-full bg-dc-accent-light flex items-center justify-center flex-shrink-0">
+              <div className="text-center">
+                <span className="text-xl font-extrabold text-dc-accent">{score}</span>
+                <span className="text-xs text-dc-text-3 block leading-none">/5</span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {actionError && (
+        <div className="dc-card p-3 mb-5 text-sm text-dc-red bg-red-50 border-red-100">{actionError}</div>
+      )}
+
+      {editing && form && (
+        <div className="dc-card p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="section-title">编辑冲煮记录</h2>
+            <button
+              onClick={() => { setEditing(false); setForm(formFromRecord(record)) }}
+              className="p-2 text-dc-text-3 hover:text-dc-text-1"
+              title="取消编辑"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {([
+              ['bean_name', '豆子'],
+              ['brew_method', '冲煮方式'],
+              ['device', '器具'],
+              ['grinder', '磨豆机'],
+              ['grind_setting', '研磨刻度'],
+              ['filter_media', '过滤介质'],
+              ['water', '用水'],
+              ['dose_g', '粉量 (g)'],
+              ['water_ml', '水量 (ml)'],
+              ['water_temp_c', '水温 (°C)'],
+              ['ratio', '粉水比'],
+              ['brew_time_seconds', '冲煮时间 (秒)'],
+            ] as [keyof RecordEditForm, string][]).map(([key, label]) => (
+              <label key={key} className="block">
+                <span className="text-xs text-dc-text-3 mb-1 block">{label}</span>
+                <input
+                  value={form[key]}
+                  onChange={event => setForm(cur => cur ? { ...cur, [key]: event.target.value } : cur)}
+                  className="dc-input text-sm py-1.5"
+                />
+              </label>
+            ))}
+            <label className="block sm:col-span-2">
+              <span className="text-xs text-dc-text-3 mb-1 block">感官记录</span>
+              <textarea
+                value={form.notes}
+                onChange={event => setForm(cur => cur ? { ...cur, notes: event.target.value } : cur)}
+                className="dc-input text-sm min-h-24"
+              />
+            </label>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button onClick={saveEdit} disabled={saving} className="btn-primary text-sm py-2 disabled:opacity-50">
+              {saving ? '保存中…' : '保存修改'}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setForm(formFromRecord(record)) }}
+              className="btn-secondary text-sm py-2"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-[1fr_300px] gap-6">
         {/* Left column */}

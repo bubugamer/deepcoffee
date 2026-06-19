@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 from uuid import uuid4
 
@@ -111,6 +112,44 @@ class CoffeaSessionRepository:
             return dropped
         cs.recent_messages = turns
         return []
+
+    def patch_result_state(
+        self,
+        cs: CoffeaSession,
+        *,
+        ui_state_id: str,
+        patch: dict[str, Any],
+        message: str | None = None,
+    ) -> bool:
+        """更新某张聊天草稿卡的展示状态（保存/忽略），供跨设备历史恢复。"""
+        if not ui_state_id or not patch:
+            return False
+        turns = deepcopy(cs.recent_messages or [])
+        for turn in turns:
+            if not isinstance(turn, dict) or turn.get("role") != "assistant":
+                continue
+            results = turn.get("results")
+            if not isinstance(results, list):
+                continue
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                output = result.get("output")
+                if not isinstance(output, dict) or output.get("ui_state_id") != ui_state_id:
+                    continue
+                old_message = result.get("message")
+                output.update(patch)
+                result["output"] = output
+                if message is not None:
+                    result["message"] = message
+                    content = turn.get("content")
+                    if isinstance(content, str) and isinstance(old_message, str) and old_message in content:
+                        turn["content"] = content.replace(old_message, message)
+                    elif not content:
+                        turn["content"] = message
+                cs.recent_messages = turns
+                return True
+        return False
 
     def set_summary(self, cs: CoffeaSession, summary: list[dict[str, Any]]) -> None:
         """整体替换会话摘要（摘要服务已做增量合并，这里只负责落库 / 触发变更检测）。"""
