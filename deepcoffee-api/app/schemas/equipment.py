@@ -1,39 +1,35 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class EquipmentProfile(BaseModel):
+EquipmentCategory = Literal["brewer", "grinder", "filter_media", "water"]
+
+
+class EquipmentItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    brew_method: str | None = None  # 冲煮方式（下拉枚举）
-    dripper: str | None = None  # 滤杯 / 冲煮器具（自由文本）
-    grinder: str | None = None
-    filter_media: str | None = None
-    water: str | None = None
-    label: str | None = None
+    category: EquipmentCategory
+    name: str
+    notes: str | None = None
     is_default: bool = False
     created_at: datetime
     updated_at: datetime
 
 
 class EquipmentCreateRequest(BaseModel):
-    brew_method: str | None = Field(default=None, max_length=120)
-    dripper: str | None = Field(default=None, max_length=120)
-    grinder: str | None = Field(default=None, max_length=120)
-    filter_media: str | None = Field(default=None, max_length=120)
-    water: str | None = Field(default=None, max_length=120)
-    label: str | None = Field(default=None, max_length=120)
+    category: EquipmentCategory
+    name: str = Field(min_length=1, max_length=120)
+    notes: str | None = Field(default=None, max_length=500)
+    is_default: bool | None = None
 
 
 class EquipmentUpdateRequest(BaseModel):
-    brew_method: str | None = Field(default=None, max_length=120)
-    dripper: str | None = Field(default=None, max_length=120)
-    grinder: str | None = Field(default=None, max_length=120)
-    filter_media: str | None = Field(default=None, max_length=120)
-    water: str | None = Field(default=None, max_length=120)
-    label: str | None = Field(default=None, max_length=120)
+    category: EquipmentCategory | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    notes: str | None = Field(default=None, max_length=500)
     is_default: bool | None = None

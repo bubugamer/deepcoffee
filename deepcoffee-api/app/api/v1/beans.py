@@ -190,20 +190,15 @@ async def recommend_params(
     equipment_draft = sub_state.get("equipment_draft")
     prev_status = sub_state.get("status") or "needs_input"
 
-    profiles = await equipment_repository.list_for_user(session, user.id)
-    # label / is_default 一并喂给模型：label 帮模型对上「用爱乐压那套」这类指代，
-    # is_default 让模型按提示词规则 3 直接用默认套、不再追问。
+    equipment_items = await equipment_repository.list_for_user(session, user.id)
     profile_dicts = [
         {
-            "brew_method": p.brew_method,
-            "dripper": p.dripper,
-            "grinder": p.grinder,
-            "filter_media": p.filter_media,
-            "water": p.water,
-            "label": p.label,
-            "is_default": p.is_default,
+            "category": item.category,
+            "name": item.name,
+            "notes": item.notes,
+            "is_default": item.is_default,
         }
-        for p in profiles
+        for item in equipment_items
     ]
     turn = await evaluate_turn(
         bean=bean,
@@ -218,15 +213,6 @@ async def recommend_params(
     trace_id = f"bean_reco_{uuid4().hex[:12]}"
     recommended_record_id: str | None = None
     if turn.status == "completed" and turn.recommendation:
-        await equipment_repository.upsert(
-            session,
-            user_id=user.id,
-            brew_method=turn.equipment.get("brew_method"),
-            dripper=turn.equipment.get("dripper"),
-            grinder=turn.equipment.get("grinder"),
-            filter_media=turn.equipment.get("filter_media"),
-            water=turn.equipment.get("water"),
-        )
         rec = turn.recommendation
         draft = complete_brew_parameters(
             BrewDraft(
@@ -235,9 +221,12 @@ async def recommend_params(
                 roaster=bean.roaster,
                 process=bean.process,
                 varietal="、".join(bean.varietal) or None,
+                brew_method=turn.equipment.get("brew_method"),
                 device=rec.get("device"),
                 grinder=rec.get("grinder"),
                 grind_setting=rec.get("grind_setting"),
+                filter_media=rec.get("filter"),
+                water=turn.equipment.get("water"),
                 dose_g=rec.get("dose_g"),
                 water_ml=rec.get("water_ml"),
                 water_temp_c=rec.get("water_temp_c"),

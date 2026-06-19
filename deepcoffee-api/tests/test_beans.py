@@ -6,27 +6,43 @@ from fastapi.testclient import TestClient
 
 from app.core.db import get_sessionmaker
 from app.main import create_app
-from app.models.tables import UserEquipmentProfile
+from app.models.tables import UserEquipmentItem
 
 HEADERS = {"Authorization": "Bearer dev:bean-user-1:bean@example.com"}
 
 
 def _seed_equipment(user_id: str, dripper: str = "V60", grinder: str = "Comandante C40", filter_media: str = "Hario V60 滤纸") -> None:
-    """直接塞一套完整器具资料（用户档案需已存在，先调一次端点即可）。"""
+    """直接塞默认单件器具库存（用户档案需已存在，先调一次端点即可）。"""
 
     async def _do() -> None:
         sm = get_sessionmaker()
         async with sm() as session:
-            session.add(
-                UserEquipmentProfile(
-                    id="eq_seed_1",
+            session.add_all([
+                UserEquipmentItem(
+                    id="eq_seed_brewer",
                     user_id=user_id,
-                    brew_method="滤杯冲煮",
-                    dripper=dripper,
-                    grinder=grinder,
-                    filter_media=filter_media,
-                )
-            )
+                    category="brewer",
+                    name=dripper,
+                    normalized_name=dripper.strip().lower(),
+                    is_default=True,
+                ),
+                UserEquipmentItem(
+                    id="eq_seed_grinder",
+                    user_id=user_id,
+                    category="grinder",
+                    name=grinder,
+                    normalized_name=grinder.strip().lower(),
+                    is_default=True,
+                ),
+                UserEquipmentItem(
+                    id="eq_seed_filter",
+                    user_id=user_id,
+                    category="filter_media",
+                    name=filter_media,
+                    normalized_name=filter_media.strip().lower(),
+                    is_default=True,
+                ),
+            ])
             await session.commit()
 
     asyncio.run(_do())

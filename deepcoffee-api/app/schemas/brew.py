@@ -39,9 +39,12 @@ class BrewDraft(BaseModel):
     roaster: str | None = Field(default=None, max_length=120)
     process: str | None = Field(default=None, max_length=120)
     varietal: str | None = Field(default=None, max_length=120)
+    brew_method: str | None = Field(default=None, max_length=120)
     device: str | None = Field(default=None, max_length=120)
     grinder: str | None = Field(default=None, max_length=120)
     grind_setting: str | None = Field(default=None, max_length=80)
+    filter_media: str | None = Field(default=None, max_length=120)
+    water: str | None = Field(default=None, max_length=120)
     dose_g: float | None = Field(default=None, gt=0)
     water_ml: float | None = Field(default=None, gt=0)
     water_temp_c: float | None = Field(default=None, gt=0)
@@ -97,9 +100,12 @@ class BrewRecord(BaseModel):
     roaster: str | None = None
     process: str | None = None
     varietal: str | None = None
+    brew_method: str | None = None
     device: str | None = None
     grinder: str | None = None
     grind_setting: str | None = None
+    filter_media: str | None = None
+    water: str | None = None
     dose_g: float | None = None
     water_ml: float | None = None
     water_temp_c: float | None = None
@@ -130,9 +136,12 @@ class BrewRecordUpdateRequest(BaseModel):
     roaster: str | None = None
     process: str | None = None
     varietal: str | None = None
+    brew_method: str | None = None
     device: str | None = None
     grinder: str | None = None
     grind_setting: str | None = None
+    filter_media: str | None = None
+    water: str | None = None
     dose_g: float | None = Field(default=None, gt=0)
     water_ml: float | None = Field(default=None, gt=0)
     water_temp_c: float | None = Field(default=None, gt=0)

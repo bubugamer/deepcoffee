@@ -64,6 +64,9 @@ def parse_brew_input(text: str) -> tuple[BrewDraft, float, list[str], str | None
         device=device,
         grinder=grinder,
         grind_setting=grind_setting,
+        brew_method=_brew_method(text),
+        filter_media=_filter_media(text),
+        water=_water_name(text),
         dose_g=dose_g,
         water_ml=water_ml,
         water_temp_c=temp_c,
@@ -73,6 +76,38 @@ def parse_brew_input(text: str) -> tuple[BrewDraft, float, list[str], str | None
 
     confidence, low_confidence, clarification = assess_brew_draft(draft)
     return draft, confidence, low_confidence, clarification
+
+
+def _brew_method(text: str) -> str | None:
+    low = text.lower()
+    if any(k in low or k in text for k in ("法压", "french press")):
+        return "法压壶"
+    if any(k in low or k in text for k in ("爱乐压", "aeropress")):
+        return "爱乐压"
+    if any(k in text for k in ("聪明杯", "浸泡")):
+        return "浸泡式"
+    if any(k in low or k in text for k in ("espresso", "意式")):
+        return "意式"
+    if any(k in low or k in text for k in ("v60", "手冲", "滤杯")):
+        return "滤杯冲煮"
+    return None
+
+
+def _filter_media(text: str) -> str | None:
+    if any(k in text for k in ("纸滤", "滤纸")):
+        return "纸滤"
+    if "金属滤网" in text:
+        return "金属滤网"
+    if "内置滤网" in text:
+        return "内置滤网"
+    return None
+
+
+def _water_name(text: str) -> str | None:
+    for candidate in ("农夫山泉", "怡宝", "屈臣氏", "自配水", "矿泉水"):
+        if candidate in text:
+            return candidate
+    return None
 
 
 def assess_brew_draft(draft: BrewDraft) -> tuple[float, list[str], str | None]:

@@ -33,9 +33,12 @@ export interface BrewRecord {
   roaster?: string
   process?: string
   varietal?: string
+  brew_method?: string
   device?: string
   grinder?: string
   grind_setting?: string
+  filter_media?: string
+  water?: string
   dose_g?: number
   water_ml?: number
   water_temp_c?: number
@@ -61,9 +64,12 @@ export interface BrewDraft {
   roaster?: string
   process?: string
   varietal?: string
+  brew_method?: string
   device?: string
   grinder?: string
   grind_setting?: string
+  filter_media?: string
+  water?: string
   dose_g?: number
   water_ml?: number
   water_temp_c?: number

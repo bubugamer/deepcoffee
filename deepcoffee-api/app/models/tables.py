@@ -337,9 +337,12 @@ class BrewRecord(Base):
     roaster: Mapped[str | None] = mapped_column(String)
     process: Mapped[str | None] = mapped_column(String)
     varietal: Mapped[str | None] = mapped_column(String)
+    brew_method: Mapped[str | None] = mapped_column(String)
     device: Mapped[str | None] = mapped_column(String)
     grinder: Mapped[str | None] = mapped_column(String)
     grind_setting: Mapped[str | None] = mapped_column(String)
+    filter_media: Mapped[str | None] = mapped_column(String)
+    water: Mapped[str | None] = mapped_column(String)
     dose_g: Mapped[float | None] = mapped_column(Float)
     water_ml: Mapped[float | None] = mapped_column(Float)
     water_temp_c: Mapped[float | None] = mapped_column(Float)
@@ -534,6 +537,29 @@ class UserEquipmentProfile(Base):
     water: Mapped[str | None] = mapped_column(String)
     label: Mapped[str | None] = mapped_column(String)
     # 默认器具套：生成建议时未指定则用它；单默认不变量由 equipment_repository.set_default 维护。
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UserEquipmentItem(Base):
+    """用户单件器具库存。替代 user_equipment_profiles 作为业务读写主表。"""
+
+    __tablename__ = "user_equipment_items"
+    __table_args__ = (
+        UniqueConstraint("user_id", "category", "normalized_name", name="user_equipment_items_user_category_name_uq"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    category: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

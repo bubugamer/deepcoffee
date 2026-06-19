@@ -1,8 +1,4 @@
-"""我的器具：用户器具资料的查看与维护。
-
-数据来源有二：对话里 bean_recommend_params 闭环自动保存（equipment_repository.upsert），
-以及本路由的手动增删改。两边共用同一张 user_equipment_profiles 表。
-"""
+"""我的器具：用户单件器具库存的查看与维护。"""
 
 from __future__ import annotations
 
@@ -13,73 +9,85 @@ from app.api.deps import require_member
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
-from app.models.tables import UserEquipmentProfile
-from app.repositories.equipment import equipment_repository
-from app.schemas.equipment import EquipmentCreateRequest, EquipmentProfile, EquipmentUpdateRequest
+from app.models.tables import UserEquipmentItem
+from app.repositories.profiles import profile_repository
+from app.repositories.equipment import _clean, _norm, equipment_repository
+from app.schemas.equipment import EquipmentCreateRequest, EquipmentItem, EquipmentUpdateRequest
 
 router = APIRouter(prefix="/equipment", tags=["equipment"], dependencies=[Depends(require_member)])
 
 
-async def _get_own(session: AsyncSession, user_id: str, equipment_id: str) -> UserEquipmentProfile:
-    row = await session.get(UserEquipmentProfile, equipment_id)
+async def _get_own(session: AsyncSession, user_id: str, equipment_id: str) -> UserEquipmentItem:
+    row = await session.get(UserEquipmentItem, equipment_id)
     if row is None or row.user_id != user_id:
-        raise AppError(404, "equipment_not_found", "Equipment profile not found.")
+        raise AppError(404, "equipment_not_found", "Equipment item not found.")
     return row
 
 
-@router.get("", response_model=list[EquipmentProfile])
+@router.get("", response_model=list[EquipmentItem])
 async def list_equipment(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> list[EquipmentProfile]:
+) -> list[EquipmentItem]:
     rows = await equipment_repository.list_for_user(session, user.id)
-    return [EquipmentProfile.model_validate(row) for row in rows]
+    return [EquipmentItem.model_validate(row) for row in rows]
 
 
-@router.post("", response_model=EquipmentProfile)
+@router.post("", response_model=EquipmentItem)
 async def create_equipment(
     payload: EquipmentCreateRequest,
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> EquipmentProfile:
-    # 与对话自动保存同一条 upsert 路径：(brew_method, dripper, grinder, filter_media) 相同则合并而非重复建。
+) -> EquipmentItem:
+    await profile_repository.get_or_create(session, user.id, user.email)
     row = await equipment_repository.upsert(
         session,
         user_id=user.id,
-        brew_method=payload.brew_method,
-        dripper=payload.dripper,
-        grinder=payload.grinder,
-        filter_media=payload.filter_media,
-        water=payload.water,
-        label=payload.label,
+        category=payload.category,
+        name=payload.name,
+        notes=payload.notes,
+        is_default=payload.is_default,
     )
-    # created_at / updated_at 由数据库生成，flush 后需 refresh 才能序列化
     await session.refresh(row)
-    return EquipmentProfile.model_validate(row)
+    return EquipmentItem.model_validate(row)
 
 
-@router.patch("/{equipment_id}", response_model=EquipmentProfile)
+@router.patch("/{equipment_id}", response_model=EquipmentItem)
 async def update_equipment(
     equipment_id: str,
     payload: EquipmentUpdateRequest,
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> EquipmentProfile:
+) -> EquipmentItem:
     row = await _get_own(session, user.id, equipment_id)
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise AppError(400, "empty_update", "Provide at least one field to update.")
-    # is_default=True 走 set_default 维护单默认不变量；False 允许回到「无默认」状态。
+
+    new_category = updates.pop("category", row.category)
+    new_name = _clean(updates.pop("name", row.name))
+    if not new_name:
+        raise AppError(400, "invalid_equipment_name", "Equipment name is required.")
+    duplicate = await equipment_repository.find_by_name(
+        session, user_id=user.id, category=new_category, name=new_name
+    )
+    if duplicate and duplicate.id != row.id:
+        raise AppError(409, "equipment_already_exists", "This equipment item already exists.")
+
+    row.category = new_category
+    row.name = new_name
+    row.normalized_name = _norm(new_name)
+    if "notes" in updates:
+        row.notes = updates["notes"] or None
     is_default = updates.pop("is_default", None)
-    for key, value in updates.items():
-        setattr(row, key, value)
     if is_default is True:
+        await session.flush()
         await equipment_repository.set_default(session, user_id=user.id, equipment_id=row.id)
     elif is_default is False:
         row.is_default = False
     await session.flush()
     await session.refresh(row)
-    return EquipmentProfile.model_validate(row)
+    return EquipmentItem.model_validate(row)
 
 
 @router.delete("/{equipment_id}")

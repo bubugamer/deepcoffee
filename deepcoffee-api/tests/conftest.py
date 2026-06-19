@@ -53,6 +53,7 @@ db_module._sessionmaker = async_sessionmaker(_test_engine, expire_on_commit=Fals
 def _db_schema():
     async def _create() -> None:
         async with _test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
 
     asyncio.run(_create())

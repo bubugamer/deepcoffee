@@ -2,10 +2,10 @@
 
 「询问器具 → 抽取器具 JSON → 信息够了生成建议」的一轮评估。**有模型用模型、没有回退本地**：
 - 模型路径：用 §5 提示词调 JSON 模式，校验状态/意图/器具白名单/参数范围与自洽，任何不合规返回 None。
-- 本地兜底：器具齐（来自草稿或已存档的整套器具）就本地启发式生成 completed；不齐则 fallback，
+- 本地兜底：器具齐（来自草稿或按类别默认的单件器具库存）就本地启发式生成 completed；不齐则 fallback，
   只提示补器具，**绝不默认 V60**。
 
-本服务只产「这一轮的结果」（RecommendTurn）；保存器具资料、落隐藏 ai_suggestion 记录由端点做。
+本服务只产「这一轮的结果」（RecommendTurn）；落隐藏 ai_suggestion 记录由端点做，不自动保存新器具。
 """
 
 from __future__ import annotations
@@ -28,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_EQUIPMENT = ["dripper", "grinder", "filter_media"]
 _EQUIPMENT_KEYS = ["dripper", "brew_method", "grinder", "filter_media", "water"]
+_CATEGORY_TO_EQUIPMENT_KEY = {
+    "brewer": "dripper",
+    "grinder": "grinder",
+    "filter_media": "filter_media",
+    "water": "water",
+}
 _PLAN_KEYS = ["status", "intent", "assistant_message", "equipment", "missing_fields", "recommendation"]
 _REC_KEYS = [
     "device", "grinder", "filter", "dose_g", "water_ml", "water_temp_c",
@@ -74,15 +80,28 @@ def _missing(equipment: dict[str, Any]) -> list[str]:
     return [key for key in REQUIRED_EQUIPMENT if not equipment.get(key)]
 
 
-def _first_complete_profile(profiles: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """优先返回必填齐全的默认套（is_default），其次第一套齐全的。"""
-    complete = [p for p in profiles or [] if all(p.get(key) for key in REQUIRED_EQUIPMENT)]
-    for profile in complete:
-        if profile.get("is_default"):
-            return {key: profile.get(key) for key in _EQUIPMENT_KEYS}
-    if complete:
-        return {key: complete[0].get(key) for key in _EQUIPMENT_KEYS}
-    return None
+def _default_equipment_from_items(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """把按类别默认的单件库存组装成本轮推荐上下文。"""
+    equipment: dict[str, Any] = {key: None for key in _EQUIPMENT_KEYS}
+    for item in items or []:
+        key = _CATEGORY_TO_EQUIPMENT_KEY.get(str(item.get("category") or ""))
+        if not key:
+            continue
+        if item.get("is_default") and item.get("name") and not equipment.get(key):
+            equipment[key] = item.get("name")
+    return equipment
+
+
+def _equipment_items_for_prompt(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "category": item.get("category"),
+            "name": item.get("name"),
+            "notes": item.get("notes"),
+            "is_default": item.get("is_default", False),
+        }
+        for item in items or []
+    ]
 
 
 def _validate_recommendation(rec: dict[str, Any], equipment: dict[str, Any]) -> dict[str, Any] | None:
@@ -93,9 +112,12 @@ def _validate_recommendation(rec: dict[str, Any], equipment: dict[str, Any]) -> 
             rec.get("water_temp_c"), field="water_temp_c", low=WATER_TEMP_MIN, high=WATER_TEMP_MAX
         )
         draft = BrewDraft(
+            brew_method=equipment.get("brew_method"),
             device=equipment.get("dripper") or rec.get("device"),
             grinder=equipment.get("grinder") or rec.get("grinder"),
             grind_setting=rec.get("grind_setting"),
+            filter_media=equipment.get("filter_media") or rec.get("filter"),
+            water=equipment.get("water"),
             dose_g=rec.get("dose_g"),
             water_ml=rec.get("water_ml"),
             water_temp_c=temp,
@@ -136,7 +158,8 @@ async def _model_turn(
     model: str,
     gateway: ModelGateway,
 ) -> RecommendTurn | None:
-    grinder_names = [p.get("grinder") for p in equipment_profiles or []]
+    prompt_items = _equipment_items_for_prompt(equipment_profiles)
+    grinder_names = [p.get("name") for p in prompt_items if p.get("category") == "grinder"]
     if isinstance(equipment_draft, dict):
         grinder_names.append(equipment_draft.get("grinder"))
     user_content = BEAN_RECOMMEND_USER_TEMPLATE.format(
@@ -147,7 +170,7 @@ async def _model_turn(
         process=bean.process or "（未知）",
         varietal="、".join(bean.varietal) or "（未知）",
         flavor_notes="、".join(bean.flavor.notes) if bean.flavor and bean.flavor.notes else "（未知）",
-        equipment_profiles=_as_text(equipment_profiles),
+        equipment_profiles=_as_text(prompt_items),
         grinder_reference=format_grinder_reference(grinder_names),
         equipment_draft=_as_text(equipment_draft),
         message=message or "（用户未补充文字，请基于已有信息起手）",
@@ -212,9 +235,9 @@ def _local_turn(
     equipment_profiles: list[dict[str, Any]],
     equipment_draft: dict[str, Any] | None,
 ) -> RecommendTurn:
-    draft_equipment = _merge_equipment(equipment_draft)
-    use = draft_equipment if not _missing(draft_equipment) else _first_complete_profile(equipment_profiles)
-    if use:
+    use = _merge_equipment(_default_equipment_from_items(equipment_profiles), equipment_draft)
+    missing = _missing(use)
+    if not missing:
         params, _note = generate_recommended_params(bean)
         updates: dict[str, Any] = {"device": use["dripper"], "grinder": use["grinder"]}
         # 磨豆机命中刻度表时给具体区间，替换本地启发式的「中度」。
@@ -235,8 +258,8 @@ def _local_turn(
         status="fallback",
         intent="ask_equipment",
         assistant_message="我先记下了。要生成方案，请告诉我滤杯（冲煮器具）、磨豆机和过滤介质。",
-        equipment=draft_equipment,
-        missing_fields=_missing(draft_equipment),
+        equipment=use,
+        missing_fields=missing,
         source="local",
     )
 

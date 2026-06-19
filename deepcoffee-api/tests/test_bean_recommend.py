@@ -140,12 +140,14 @@ def test_local_no_equipment_fallback() -> None:
 
 
 def test_local_prefers_default_profile() -> None:
-    # 多套齐全器具时，本地兜底优先用 is_default 那套（即使排在后面）。
+    # 单件库存中，各必填类别都有默认项时，本地兜底直接使用默认项。
     turn = _run(
         gateway=None,
         equipment_profiles=[
-            {"dripper": "V60", "grinder": "C40", "filter_media": "纸滤", "is_default": False},
-            {"dripper": "Orea", "grinder": "ZP6S", "filter_media": "锥形滤纸", "is_default": True},
+            {"category": "brewer", "name": "V60", "is_default": False},
+            {"category": "brewer", "name": "Orea", "is_default": True},
+            {"category": "grinder", "name": "ZP6S", "is_default": True},
+            {"category": "filter_media", "name": "锥形滤纸", "is_default": True},
         ],
     )
     assert turn.status == "completed"
@@ -153,16 +155,19 @@ def test_local_prefers_default_profile() -> None:
     assert turn.recommendation["device"] == "Orea"
 
 
-def test_local_no_default_uses_first_complete() -> None:
+def test_local_missing_category_default_fallback() -> None:
     turn = _run(
         gateway=None,
         equipment_profiles=[
-            {"dripper": "V60", "grinder": "未知磨", "filter_media": "纸滤"},
-            {"dripper": "爱乐压", "grinder": "C40", "filter_media": "金属滤网"},
+            {"category": "brewer", "name": "V60", "is_default": True},
+            {"category": "grinder", "name": "C40", "is_default": True},
+            {"category": "filter_media", "name": "纸滤", "is_default": False},
         ],
     )
-    assert turn.status == "completed"
-    assert turn.recommendation["device"] == "V60"
+    assert turn.status == "fallback"
+    assert turn.equipment["dripper"] == "V60"
+    assert turn.equipment["grinder"] == "C40"
+    assert turn.missing_fields == ["filter_media"]
 
 
 def test_local_grind_setting_from_scale_table() -> None:
@@ -189,7 +194,9 @@ def test_model_prompt_includes_grinder_reference() -> None:
     _run(
         gateway=gateway,
         equipment_profiles=[
-            {"dripper": "V60", "grinder": "Comandante C40", "filter_media": "纸滤", "is_default": True},
+            {"category": "brewer", "name": "V60", "is_default": True},
+            {"category": "grinder", "name": "Comandante C40", "is_default": True},
+            {"category": "filter_media", "name": "纸滤", "is_default": True},
         ],
     )
     user_content = gateway.last_messages[1]["content"]
@@ -205,7 +212,9 @@ def test_model_prompt_unknown_grinder_no_reference() -> None:
     _run(
         gateway=gateway,
         equipment_profiles=[
-            {"dripper": "V60", "grinder": "无名小磨", "filter_media": "纸滤"},
+            {"category": "brewer", "name": "V60", "is_default": True},
+            {"category": "grinder", "name": "无名小磨", "is_default": True},
+            {"category": "filter_media", "name": "纸滤", "is_default": True},
         ],
     )
     user_content = gateway.last_messages[1]["content"]
