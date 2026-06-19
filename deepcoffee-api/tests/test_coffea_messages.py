@@ -375,3 +375,81 @@ def test_text_only_message_has_no_images() -> None:
     hist = client.get("/v1/coffea/session", headers=headers).json()
     user_turn = next(t for t in hist["turns"] if t["role"] == "user")
     assert user_turn["images"] == []
+
+
+# ── 主动冲煮记录 + 单件器具草稿 ──
+
+def _result(body: dict, type_: str) -> list[dict]:
+    return [r for r in body["results"] if r["type"] == type_]
+
+
+def test_brew_description_returns_brew_and_equipment_drafts() -> None:
+    headers = {"Authorization": "Bearer dev:brew-draft-1:brew-draft-1@example.com"}
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "今天用 V60 冲了巴拿马瑰夏，15g 粉，225ml，93°C，2:40，ZP6S 5.0 圈，纸滤。"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    brew = _result(body, "brew_record_parse")
+    assert brew and brew[0]["output"]["draft"]["device"] == "V60"
+    assert brew[0]["output"]["draft"]["grinder"] == "ZP6S"
+    assert brew[0]["output"]["draft"]["filter_media"] == "纸滤"
+    assert brew[0]["output"]["draft"]["dose_g"] == 15
+    equipment = _result(body, "equipment_capture")
+    assert equipment
+    assert {"category": "brewer", "name": "V60"} in equipment[0]["output"]["items"]
+    assert {"category": "grinder", "name": "ZP6S"} in equipment[0]["output"]["items"]
+
+
+def test_record_this_brew_uses_recent_dialog_context() -> None:
+    headers = {"Authorization": "Bearer dev:brew-context-1:brew-context-1@example.com"}
+    client = TestClient(create_app())
+    first = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "刚才用 V60 冲了一杯，15g 粉，225ml 水，93°C，总时间 2:40，ZP6S 5 圈。"},
+    )
+    assert first.status_code == 200, first.text
+    sid = first.json()["session_id"]
+    second = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "帮我记录这次冲煮", "session_id": sid},
+    )
+    assert second.status_code == 200, second.text
+    brew = _result(second.json(), "brew_record_parse")
+    assert brew
+    draft = brew[0]["output"]["draft"]
+    assert draft["device"] == "V60"
+    assert draft["grinder"] == "ZP6S"
+    assert draft["dose_g"] == 15
+    assert draft["water_ml"] == 225
+
+
+def test_equipment_capture_only_when_user_owns_or_saves() -> None:
+    client = TestClient(create_app())
+    headers = {"Authorization": "Bearer dev:eq-chat-1:eq-chat-1@example.com"}
+    owned = client.post("/v1/coffea/messages", headers=headers, json={"message": "我新买了法压壶，帮我存一下"})
+    assert owned.status_code == 200, owned.text
+    equipment = _result(owned.json(), "equipment_capture")
+    assert equipment
+    assert {"category": "brewer", "name": "法压壶"} in equipment[0]["output"]["items"]
+
+    question = client.post("/v1/coffea/messages", headers=headers, json={"message": "法压壶怎么用？"})
+    assert question.status_code == 200, question.text
+    assert _result(question.json(), "equipment_capture") == []
+    assert question.json()["primary_intent"] == "knowledge_answer"
+
+
+def test_existing_equipment_does_not_return_duplicate_capture_card() -> None:
+    headers = {"Authorization": "Bearer dev:eq-chat-dedupe-1:eq-chat-dedupe-1@example.com"}
+    client = TestClient(create_app())
+    saved = client.post("/v1/equipment", headers=headers, json={"category": "grinder", "name": "ZP6S"})
+    assert saved.status_code == 200, saved.text
+    resp = client.post("/v1/coffea/messages", headers=headers, json={"message": "我用 ZP6S"})
+    assert resp.status_code == 200, resp.text
+    equipment = _result(resp.json(), "equipment_capture")
+    assert equipment == [] or all(not r.get("output") or not r["output"].get("items") for r in equipment)

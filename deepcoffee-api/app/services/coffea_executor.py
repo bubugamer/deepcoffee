@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.core.config import Settings
@@ -72,6 +73,57 @@ _BREW_FIELD_LABELS = {
     "grind_setting": "研磨刻度",
     "brew_time_seconds": "冲煮时间",
 }
+_EQUIPMENT_CATEGORY_LABELS = {
+    "brewer": "冲煮器具",
+    "grinder": "磨豆机",
+    "filter_media": "过滤介质",
+    "water": "用水",
+}
+_BREW_METHOD_HINTS = (
+    ("法压", "法压壶"),
+    ("french", "法压壶"),
+    ("爱乐压", "爱乐压"),
+    ("aeropress", "爱乐压"),
+    ("聪明杯", "浸泡式"),
+    ("clever", "浸泡式"),
+    ("浸泡", "浸泡式"),
+    ("espresso", "意式"),
+    ("意式", "意式"),
+    ("摩卡", "摩卡壶"),
+    ("moka", "摩卡壶"),
+    ("冷萃", "冷萃"),
+    ("手冲", "滤杯冲煮"),
+    ("滤杯", "滤杯冲煮"),
+    ("v60", "滤杯冲煮"),
+)
+_BREWER_PATTERNS = (
+    (r"\bV60(?:\s*0?[123])?\b", "V60"),
+    (r"Origami|折纸", "Origami"),
+    (r"Kalita", "Kalita"),
+    (r"Chemex", "Chemex"),
+    (r"法压壶|法压|French\s*Press", "法压壶"),
+    (r"爱乐压|AeroPress", "爱乐压"),
+    (r"聪明杯|Clever", "聪明杯"),
+)
+_GRINDER_PATTERNS = (
+    (r"ZP6S?|1zpresso\s*ZP6S?", "ZP6S"),
+    (r"Comandante\s*C40|C40|司令官", "Comandante C40"),
+    (r"EK43", "EK43"),
+    (r"K-Ultra", "K-Ultra"),
+    (r"泰摩|Timemore", "Timemore"),
+)
+_FILTER_PATTERNS = (
+    (r"V60\s*滤纸|锥形滤纸|滤纸|纸滤", "纸滤"),
+    (r"金属滤网|金属滤纸", "金属滤网"),
+    (r"法压.*滤网|内置滤网", "内置滤网"),
+)
+_WATER_PATTERNS = (
+    (r"农夫山泉", "农夫山泉"),
+    (r"怡宝", "怡宝"),
+    (r"屈臣氏", "屈臣氏"),
+    (r"自配水|自制水", "自配水"),
+    (r"矿泉水", "矿泉水"),
+)
 _PENDING_FALLBACK = "这一步要走专门的确认流程，避免在聊天里直接改动你的数据。"
 # 暂无联网检索能力，web_verify 降级时的显式标注（§9 降级）。
 _WEB_VERIFY_DISCLAIMER = "（暂不能联网实时核实，以下基于本地知识库与一般经验，不代表最新网络信息）"
@@ -158,7 +210,25 @@ async def execute_plan(
                     )
                 )
             elif action_type == "brew_record_parse":
-                results.append(await _run_brew_parse(message, model=model, gateway=gateway))
+                results.append(
+                    await _run_brew_parse(
+                        message,
+                        model=model,
+                        gateway=gateway,
+                        history=history,
+                        active_recipe=(active_context or {}).get("recipe"),
+                    )
+                )
+            elif action_type == "equipment_capture":
+                results.append(
+                    await _run_equipment_capture(
+                        message,
+                        model=model,
+                        gateway=gateway,
+                        history=history,
+                        active_context=active_context,
+                    )
+                )
             elif action_type == "direct_answer":
                 # 不需专项工具的普通咖啡问答：用冲煮教练（自由文本，带历史/画像/活跃上下文）真正生成回答。
                 results.append(
@@ -365,11 +435,17 @@ def _brew_summary(draft: BrewDraft) -> str:
     parts: list[str] = []
     if draft.bean_name:
         parts.append(draft.bean_name)
+    if draft.brew_method:
+        parts.append(draft.brew_method)
     if draft.device:
         parts.append(draft.device)
     grind = f"{draft.grinder or ''} {draft.grind_setting or ''}".strip()
     if grind:
         parts.append(grind)
+    if draft.filter_media:
+        parts.append(draft.filter_media)
+    if draft.water:
+        parts.append(draft.water)
     if draft.dose_g:
         parts.append(f"粉 {draft.dose_g:g}g")
     if draft.water_ml:
@@ -385,24 +461,62 @@ def _brew_summary(draft: BrewDraft) -> str:
     return " · ".join(parts)
 
 
-async def _run_brew_parse(message: str, *, model: str, gateway: ModelGateway | None) -> ActionResult:
+def _history_excerpt(history: list[dict[str, str]] | None, *, limit: int = 6) -> str:
+    lines: list[str] = []
+    for item in (history or [])[-limit:]:
+        role = item.get("role") or "user"
+        content = (item.get("content") or item.get("text") or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+def _contextual_brew_text(
+    message: str,
+    *,
+    history: list[dict[str, str]] | None = None,
+    active_recipe: dict[str, Any] | None = None,
+) -> str:
+    parts: list[str] = []
+    history_text = _history_excerpt(history)
+    if history_text:
+        parts.append(f"最近对话：\n{history_text}")
+    if active_recipe:
+        parts.append(f"当前活跃冲煮方案：\n{active_recipe}")
+    parts.append(f"本轮用户消息：\n{message}")
+    return "\n\n".join(parts)
+
+
+def _has_brew_substance(draft: BrewDraft) -> bool:
+    return any([
+        draft.brew_method, draft.device, draft.grinder, draft.grind_setting, draft.filter_media, draft.water,
+        draft.dose_g, draft.water_ml, draft.water_temp_c, draft.ratio, draft.brew_time_seconds, draft.brew_steps,
+    ])
+
+
+async def _run_brew_parse(
+    message: str,
+    *,
+    model: str,
+    gateway: ModelGateway | None,
+    history: list[dict[str, str]] | None = None,
+    active_recipe: dict[str, Any] | None = None,
+) -> ActionResult:
     """聊天里记录冲煮：消息带参数就真解析成草稿（缺什么明确说），落库由用户在草稿卡确认。
 
     完全没解析出参数（纯意图，如「我想记录冲煮」）才回通用引导语。
     """
-    draft = await parse_brew_with_model(message, model=model, gateway=gateway)
+    parse_text = _contextual_brew_text(message, history=history, active_recipe=active_recipe)
+    draft = await parse_brew_with_model(parse_text, model=model, gateway=gateway)
     source = "model"
     if draft is None:
-        draft, _, _, _ = parse_brew_input(message)
+        draft, _, _, _ = parse_brew_input(parse_text)
         source = "local"
+    _enrich_brew_draft_from_text(draft, parse_text)
     confidence, missing, _ = assess_brew_draft(draft)
     # 「实质参数」不含 bean_name：本地启发式几乎任何句子都能抽出个"豆名"，
     # 纯意图消息（"我想记录冲煮"）必须仍走通用引导，而不是抱着垃圾豆名出草稿。
-    has_substance = any([
-        draft.device, draft.grinder, draft.grind_setting, draft.dose_g, draft.water_ml,
-        draft.water_temp_c, draft.ratio, draft.brew_time_seconds, draft.brew_steps,
-    ])
-    if not has_substance:
+    if not _has_brew_substance(draft):
         return ActionResult(
             type="brew_record_parse",
             status="pending",
@@ -430,6 +544,184 @@ async def _run_brew_parse(message: str, *, model: str, gateway: ModelGateway | N
         },
         message=msg,
     )
+
+
+def _contains_brew_record_hint(message: str) -> bool:
+    return any(hint in message for hint in ("记录这杯", "记录这次", "记录冲煮", "帮我记录", "保存这杯", "存这杯"))
+
+
+def _looks_like_brew_params(text: str) -> bool:
+    has_number = bool(re.search(r"\d", text))
+    brew_unit = bool(re.search(r"(?:\d+\s*(?:g|克|ml|毫升|°c|℃|度|秒|分钟)|粉水比|1\s*[:：]\s*\d+|#\s*\d+|刻度)", text, re.I))
+    equipment_name = any(re.search(pattern, text, flags=re.IGNORECASE) for pattern, _ in (*_BREWER_PATTERNS, *_GRINDER_PATTERNS))
+    return brew_unit or (has_number and equipment_name)
+
+
+async def ensure_brew_draft_result(
+    results: list[ActionResult],
+    *,
+    message: str,
+    model: str,
+    gateway: ModelGateway | None = None,
+    history: list[dict[str, str]] | None = None,
+    active_recipe: dict[str, Any] | None = None,
+) -> None:
+    """端点级兜底：调度没附 brew_record_parse 时，仍可主动补冲煮草稿。"""
+    has_brew_result = any(r.type == "brew_record_parse" for r in results)
+    if any(r.type == "brew_record_parse" and isinstance(r.output, dict) and r.output.get("draft") for r in results):
+        return
+    parse_text = _contextual_brew_text(message, history=history, active_recipe=active_recipe)
+    if not (_contains_brew_record_hint(message) or _looks_like_brew_params(parse_text)):
+        return
+    candidate = await _run_brew_parse(
+        message,
+        model=model,
+        gateway=gateway,
+        history=history,
+        active_recipe=active_recipe,
+    )
+    if candidate.status == "done" or (_contains_brew_record_hint(message) and not has_brew_result):
+        results.append(candidate)
+
+
+def _first_pattern(text: str, patterns: tuple[tuple[str, str], ...]) -> str | None:
+    for pattern, value in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            raw = match.group(0).strip()
+            return raw if value in {"V60"} and raw.upper().startswith("V60") else value
+    return None
+
+
+def _brew_method_from_text(text: str) -> str | None:
+    low = text.lower()
+    for needle, method in _BREW_METHOD_HINTS:
+        if needle in low or needle in text:
+            return method
+    return None
+
+
+def _enrich_brew_draft_from_text(draft: BrewDraft, text: str) -> None:
+    if not draft.brew_method:
+        draft.brew_method = _brew_method_from_text(text)
+    if not draft.device:
+        draft.device = _first_pattern(text, _BREWER_PATTERNS)
+    grinder = _first_pattern(text, _GRINDER_PATTERNS)
+    if grinder and (not draft.grinder or (draft.grinder.strip().lower() == "zp6" and grinder == "ZP6S")):
+        draft.grinder = grinder
+    if not draft.filter_media:
+        draft.filter_media = _first_pattern(text, _FILTER_PATTERNS)
+    if not draft.water:
+        draft.water = _first_pattern(text, _WATER_PATTERNS)
+
+
+def _equipment_items_from_draft(draft: BrewDraft, text: str) -> list[dict[str, str]]:
+    _enrich_brew_draft_from_text(draft, text)
+    items: list[dict[str, str]] = []
+    if draft.device:
+        items.append({"category": "brewer", "name": draft.device})
+    if draft.grinder:
+        items.append({"category": "grinder", "name": draft.grinder})
+    if draft.filter_media:
+        items.append({"category": "filter_media", "name": draft.filter_media})
+    if draft.water:
+        items.append({"category": "water", "name": draft.water})
+
+    # 用户单独说“我买了法压壶 / 我用 ZP6S”时，brew parse 可能没给草稿；再用关键词补一轮。
+    fallback_pairs = [
+        ("brewer", _first_pattern(text, _BREWER_PATTERNS)),
+        ("grinder", _first_pattern(text, _GRINDER_PATTERNS)),
+        ("filter_media", _first_pattern(text, _FILTER_PATTERNS)),
+        ("water", _first_pattern(text, _WATER_PATTERNS)),
+    ]
+    existing = {(item["category"], item["name"].strip().lower()) for item in items}
+    for category, name in fallback_pairs:
+        if name and (category, name.strip().lower()) not in existing:
+            items.append({"category": category, "name": name})
+            existing.add((category, name.strip().lower()))
+    return items
+
+
+def _known_equipment_set(active_context: dict | None) -> set[tuple[str, str]]:
+    known: set[tuple[str, str]] = set()
+    for item in (active_context or {}).get("equipment_items") or []:
+        if isinstance(item, dict) and item.get("category") and item.get("name"):
+            known.add((str(item["category"]), str(item["name"]).strip().lower()))
+    return known
+
+
+async def _run_equipment_capture(
+    message: str,
+    *,
+    model: str,
+    gateway: ModelGateway | None,
+    history: list[dict[str, str]] | None,
+    active_context: dict | None,
+) -> ActionResult:
+    parse_text = _contextual_brew_text(message, history=history, active_recipe=(active_context or {}).get("recipe"))
+    draft = await parse_brew_with_model(parse_text, model=model, gateway=gateway)
+    source = "model"
+    if draft is None:
+        draft, _, _, _ = parse_brew_input(parse_text)
+        source = "local"
+    items = _equipment_items_from_draft(draft, parse_text)
+    known = _known_equipment_set(active_context)
+    new_items = [
+        item for item in items
+        if item.get("name") and (item["category"], item["name"].strip().lower()) not in known
+    ]
+    if not new_items:
+        return ActionResult(
+            type="equipment_capture",
+            status="done",
+            source=source,
+            message="这件器具已经在「我的器具」里了，不需要重复保存。",
+        )
+    label_text = "、".join(f"{_EQUIPMENT_CATEGORY_LABELS.get(i['category'], i['category'])}：{i['name']}" for i in new_items)
+    return ActionResult(
+        type="equipment_capture",
+        status="done",
+        source=source,
+        output={"items": new_items, "raw_input": message},
+        message=f"我识别到新的器具：{label_text}。要存到「我的器具」吗？",
+    )
+
+
+def ensure_equipment_capture_for_brew(results: list[ActionResult], *, active_context: dict | None) -> None:
+    if any(r.type == "equipment_capture" and isinstance(r.output, dict) and r.output.get("items") for r in results):
+        return
+    known = _known_equipment_set(active_context)
+    for result in results:
+        if result.type != "brew_record_parse" or not isinstance(result.output, dict):
+            continue
+        raw_draft = result.output.get("draft")
+        if not isinstance(raw_draft, dict):
+            continue
+        try:
+            draft = BrewDraft.model_validate(raw_draft)
+        except Exception:
+            continue
+        text = str(result.output.get("raw_input") or "")
+        items = _equipment_items_from_draft(draft, text)
+        new_items = [
+            item for item in items
+            if item.get("name") and (item["category"], item["name"].strip().lower()) not in known
+        ]
+        if not new_items:
+            continue
+        label_text = "、".join(
+            f"{_EQUIPMENT_CATEGORY_LABELS.get(i['category'], i['category'])}：{i['name']}" for i in new_items
+        )
+        results.append(
+            ActionResult(
+                type="equipment_capture",
+                status="done",
+                source=result.source,
+                output={"items": new_items, "raw_input": text},
+                message=f"这杯里有新的器具：{label_text}。要存到「我的器具」吗？",
+            )
+        )
+        return
 
 
 async def _run_coach(

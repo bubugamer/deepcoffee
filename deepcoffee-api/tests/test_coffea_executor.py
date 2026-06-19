@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from app.schemas.coffea import ActionResult, DispatchPlan
 from app.schemas.knowledge import GroundingDoc
-from app.services.coffea_executor import assemble_reply, execute_plan
+from app.services.coffea_executor import assemble_reply, ensure_equipment_capture_for_brew, execute_plan
 
 _IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
 _VALID_IMAGE_JSON = json.dumps({"image_type": "bean_card", "bean_fields": {"name": "巴拿马 瑰夏"}})
@@ -256,6 +256,66 @@ def test_coach_action_receives_original_images() -> None:
     assert captured["model"] == "kimi-k2.6"
     assert isinstance(captured["user"], list)
     assert any(p.get("type") == "image_url" and p["image_url"]["url"] == _IMG for p in captured["user"])
+
+
+def test_brew_parse_uses_history_for_record_this_brew() -> None:
+    plan = DispatchPlan(primary_intent="brew_record_parse", actions=[{"type": "brew_record_parse"}])
+    results = _run(
+        plan,
+        message="帮我记录这次冲煮",
+        history=[
+            {"role": "user", "content": "今天用 V60 冲巴拿马瑰夏，15g 粉，225ml，93°C，2:40，ZP6S 5.0 圈，纸滤。"},
+        ],
+    )
+    r = results[0]
+    assert r.type == "brew_record_parse"
+    assert r.status == "done"
+    assert r.output["draft"]["device"] == "V60"
+    assert r.output["draft"]["grinder"] == "ZP6S"
+    assert r.output["draft"]["filter_media"] == "纸滤"
+    assert r.output["draft"]["dose_g"] == 15
+    assert r.output["draft"]["water_ml"] == 225
+
+
+def test_equipment_capture_outputs_item_draft() -> None:
+    plan = DispatchPlan(primary_intent="equipment_capture", actions=[{"type": "equipment_capture"}])
+    results = _run(plan, message="我新买了一个法压壶，也在用 ZP6S")
+    r = results[0]
+    assert r.type == "equipment_capture"
+    assert r.status == "done"
+    assert {"category": "brewer", "name": "法压壶"} in r.output["items"]
+    assert {"category": "grinder", "name": "ZP6S"} in r.output["items"]
+
+
+def test_equipment_capture_dedupes_known_items() -> None:
+    plan = DispatchPlan(primary_intent="equipment_capture", actions=[{"type": "equipment_capture"}])
+    results = _run(
+        plan,
+        message="我用 ZP6S",
+        active_context={"equipment_items": [{"category": "grinder", "name": "ZP6S"}]},
+    )
+    r = results[0]
+    assert r.type == "equipment_capture"
+    assert r.output is None
+    assert "已经" in r.message
+
+
+def test_brew_draft_can_append_unsaved_equipment_capture() -> None:
+    result = ActionResult(
+        type="brew_record_parse",
+        status="done",
+        source="local",
+        output={
+            "draft": {"device": "V60", "grinder": "ZP6S", "filter_media": "纸滤"},
+            "raw_input": "V60 ZP6S 纸滤 15g 225ml",
+        },
+    )
+    results = [result]
+    ensure_equipment_capture_for_brew(results, active_context={"equipment_items": [{"category": "brewer", "name": "V60"}]})
+    eq = [r for r in results if r.type == "equipment_capture"]
+    assert eq
+    assert {"category": "grinder", "name": "ZP6S"} in eq[0].output["items"]
+    assert {"category": "filter_media", "name": "纸滤"} in eq[0].output["items"]
 
 
 def test_knowledge_action_receives_original_images() -> None:

@@ -18,7 +18,7 @@ from app.api.deps import require_ai_quota, require_member
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.security import AuthenticatedUser, get_current_user
-from app.models.tables import UserEquipmentProfile
+from app.models.tables import UserEquipmentItem
 from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
 from app.repositories.coffea_sessions import coffea_session_repository
@@ -42,7 +42,12 @@ from app.services import coffea_dispatch
 from app.services.bean_card_intake import summarize_draft
 from app.services.brew_coach import coach_with_model
 from app.services.candidate_service import candidate_service
-from app.services.coffea_executor import assemble_reply, execute_plan
+from app.services.coffea_executor import (
+    assemble_reply,
+    ensure_brew_draft_result,
+    ensure_equipment_capture_for_brew,
+    execute_plan,
+)
 from app.services.memory_context import build_memory_context
 from app.services.memory_maintenance import run_memory_maintenance
 from app.services.image_storage import upload_chat_images
@@ -73,21 +78,21 @@ async def _brew_advice_for_new_bean(
     user_id: str,
     bean_id: str,
     message: str,
-    equipment: list[UserEquipmentProfile],
+    equipment: list[UserEquipmentItem],
     settings: Settings,
     trace_id: str,
 ) -> str | None:
-    """识图建卡后给冲煮建议：有默认器具按它给方案；没有则引导用户去设默认器具。"""
-    default_equip = next((e for e in equipment if e.is_default), None)
-    if default_equip is None:
-        return "想要冲煮方案的话，先到「我的器具」设一套默认器具，我就能按你的器具给你一版热冲方案。"
+    """识图建卡后给冲煮建议：默认单件器具齐全才给方案，否则引导补默认项。"""
+    equipment_context = _default_equipment_context(equipment)
+    if any(not equipment_context.get(key) for key in ("dripper", "grinder", "filter_media")):
+        return "想要冲煮方案的话，先到「我的器具」设置默认器具（冲煮器具、磨豆机和过滤介质），我就能按你的器具给你一版热冲方案。"
     bean = await bean_repository.get(session, user_id=user_id, bean_id=bean_id)
     if bean is None:
         return None
     advice = await coach_with_model(
         message=message,
         active_bean=bean.model_dump(mode="json"),
-        active_equipment=_equipment_dict(default_equip),
+        active_equipment=equipment_context,
         model=settings.model_default_model,
         vision_model=settings.vision_model,
     )
@@ -109,18 +114,30 @@ def _display_safe_results(results: list[ActionResult]) -> list[dict]:
     return safe
 
 
-def _equipment_dict(e: UserEquipmentProfile) -> dict[str, str | bool | None]:
-    """器具 ORM → 喂模型的紧凑 dict（Bean/BrewRecord 是 pydantic，直接 model_dump）。"""
+def _equipment_dict(e: UserEquipmentItem) -> dict[str, str | bool | None]:
+    """单件器具 ORM → 喂模型的紧凑 dict。"""
     return {
         "id": e.id,
-        "brew_method": e.brew_method,
-        "dripper": e.dripper,
-        "grinder": e.grinder,
-        "filter_media": e.filter_media,
-        "water": e.water,
-        "label": e.label,
+        "category": e.category,
+        "name": e.name,
+        "notes": e.notes,
         "is_default": e.is_default,
     }
+
+
+def _default_equipment_context(equipment: list[UserEquipmentItem]) -> dict[str, str | None]:
+    context = {"dripper": None, "brew_method": None, "grinder": None, "filter_media": None, "water": None}
+    category_to_key = {
+        "brewer": "dripper",
+        "grinder": "grinder",
+        "filter_media": "filter_media",
+        "water": "water",
+    }
+    for item in equipment:
+        key = category_to_key.get(item.category)
+        if key and item.is_default and not context.get(key):
+            context[key] = item.name
+    return context
 
 
 async def _autosave_bean_card(
@@ -203,11 +220,11 @@ async def post_message(
         if active_recipe_id
         else None
     )
-    active_equipment = next((e for e in equipment if e.id == state.get("active_equipment_id")), None)
     active_context = {
         "bean": active_bean.model_dump(mode="json") if active_bean else None,
         "recipe": active_recipe.model_dump(mode="json") if active_recipe else None,
-        "equipment": _equipment_dict(active_equipment) if active_equipment else None,
+        "equipment": _default_equipment_context(equipment),
+        "equipment_items": [_equipment_dict(e) for e in equipment],
     }
 
     # 记忆注入层：把最近对话（L1）+ 用户画像（L3）汇总成可注入形态，一次构造、分发给调度器与各能力。
@@ -238,6 +255,14 @@ async def post_message(
         active_context=active_context,
         history=mc.history_messages,
     )
+    await ensure_brew_draft_result(
+        results,
+        message=payload.message,
+        model=settings.model_default_model,
+        history=mc.history_messages,
+        active_recipe=active_context.get("recipe"),
+    )
+    ensure_equipment_capture_for_brew(results, active_context=active_context)
 
     trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
 

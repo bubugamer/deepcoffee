@@ -7,7 +7,12 @@ import {
   ImagePlus, X, Globe, Square,
 } from 'lucide-react'
 import { confirmBean, getBeans, parseBeanInput } from '@/lib/api/beans'
-import { listEquipment, type EquipmentProfile } from '@/lib/api/equipment'
+import {
+  createEquipment,
+  listEquipment,
+  type EquipmentCategory,
+  type EquipmentProfile,
+} from '@/lib/api/equipment'
 import { confirmBrew } from '@/lib/api/records'
 import { sendCoffeaMessage, getCoffeaSession, compressImage, mockSuggestions } from '@/lib/api/chat'
 import { isQuotaExceeded } from '@/lib/api/client'
@@ -85,6 +90,7 @@ const ACTION_LABEL: Record<string, string> = {
   grinder_conversion: '研磨换算',
   storage_resting_advice: '储存养豆',
   equipment_advice: '器具建议',
+  equipment_capture: '记录器具',
   brew_record_parse: '记录冲煮',
   create_or_update_bean_card: '豆卡',
 }
@@ -262,6 +268,13 @@ const BREW_TEXT_FIELDS: { key: string; label: string; placeholder: string }[] = 
 ]
 
 const CUSTOM = '__custom__'
+const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
+const EQUIPMENT_CATEGORY_LABEL: Record<EquipmentCategory, string> = {
+  brewer: '冲煮器具',
+  grinder: '磨豆机',
+  filter_media: '过滤介质',
+  water: '用水',
+}
 
 // 下拉（来源：豆仓 / 我的器具）+「自定义输入」的组合字段
 function ComboField({
@@ -329,8 +342,11 @@ function ChatBrewDraft({
   const missing = Array.isArray(output.missing_fields) ? (output.missing_fields as string[]) : []
   const steps = Array.isArray(baseDraft.brew_steps) ? baseDraft.brew_steps : []
   const parsedBeanName = String(baseDraft.bean_name ?? '').trim()
+  const parsedBrewMethod = String(baseDraft.brew_method ?? '').trim()
   const parsedDevice = String(baseDraft.device ?? '').trim()
   const parsedGrinder = String(baseDraft.grinder ?? '').trim()
+  const parsedFilterMedia = String(baseDraft.filter_media ?? '').trim()
+  const parsedWater = String(baseDraft.water ?? '').trim()
 
   // 下拉数据源：豆仓 + 我的器具；拉取失败回退为纯手输（空选项 + 自定义）
   const [beans, setBeans] = useState<Bean[] | null>(null)
@@ -338,8 +354,11 @@ function ChatBrewDraft({
   const [beanChoice, setBeanChoice] = useState(parsedBeanName ? CUSTOM : '')
   const [beanCustom, setBeanCustom] = useState(parsedBeanName)
   const [createBeanCard, setCreateBeanCard] = useState(true)
+  const [brewMethod, setBrewMethod] = useState(parsedBrewMethod)
   const [device, setDevice] = useState({ choice: parsedDevice ? CUSTOM : '', custom: parsedDevice })
   const [grinder, setGrinder] = useState({ choice: parsedGrinder ? CUSTOM : '', custom: parsedGrinder })
+  const [filterMedia, setFilterMedia] = useState({ choice: parsedFilterMedia ? CUSTOM : '', custom: parsedFilterMedia })
+  const [water, setWater] = useState({ choice: parsedWater ? CUSTOM : '', custom: parsedWater })
   const [fields, setFields] = useState<Record<string, string>>(() => ({
     grind_setting: String(baseDraft.grind_setting ?? ''),
     dose_g: baseDraft.dose_g != null ? String(baseDraft.dose_g) : '',
@@ -378,24 +397,37 @@ function ChatBrewDraft({
     if (match) setBeanChoice(match.bean_id)
   }, [beans, linkedBeanId, parsedBeanName])
 
-  // 器具就绪后预选：解析值命中选项即选中；解析为空时取默认器具套
+  // 器具就绪后预选：解析值命中选项即选中；解析为空时取各类别默认项
   useEffect(() => {
     if (equipment === null || equipInitRef.current) return
     equipInitRef.current = true
-    const drippers = equipment.map(e => e.dripper).filter(Boolean) as string[]
-    const grinders = equipment.map(e => e.grinder).filter(Boolean) as string[]
-    const def = equipment.find(e => e.is_default)
+    const names = (category: EquipmentCategory) => equipment.filter(e => e.category === category).map(e => e.name)
+    const def = (category: EquipmentCategory) => equipment.find(e => e.category === category && e.is_default)
+    const drippers = names('brewer')
+    const grinders = names('grinder')
+    const filters = names('filter_media')
+    const waters = names('water')
     setDevice(cur => {
       if (parsedDevice && drippers.includes(parsedDevice)) return { choice: parsedDevice, custom: '' }
-      if (!parsedDevice && def?.dripper) return { choice: def.dripper, custom: '' }
+      if (!parsedDevice && def('brewer')?.name) return { choice: def('brewer')!.name, custom: '' }
       return cur
     })
     setGrinder(cur => {
       if (parsedGrinder && grinders.includes(parsedGrinder)) return { choice: parsedGrinder, custom: '' }
-      if (!parsedGrinder && def?.grinder) return { choice: def.grinder, custom: '' }
+      if (!parsedGrinder && def('grinder')?.name) return { choice: def('grinder')!.name, custom: '' }
       return cur
     })
-  }, [equipment, parsedDevice, parsedGrinder])
+    setFilterMedia(cur => {
+      if (parsedFilterMedia && filters.includes(parsedFilterMedia)) return { choice: parsedFilterMedia, custom: '' }
+      if (!parsedFilterMedia && def('filter_media')?.name) return { choice: def('filter_media')!.name, custom: '' }
+      return cur
+    })
+    setWater(cur => {
+      if (parsedWater && waters.includes(parsedWater)) return { choice: parsedWater, custom: '' }
+      if (!parsedWater && def('water')?.name) return { choice: def('water')!.name, custom: '' }
+      return cur
+    })
+  }, [equipment, parsedDevice, parsedGrinder, parsedFilterMedia, parsedWater])
 
   if (output.dismissed === true) return null
   if (savedRecordId) {
@@ -422,8 +454,12 @@ function ChatBrewDraft({
 
   const beanOptions = (beans ?? []).map(b => ({ value: b.bean_id, label: b.name }))
   const uniq = (values: (string | null | undefined)[]) => [...new Set(values.filter(Boolean) as string[])]
-  const deviceOptions = uniq((equipment ?? []).map(e => e.dripper)).map(v => ({ value: v, label: v }))
-  const grinderOptions = uniq((equipment ?? []).map(e => e.grinder)).map(v => ({ value: v, label: v }))
+  const byCategory = (category: EquipmentCategory) => uniq((equipment ?? []).filter(e => e.category === category).map(e => e.name))
+    .map(v => ({ value: v, label: v }))
+  const deviceOptions = byCategory('brewer')
+  const grinderOptions = byCategory('grinder')
+  const filterOptions = byCategory('filter_media')
+  const waterOptions = byCategory('water')
 
   // 手输豆名且豆仓里没有同名豆 → 显示「顺手建豆卡」勾选
   const customBeanName = beanChoice === CUSTOM ? beanCustom.trim() : ''
@@ -461,13 +497,18 @@ function ChatBrewDraft({
       }
       const deviceValue = device.choice === CUSTOM ? device.custom.trim() : device.choice
       const grinderValue = grinder.choice === CUSTOM ? grinder.custom.trim() : grinder.choice
+      const filterValue = filterMedia.choice === CUSTOM ? filterMedia.custom.trim() : filterMedia.choice
+      const waterValue = water.choice === CUSTOM ? water.custom.trim() : water.choice
       // 2) 在解析草稿基础上合并用户编辑（注水步骤等其余字段原样保留）
       const merged: Record<string, unknown> = {
         ...baseDraft,
         bean_name: beanName,
+        brew_method: brewMethod || undefined,
         device: deviceValue || undefined,
         grinder: grinderValue || undefined,
         grind_setting: fields.grind_setting.trim() || undefined,
+        filter_media: filterValue || undefined,
+        water: waterValue || undefined,
         dose_g: numeric(fields.dose_g),
         water_ml: numeric(fields.water_ml),
         water_temp_c: numeric(fields.water_temp_c),
@@ -519,6 +560,17 @@ function ChatBrewDraft({
             </label>
           )}
         </div>
+        <label className="block">
+          <span className="text-xs text-dc-text-3 mb-1 block">冲煮方式</span>
+          <select
+            value={brewMethod}
+            onChange={e => setBrewMethod(e.target.value)}
+            className="dc-input text-sm py-1.5"
+          >
+            <option value="">未选择</option>
+            {BREW_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
         <ComboField
           label="滤杯"
           missing={missing.includes('device')}
@@ -538,6 +590,26 @@ function ChatBrewDraft({
           placeholder="例如：ZP6S"
           onChoice={v => setGrinder({ choice: v, custom: grinder.custom })}
           onCustom={v => setGrinder({ choice: grinder.choice, custom: v })}
+        />
+        <ComboField
+          label="过滤介质"
+          missing={missing.includes('filter_media')}
+          options={filterOptions}
+          choice={filterMedia.choice}
+          custom={filterMedia.custom}
+          placeholder="例如：纸滤"
+          onChoice={v => setFilterMedia({ choice: v, custom: filterMedia.custom })}
+          onCustom={v => setFilterMedia({ choice: filterMedia.choice, custom: v })}
+        />
+        <ComboField
+          label="用水"
+          missing={missing.includes('water')}
+          options={waterOptions}
+          choice={water.choice}
+          custom={water.custom}
+          placeholder="例如：农夫山泉"
+          onChoice={v => setWater({ choice: v, custom: water.custom })}
+          onCustom={v => setWater({ choice: water.choice, custom: v })}
         />
         {BREW_TEXT_FIELDS.map(({ key, label, placeholder }) => {
           const isMissing = (key === 'time' ? missing.includes('brew_time_seconds') : missing.includes(key))
@@ -564,6 +636,153 @@ function ChatBrewDraft({
         <button
           onClick={confirm}
           disabled={saving}
+          className="btn-primary text-sm py-2 flex-1 disabled:opacity-50"
+        >
+          {saving ? '保存中…' : '确认保存'}
+        </button>
+        <button onClick={() => onPatch({ dismissed: true })} className="btn-secondary text-sm py-2">忽略</button>
+      </div>
+    </div>
+  )
+}
+
+type EquipmentDraftItem = {
+  category: EquipmentCategory
+  name: string
+  notes?: string | null
+}
+
+function isEquipmentCategory(value: unknown): value is EquipmentCategory {
+  return value === 'brewer' || value === 'grinder' || value === 'filter_media' || value === 'water'
+}
+
+function normalizeEquipmentDraftItems(raw: unknown): EquipmentDraftItem[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const items: EquipmentDraftItem[] = []
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const obj = row as Record<string, unknown>
+    const category = obj.category
+    const name = typeof obj.name === 'string' ? obj.name.trim() : ''
+    if (!isEquipmentCategory(category) || !name) continue
+    const key = `${category}:${name.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    items.push({
+      category,
+      name,
+      notes: typeof obj.notes === 'string' ? obj.notes : '',
+    })
+  }
+  return items
+}
+
+function ChatEquipmentDraft({
+  result,
+  onPatch,
+}: {
+  result: ActionResult
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  const output = result.output ?? {}
+  const [items, setItems] = useState<EquipmentDraftItem[]>(() => normalizeEquipmentDraftItems(output.items))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  if (output.dismissed === true) return null
+  if (output.saved === true) {
+    const savedCount = typeof output.saved_count === 'number' ? output.saved_count : items.length
+    return (
+      <div className="dc-card px-4 py-3 flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-1.5 text-dc-green">
+          <CheckCircle2 size={14} /> 已保存 {savedCount} 件器具
+        </span>
+        <Link href="/app/equipment" className="text-dc-accent hover:underline text-xs">
+          查看器具 →
+        </Link>
+      </div>
+    )
+  }
+  if (items.length === 0) return null
+
+  function updateItem(index: number, patch: Partial<EquipmentDraftItem>) {
+    setItems(cur => cur.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+  }
+
+  async function confirm() {
+    const validItems = items
+      .map(item => ({ ...item, name: item.name.trim(), notes: item.notes?.trim() ?? '' }))
+      .filter(item => item.name)
+    if (validItems.length === 0) return
+    setSaving(true)
+    setError('')
+    try {
+      for (const item of validItems) {
+        await createEquipment({
+          category: item.category,
+          name: item.name,
+          notes: item.notes || undefined,
+        })
+      }
+      onPatch({ saved: true, saved_count: validItems.length })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="dc-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-dc-border">
+        <span className="text-sm font-semibold text-dc-text-1">器具草稿</span>
+        <span className="text-xs text-dc-text-3">{items.length} 件</span>
+      </div>
+      <div className="p-4 space-y-3">
+        {items.map((item, index) => (
+          <div key={`${item.category}:${index}`} className="grid sm:grid-cols-[130px,1fr] gap-2">
+            <select
+              value={item.category}
+              onChange={e => updateItem(index, { category: e.target.value as EquipmentCategory })}
+              className="dc-input text-sm py-1.5"
+            >
+              {(Object.keys(EQUIPMENT_CATEGORY_LABEL) as EquipmentCategory[]).map(category => (
+                <option key={category} value={category}>{EQUIPMENT_CATEGORY_LABEL[category]}</option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <input
+                value={item.name}
+                onChange={e => updateItem(index, { name: e.target.value })}
+                className="dc-input text-sm py-1.5 flex-1"
+                placeholder="器具名称"
+              />
+              <button
+                type="button"
+                onClick={() => setItems(cur => cur.filter((_, i) => i !== index))}
+                className="btn-secondary text-sm px-3 py-1.5"
+              >
+                移除
+              </button>
+            </div>
+            <div className="hidden sm:block" />
+            <input
+              value={item.notes ?? ''}
+              onChange={e => updateItem(index, { notes: e.target.value })}
+              className="dc-input text-sm py-1.5"
+              placeholder="备注，可选"
+            />
+          </div>
+        ))}
+      </div>
+      {error && (
+        <div className="px-4 py-2 bg-red-50 border-t border-red-100 text-xs text-dc-red">{error}</div>
+      )}
+      <div className="px-4 py-3 border-t border-dc-border flex gap-2">
+        <button
+          onClick={confirm}
+          disabled={saving || items.every(item => !item.name.trim())}
           className="btn-primary text-sm py-2 flex-1 disabled:opacity-50"
         >
           {saving ? '保存中…' : '确认保存'}
@@ -916,6 +1135,9 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                           onPatch={(patch) => patchResultOutput(i, j, patch)}
                         />
                       )
+                    }
+                    if (r.type === 'equipment_capture' && r.output?.items) {
+                      return <ChatEquipmentDraft key={j} result={r} onPatch={(patch) => patchResultOutput(i, j, patch)} />
                     }
                     return <ActionResultCard key={j} result={r} replyText={m.text} />
                   })}

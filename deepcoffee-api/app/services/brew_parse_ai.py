@@ -16,8 +16,9 @@ from app.services.model_json import chat_json, whitelist_keys
 logger = logging.getLogger(__name__)
 
 _BREW_KEYS = [
-    "bean_name", "origin", "roaster", "process", "varietal", "device", "grinder",
-    "grind_setting", "dose_g", "water_ml", "water_temp_c", "brew_time_seconds", "evaluation", "notes",
+    "bean_name", "origin", "roaster", "process", "varietal", "brew_method", "device", "grinder",
+    "grind_setting", "filter_media", "water", "dose_g", "water_ml", "water_temp_c", "brew_time_seconds",
+    "evaluation", "notes",
 ]
 
 

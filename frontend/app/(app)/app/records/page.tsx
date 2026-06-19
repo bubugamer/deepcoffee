@@ -33,8 +33,11 @@ function matchesQuery(record: BrewRecord, query: string) {
     record.origin,
     record.roaster,
     record.varietal,
+    record.brew_method,
     record.device,
     record.grinder,
+    record.filter_media,
+    record.water,
     record.notes,
     record.raw_input,
   ].filter(Boolean).join(' ').toLowerCase().includes(needle)
@@ -180,7 +183,7 @@ export default function RecordsPage() {
               r.ratio,
             ].filter(Boolean).join(' / ')
 
-            const meta = [date, r.origin, r.grinder, r.device].filter(Boolean).join(' · ')
+            const meta = [date, r.origin, r.brew_method, r.grinder, r.device, r.filter_media].filter(Boolean).join(' · ')
 
             return (
               <Link

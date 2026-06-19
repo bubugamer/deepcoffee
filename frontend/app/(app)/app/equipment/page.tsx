@@ -1,27 +1,26 @@
 'use client'
-// 我的器具：查看 / 新增 / 编辑 / 删除器具组合。
-// 数据有两个来源：对话中 AI 推荐参数闭环自动保存，以及这里的手动维护。
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Pencil, Trash2, Coffee, Star } from 'lucide-react'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Coffee, Loader2, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import {
-  listEquipment, createEquipment, updateEquipment, deleteEquipment, setDefaultEquipment,
-  type EquipmentProfile, type EquipmentInput,
+  createEquipment,
+  deleteEquipment,
+  listEquipment,
+  setDefaultEquipment,
+  updateEquipment,
+  type EquipmentCategory,
+  type EquipmentInput,
+  type EquipmentProfile,
 } from '@/lib/api/equipment'
 
-// 表单只编辑文本字段；is_default 用列表上的「设为默认」按钮维护。
-type EquipmentTextField = Exclude<keyof EquipmentInput, 'is_default'>
+const CATEGORY_META: Record<EquipmentCategory, { label: string; placeholder: string }> = {
+  brewer: { label: '冲煮器具', placeholder: '如：V60 01 / 法压壶 / 爱乐压' },
+  grinder: { label: '磨豆机', placeholder: '如：ZP6S / Comandante C40' },
+  filter_media: { label: '过滤介质', placeholder: '如：纸滤 / 金属滤网' },
+  water: { label: '用水', placeholder: '如：农夫山泉 / 自配水' },
+}
 
-// 冲煮方式是下拉枚举，默认「滤杯冲煮」；滤杯（V60 等）是单独的自由文本字段。
-const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
-const DEFAULT_BREW_METHOD = '滤杯冲煮'
-
-// 除「冲煮方式」（下拉）外的文本字段，按表单展示顺序排列。
-const TEXT_FIELDS: { key: EquipmentTextField; label: string; placeholder: string }[] = [
-  { key: 'dripper',      label: '滤杯',      placeholder: '如：V60 / Origami / Kalita' },
-  { key: 'grinder',      label: '磨豆机',    placeholder: '如：Comandante C40' },
-  { key: 'filter_media', label: '过滤介质',  placeholder: '如：纸滤 / 金属滤网' },
-  { key: 'water',        label: '用水',      placeholder: '如：农夫山泉 / 自配水' },
-]
+const CATEGORIES = Object.keys(CATEGORY_META) as EquipmentCategory[]
 
 function EquipmentForm({
   initial, saving, onSubmit, onCancel,
@@ -31,59 +30,55 @@ function EquipmentForm({
   onSubmit: (values: EquipmentInput) => void
   onCancel: () => void
 }) {
-  const [values, setValues] = useState<EquipmentInput>({ brew_method: DEFAULT_BREW_METHOD, ...initial })
-  // 冲煮方式自带默认值，判定「是否填了内容」时忽略它，避免空表单也能保存。
-  const hasContent = [values.label, values.dripper, values.grinder, values.filter_media, values.water]
-    .some(v => v?.trim())
+  const [values, setValues] = useState<EquipmentInput>({ category: 'brewer', ...initial })
+  const category = values.category ?? 'brewer'
+  const hasName = !!values.name?.trim()
+
   return (
     <form
-      onSubmit={e => { e.preventDefault(); if (hasContent) onSubmit(values) }}
-      className="space-y-3"
+      onSubmit={e => { e.preventDefault(); if (hasName) onSubmit(values) }}
+      className="grid md:grid-cols-[160px_1fr_1fr_auto] gap-3 items-end"
     >
-      <div className="grid sm:grid-cols-2 gap-3">
-        <label className="block">
-          <span className="text-xs text-dc-text-3 mb-1 block">名称备注</span>
-          <input
-            className="dc-input text-sm"
-            value={values.label ?? ''}
-            placeholder="如：日常手冲一套"
-            maxLength={120}
-            onChange={e => setValues(cur => ({ ...cur, label: e.target.value }))}
-          />
-        </label>
-        <label className="block">
-          <span className="text-xs text-dc-text-3 mb-1 block">冲煮方式</span>
-          <select
-            className="dc-input text-sm"
-            value={values.brew_method || DEFAULT_BREW_METHOD}
-            onChange={e => setValues(cur => ({ ...cur, brew_method: e.target.value }))}
-          >
-            {BREW_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </label>
-        {TEXT_FIELDS.map(({ key, label, placeholder }) => (
-          <label key={key} className="block">
-            <span className="text-xs text-dc-text-3 mb-1 block">{label}</span>
-            <input
-              className="dc-input text-sm"
-              value={values[key] ?? ''}
-              placeholder={placeholder}
-              maxLength={120}
-              onChange={e => setValues(cur => ({ ...cur, [key]: e.target.value }))}
-            />
-          </label>
-        ))}
-      </div>
+      <label className="block">
+        <span className="text-xs text-dc-text-3 mb-1 block">类别</span>
+        <select
+          className="dc-input text-sm"
+          value={category}
+          onChange={e => setValues(cur => ({ ...cur, category: e.target.value as EquipmentCategory }))}
+        >
+          {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_META[c].label}</option>)}
+        </select>
+      </label>
+      <label className="block">
+        <span className="text-xs text-dc-text-3 mb-1 block">名称</span>
+        <input
+          className="dc-input text-sm"
+          value={values.name ?? ''}
+          placeholder={CATEGORY_META[category].placeholder}
+          maxLength={120}
+          onChange={e => setValues(cur => ({ ...cur, name: e.target.value }))}
+        />
+      </label>
+      <label className="block">
+        <span className="text-xs text-dc-text-3 mb-1 block">备注</span>
+        <input
+          className="dc-input text-sm"
+          value={values.notes ?? ''}
+          placeholder="可选"
+          maxLength={500}
+          onChange={e => setValues(cur => ({ ...cur, notes: e.target.value }))}
+        />
+      </label>
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={saving || !hasContent}
-          className="btn-primary text-sm py-2 px-5 disabled:opacity-50 flex items-center gap-2"
+          disabled={saving || !hasName}
+          className="btn-primary text-sm py-2 px-4 disabled:opacity-50 flex items-center gap-1.5"
         >
           {saving && <Loader2 size={13} className="animate-spin" />}
           保存
         </button>
-        <button type="button" onClick={onCancel} className="text-sm py-2 px-4 text-dc-text-3 hover:text-dc-text-1">
+        <button type="button" onClick={onCancel} className="text-sm py-2 px-3 text-dc-text-3 hover:text-dc-text-1">
           取消
         </button>
       </div>
@@ -104,6 +99,12 @@ export default function EquipmentPage() {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+
+  const grouped = useMemo(() => {
+    const byCategory = Object.fromEntries(CATEGORIES.map(c => [c, [] as EquipmentProfile[]])) as Record<EquipmentCategory, EquipmentProfile[]>
+    for (const item of items ?? []) byCategory[item.category].push(item)
+    return byCategory
+  }, [items])
 
   async function handleCreate(values: EquipmentInput) {
     setSaving(true)
@@ -141,8 +142,7 @@ export default function EquipmentPage() {
   }
 
   async function handleDelete(item: EquipmentProfile) {
-    const name = item.label || item.dripper || item.brew_method || '这套器具'
-    if (!window.confirm(`删除「${name}」？`)) return
+    if (!window.confirm(`删除「${item.name}」？`)) return
     try {
       await deleteEquipment(item.id)
       refresh()
@@ -163,7 +163,7 @@ export default function EquipmentPage() {
       </div>
 
       <p className="text-sm text-dc-text-3 mb-6 leading-relaxed">
-        在对话里向 Coffea 描述器具（比如请它推荐冲煮参数）时，识别到的器具会自动保存到这里；也可以手动添加和修改。
+        器具按单件保存。Coffea 生成建议时会优先使用每个类别的默认项。
       </p>
 
       {error && <div className="text-sm text-dc-red mb-4">{error}</div>}
@@ -185,64 +185,59 @@ export default function EquipmentPage() {
         <div className="dc-card px-6 py-12 text-center">
           <Coffee size={28} className="text-dc-text-3 mx-auto mb-3" />
           <p className="text-sm text-dc-text-2 mb-1">还没有保存的器具</p>
-          <p className="text-xs text-dc-text-3">点右上角「添加器具」，或在对话里让 Coffea 推荐冲煮参数时自动记录。</p>
+          <p className="text-xs text-dc-text-3">点右上角「添加器具」，或在对话里让 Coffea 识别后确认保存。</p>
         </div>
       )}
 
-      <div className="space-y-3">
-        {items?.map(item => (
-          <div key={item.id} className="dc-card p-5">
-            {editingId === item.id ? (
-              <EquipmentForm
-                initial={{
-                  label: item.label ?? '',
-                  brew_method: item.brew_method || DEFAULT_BREW_METHOD,
-                  dripper: item.dripper ?? '',
-                  grinder: item.grinder ?? '',
-                  filter_media: item.filter_media ?? '',
-                  water: item.water ?? '',
-                }}
-                saving={saving}
-                onSubmit={values => handleUpdate(item.id, values)}
-                onCancel={() => setEditingId(null)}
-              />
-            ) : (
-              <div className="flex items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-semibold text-dc-text-1">
-                      {item.label || item.dripper || item.brew_method || '未命名器具'}
-                    </span>
-                    {item.is_default && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-dc-accent/10 text-dc-accent flex items-center gap-1">
-                        <Star size={10} fill="currentColor" /> 默认
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-dc-text-2">
-                    {item.brew_method  && <span><span className="text-dc-text-3 text-xs mr-1.5">冲煮方式</span>{item.brew_method}</span>}
-                    {item.dripper      && <span><span className="text-dc-text-3 text-xs mr-1.5">滤杯</span>{item.dripper}</span>}
-                    {item.grinder      && <span><span className="text-dc-text-3 text-xs mr-1.5">磨豆机</span>{item.grinder}</span>}
-                    {item.filter_media && <span><span className="text-dc-text-3 text-xs mr-1.5">滤材</span>{item.filter_media}</span>}
-                    {item.water        && <span><span className="text-dc-text-3 text-xs mr-1.5">用水</span>{item.water}</span>}
-                  </div>
-                </div>
-                <div className="flex gap-1 flex-shrink-0">
-                  {!item.is_default && (
-                    <button onClick={() => handleSetDefault(item)} className="p-2 text-dc-text-3 hover:text-dc-accent" title="设为默认">
-                      <Star size={14} />
-                    </button>
+      <div className="space-y-6">
+        {CATEGORIES.map(category => (
+          <section key={category}>
+            <h2 className="text-sm font-semibold text-dc-text-1 mb-2">{CATEGORY_META[category].label}</h2>
+            <div className="space-y-3">
+              {grouped[category].length === 0 && items !== null && (
+                <div className="dc-card px-4 py-3 text-sm text-dc-text-3">暂无{CATEGORY_META[category].label}</div>
+              )}
+              {grouped[category].map(item => (
+                <div key={item.id} className="dc-card p-5">
+                  {editingId === item.id ? (
+                    <EquipmentForm
+                      initial={{ category: item.category, name: item.name, notes: item.notes ?? '' }}
+                      saving={saving}
+                      onSubmit={values => handleUpdate(item.id, values)}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  ) : (
+                    <div className="flex items-start gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold text-dc-text-1">{item.name}</span>
+                          {item.is_default && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-dc-accent/10 text-dc-accent flex items-center gap-1">
+                              <Star size={10} fill="currentColor" /> 默认
+                            </span>
+                          )}
+                        </div>
+                        {item.notes && <p className="text-sm text-dc-text-3">{item.notes}</p>}
+                      </div>
+                      <div className="flex gap-1 flex-shrink-0">
+                        {!item.is_default && (
+                          <button onClick={() => handleSetDefault(item)} className="p-2 text-dc-text-3 hover:text-dc-accent" title="设为默认">
+                            <Star size={14} />
+                          </button>
+                        )}
+                        <button onClick={() => { setEditingId(item.id); setAdding(false) }} className="p-2 text-dc-text-3 hover:text-dc-accent" title="编辑">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(item)} className="p-2 text-dc-text-3 hover:text-dc-red" title="删除">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
                   )}
-                  <button onClick={() => { setEditingId(item.id); setAdding(false) }} className="p-2 text-dc-text-3 hover:text-dc-accent" title="编辑">
-                    <Pencil size={14} />
-                  </button>
-                  <button onClick={() => handleDelete(item)} className="p-2 text-dc-text-3 hover:text-dc-red" title="删除">
-                    <Trash2 size={14} />
-                  </button>
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </div>

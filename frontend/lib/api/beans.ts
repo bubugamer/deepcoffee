@@ -300,10 +300,10 @@ export async function recommendParamsTurn(
   if (!body.message?.trim()) {
     return {
       status: 'needs_input',
-      assistant_message: '好的，我来帮你定这支豆子的冲煮参数。你打算用什么器具冲？例如「V60 + Comandante C40」或「爱乐压」。',
+      assistant_message: '好的，我来帮你定这支豆子的冲煮参数。你打算用什么冲煮器具、磨豆机和过滤介质？例如「V60 + Comandante C40 + 纸滤」。',
       session_id: sessionId,
       equipment: {},
-      missing_fields: ['brew_method', 'grinder'],
+      missing_fields: ['dripper', 'grinder', 'filter_media'],
       source: 'local',
       trace_id: 'fallback-recommend-turn',
     }
@@ -313,7 +313,7 @@ export async function recommendParamsTurn(
     status: 'completed',
     assistant_message: '根据你的器具和这支豆子的处理法，我建议下面这组参数，已为你保存到豆卡。',
     session_id: sessionId,
-    equipment: { brew_method: 'V60', grinder: 'Comandante C40' },
+    equipment: { dripper: 'V60', grinder: 'Comandante C40', filter_media: '纸滤' },
     missing_fields: [],
     recommendation: {
       device: base?.device ?? 'V60',

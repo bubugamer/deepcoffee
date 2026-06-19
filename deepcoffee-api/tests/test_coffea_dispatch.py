@@ -118,6 +118,23 @@ def test_local_knowledge() -> None:
     assert plan.primary_intent == "knowledge_answer"
 
 
+def test_local_equipment_capture_when_user_owns_equipment() -> None:
+    plan = local_dispatch(message="我新买了一个法压壶，帮我存一下")
+    assert plan.primary_intent == "equipment_capture"
+    assert plan.actions[0]["type"] == "equipment_capture"
+
+
+def test_local_equipment_question_stays_knowledge() -> None:
+    plan = local_dispatch(message="法压壶怎么用？")
+    assert plan.primary_intent == "knowledge_answer"
+
+
+def test_local_brew_record_hint_routes_to_parse() -> None:
+    plan = local_dispatch(message="这次的冲煮，帮我记录下来")
+    assert plan.primary_intent == "brew_record_parse"
+    assert plan.actions[0]["type"] == "brew_record_parse"
+
+
 def test_local_ask_clarification_default() -> None:
     plan = local_dispatch(message="嗯")
     assert plan.primary_intent == "ask_clarification"
@@ -125,8 +142,8 @@ def test_local_ask_clarification_default() -> None:
 
 
 def test_allowed_intents_match_doc_count() -> None:
-    # 与 §1 提示词「允许的 primary_intent / action.type」对齐（15 项）。
-    assert len(coffea_dispatch.ALLOWED_INTENTS) == 15
+    # 与 §1 提示词「允许的 primary_intent / action.type」对齐（16 项）。
+    assert len(coffea_dispatch.ALLOWED_INTENTS) == 16
     assert coffea_dispatch.INTENT_ONLY <= set(coffea_dispatch.ALLOWED_INTENTS)
 
 

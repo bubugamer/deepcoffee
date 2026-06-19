@@ -1,80 +1,121 @@
-"""用户器具资料读写（bean_recommend_params 多轮闭环用）。
+"""用户单件器具库存读写。
 
-只读写当前用户自己的器具；completed 时按 (brew_method, dripper, grinder, filter_media) 去重保存，
-避免每轮重复建一套。
+业务主表是 user_equipment_items；旧的 user_equipment_profiles 只保留作迁移/回滚观察。
 """
 
 from __future__ import annotations
 
+import re
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.tables import UserEquipmentProfile
+from app.models.tables import UserEquipmentItem
+
+EQUIPMENT_CATEGORIES = ("brewer", "grinder", "filter_media", "water")
 
 
 def _norm(value: str | None) -> str:
-    return (value or "").strip().lower()
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def _clean(value: str | None) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip())
 
 
 class EquipmentRepository:
-    async def list_for_user(self, session: AsyncSession, user_id: str) -> list[UserEquipmentProfile]:
+    async def list_for_user(self, session: AsyncSession, user_id: str) -> list[UserEquipmentItem]:
         result = await session.execute(
-            select(UserEquipmentProfile)
-            .where(UserEquipmentProfile.user_id == user_id)
-            .order_by(UserEquipmentProfile.created_at)
+            select(UserEquipmentItem)
+            .where(UserEquipmentItem.user_id == user_id)
+            .order_by(UserEquipmentItem.category, UserEquipmentItem.is_default.desc(), UserEquipmentItem.created_at)
         )
         return list(result.scalars().all())
+
+    async def list_by_category(
+        self, session: AsyncSession, *, user_id: str, category: str
+    ) -> list[UserEquipmentItem]:
+        result = await session.execute(
+            select(UserEquipmentItem)
+            .where(UserEquipmentItem.user_id == user_id, UserEquipmentItem.category == category)
+            .order_by(UserEquipmentItem.is_default.desc(), UserEquipmentItem.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def get_defaults(self, session: AsyncSession, user_id: str) -> dict[str, UserEquipmentItem]:
+        items = await self.list_for_user(session, user_id)
+        defaults: dict[str, UserEquipmentItem] = {}
+        for item in items:
+            if item.is_default and item.category not in defaults:
+                defaults[item.category] = item
+        return defaults
+
+    async def find_by_name(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        category: str,
+        name: str | None,
+    ) -> UserEquipmentItem | None:
+        normalized = _norm(name)
+        if not normalized:
+            return None
+        result = await session.execute(
+            select(UserEquipmentItem).where(
+                UserEquipmentItem.user_id == user_id,
+                UserEquipmentItem.category == category,
+                UserEquipmentItem.normalized_name == normalized,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def upsert(
         self,
         session: AsyncSession,
         *,
         user_id: str,
-        brew_method: str | None,
-        dripper: str | None = None,
-        grinder: str | None = None,
-        filter_media: str | None = None,
-        water: str | None = None,
-        label: str | None = None,
-    ) -> UserEquipmentProfile:
-        """按 (brew_method, dripper, grinder, filter_media) 去重：命中则更新 water/label，否则新建。"""
-        existing = await self.list_for_user(session, user_id)
-        key = (_norm(brew_method), _norm(dripper), _norm(grinder), _norm(filter_media))
-        for profile in existing:
-            if (
-                _norm(profile.brew_method),
-                _norm(profile.dripper),
-                _norm(profile.grinder),
-                _norm(profile.filter_media),
-            ) == key:
-                if water:
-                    profile.water = water
-                if label:
-                    profile.label = label
-                await session.flush()
-                return profile
-        profile = UserEquipmentProfile(
-            id=f"eq_{uuid4().hex[:16]}",
+        category: str,
+        name: str,
+        notes: str | None = None,
+        is_default: bool | None = None,
+    ) -> UserEquipmentItem:
+        cleaned = _clean(name)
+        existing = await self.find_by_name(session, user_id=user_id, category=category, name=cleaned)
+        if existing:
+            if notes is not None:
+                existing.notes = notes or None
+            if is_default is True:
+                await self.set_default(session, user_id=user_id, equipment_id=existing.id)
+            elif is_default is False:
+                existing.is_default = False
+            await session.flush()
+            return existing
+
+        siblings = await self.list_by_category(session, user_id=user_id, category=category)
+        should_default = is_default if is_default is not None else not siblings
+        item = UserEquipmentItem(
+            id=f"eqi_{uuid4().hex[:16]}",
             user_id=user_id,
-            brew_method=brew_method,
-            dripper=dripper,
-            grinder=grinder,
-            filter_media=filter_media,
-            water=water,
-            label=label,
-            # 用户第一套器具自动设为默认；后续新增不抢默认。
-            is_default=not existing,
+            category=category,
+            name=cleaned,
+            normalized_name=_norm(cleaned),
+            notes=notes or None,
+            is_default=bool(should_default),
         )
-        session.add(profile)
+        session.add(item)
         await session.flush()
-        return profile
+        if item.is_default:
+            await self.set_default(session, user_id=user_id, equipment_id=item.id)
+        return item
 
     async def set_default(self, session: AsyncSession, *, user_id: str, equipment_id: str) -> None:
-        """把指定器具置为默认，其余全部取消（单默认不变量）。"""
-        for profile in await self.list_for_user(session, user_id):
-            profile.is_default = profile.id == equipment_id
+        item = await session.get(UserEquipmentItem, equipment_id)
+        if item is None or item.user_id != user_id:
+            return
+        for sibling in await self.list_by_category(session, user_id=user_id, category=item.category):
+            sibling.is_default = sibling.id == equipment_id
         await session.flush()
 
 

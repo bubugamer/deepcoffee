@@ -122,8 +122,11 @@ export default function RecordDetailPage() {
   const brewTime = record.brew_time ?? (record.brew_time_seconds ? fmtTime(record.brew_time_seconds) : undefined)
 
   const brewParams: [string, string | undefined][] = [
+    ['冲煮方式', record.brew_method ?? undefined],
     ['器具',     record.device],
     ['磨豆机',   record.grinder],
+    ['过滤介质', record.filter_media ?? undefined],
+    ['用水',     record.water ?? undefined],
     ['研磨刻度', record.grind_setting],
     ['豆重',     record.dose_g !== undefined ? `${record.dose_g} g` : undefined],
     ['水量',     record.water_ml !== undefined ? `${record.water_ml} ml` : undefined],
