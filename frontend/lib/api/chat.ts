@@ -103,6 +103,23 @@ export async function getCoffeaSession(token?: string | null): Promise<CoffeaSes
   }
 }
 
+export async function patchCoffeaSessionResult(
+  uiStateId: string,
+  patch: Record<string, unknown>,
+  message?: string,
+  token?: string | null,
+): Promise<{ ok: boolean }> {
+  return apiFetch('/coffea/session/result', {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({
+      ui_state_id: uiStateId,
+      patch,
+      message: message ?? null,
+    }),
+  })
+}
+
 function mockCoffeaResponse(req: CoffeaMessageRequest): CoffeaMessageResponse {
   const text = req.message
   const isKB = text.includes('处理法') || text.includes('知识') || text.includes('区别') || text.endsWith('？') || text.endsWith('?')

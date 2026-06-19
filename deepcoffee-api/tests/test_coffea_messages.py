@@ -429,6 +429,72 @@ def test_record_this_brew_uses_recent_dialog_context() -> None:
     assert draft["water_ml"] == 225
 
 
+def test_session_result_patch_preserves_saved_card_state() -> None:
+    headers = {"Authorization": "Bearer dev:card-state-1:card-state-1@example.com"}
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "今天用 V60 冲了巴拿马瑰夏，15g 粉，225ml，93°C，2:40，ZP6S 5.0 圈，纸滤。"},
+    )
+    assert resp.status_code == 200, resp.text
+    brew = _result(resp.json(), "brew_record_parse")[0]
+    ui_state_id = brew["output"]["ui_state_id"]
+
+    patched = client.patch(
+        "/v1/coffea/session/result",
+        headers=headers,
+        json={
+            "ui_state_id": ui_state_id,
+            "patch": {"saved_record_id": "brew_saved_for_ui", "saved_recap": "已保存这杯。"},
+            "message": "已保存到冲煮记录。",
+        },
+    )
+    assert patched.status_code == 200, patched.text
+
+    hist = client.get("/v1/coffea/session", headers=headers).json()
+    assistant = next(t for t in hist["turns"] if t["role"] == "assistant")
+    saved = next(r for r in assistant["results"] if r.get("output", {}).get("ui_state_id") == ui_state_id)
+    assert saved["output"]["draft"]["device"] == "V60"
+    assert saved["output"]["saved_record_id"] == "brew_saved_for_ui"
+    assert saved["message"] == "已保存到冲煮记录。"
+
+    repeat = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "帮我记录这次冲煮", "session_id": resp.json()["session_id"]},
+    )
+    assert repeat.status_code == 200, repeat.text
+    repeated_brew = _result(repeat.json(), "brew_record_parse")
+    assert repeated_brew
+    assert "已经保存" in repeated_brew[0]["message"]
+    assert not (repeated_brew[0].get("output") or {}).get("draft")
+
+
+def test_equipment_capture_uses_recent_dialog_when_user_only_says_save() -> None:
+    headers = {"Authorization": "Bearer dev:eq-context-save-1:eq-context-save-1@example.com"}
+    client = TestClient(create_app())
+    first = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "我现在用 ZP6S，也常用农夫山泉。"},
+    )
+    assert first.status_code == 200, first.text
+    sid = first.json()["session_id"]
+
+    second = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "要存", "session_id": sid},
+    )
+    assert second.status_code == 200, second.text
+    equipment = _result(second.json(), "equipment_capture")
+    assert equipment
+    items = equipment[0]["output"]["items"]
+    assert {"category": "grinder", "name": "ZP6S"} in items
+    assert {"category": "water", "name": "农夫山泉"} in items
+
+
 def test_equipment_capture_only_when_user_owns_or_saves() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:eq-chat-1:eq-chat-1@example.com"}

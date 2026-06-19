@@ -31,6 +31,8 @@ from app.schemas.coffea import (
     ActionResult,
     CoffeaMessageRequest,
     CoffeaMessageResponse,
+    CoffeaResultPatchRequest,
+    CoffeaResultPatchResponse,
     CoffeaSessionHistory,
     CoffeaSessionState,
     CoffeaSessionTurn,
@@ -45,7 +47,7 @@ from app.services.candidate_service import candidate_service
 from app.services.coffea_executor import (
     assemble_reply,
     ensure_brew_draft_result,
-    ensure_equipment_capture_for_brew,
+    ensure_equipment_capture_result,
     execute_plan,
 )
 from app.services.memory_context import build_memory_context
@@ -59,8 +61,42 @@ router = APIRouter(prefix="/coffea", tags=["coffea"], dependencies=[Depends(requ
 # 每多少轮对话后台抽取一次用户画像（控成本，不每轮都调模型）。
 _EXTRACT_EVERY = 6
 
-# 持久化到历史时，results 只保留展示安全字段；剥离草稿/原图/原始 OCR 等交互态与大字段。
-_SAFE_OUTPUT_KEYS = frozenset({"sources", "bean_id", "auto_saved"})
+# 持久化到历史时，results 保留恢复聊天卡片所需的轻量字段；继续剥离图片 base64 等大字段。
+_DISPLAY_OUTPUT_KEYS = frozenset(
+    {
+        "sources",
+        "bean_id",
+        "auto_saved",
+        "ui_state_id",
+        "draft",
+        "confidence",
+        "low_confidence_fields",
+        "missing_fields",
+        "raw_input",
+        "items",
+        "saved_bean_id",
+        "saved_bean_name",
+        "saved_record_id",
+        "saved_recap",
+        "saved",
+        "saved_count",
+        "dismissed",
+    }
+)
+_PATCH_OUTPUT_KEYS = frozenset(
+    {
+        "saved_bean_id",
+        "saved_bean_name",
+        "saved_record_id",
+        "saved_recap",
+        "saved",
+        "saved_count",
+        "dismissed",
+    }
+)
+_INTERACTIVE_RESULT_TYPES = frozenset({"read_bean_card_image", "brew_record_parse", "equipment_capture"})
+_SAVE_HINTS = ("要存", "保存", "帮我存", "记录这次", "记录这杯", "帮我记录", "存这杯")
+_FORCE_NEW_HINTS = ("仍然新建", "还是新建", "再新建", "再保存", "存一份新的", "新建一条")
 
 
 # 识图建卡后判断用户这句话是否在要冲煮方案/建议。
@@ -107,11 +143,78 @@ def _display_safe_results(results: list[ActionResult]) -> list[dict]:
         item: dict = {"type": r.type, "status": r.status, "message": r.message}
         output = r.output if isinstance(r.output, dict) else None
         if output:
-            kept = {k: v for k, v in output.items() if k in _SAFE_OUTPUT_KEYS}
+            kept = {k: v for k, v in output.items() if k in _DISPLAY_OUTPUT_KEYS}
             if kept:
                 item["output"] = kept
         safe.append(item)
     return safe
+
+
+def _ensure_result_ui_state_ids(results: list[ActionResult]) -> None:
+    """给可交互草稿卡加稳定 ID，保存/忽略时用它写回会话历史。"""
+    for result in results:
+        if result.type not in _INTERACTIVE_RESULT_TYPES or not isinstance(result.output, dict):
+            continue
+        if not (result.output.get("draft") or result.output.get("items")):
+            continue
+        result.output.setdefault("ui_state_id", f"ui_{uuid4().hex[:16]}")
+
+
+def _safe_result_patch(payload: CoffeaResultPatchRequest) -> dict:
+    return {k: v for k, v in payload.patch.items() if k in _PATCH_OUTPUT_KEYS}
+
+
+def _wants_save_again(message: str) -> bool:
+    return any(hint in (message or "") for hint in _SAVE_HINTS)
+
+
+def _forces_new_card(message: str) -> bool:
+    return any(hint in (message or "") for hint in _FORCE_NEW_HINTS)
+
+
+def _recent_saved_card_prompts(recent_messages: list[dict] | None, message: str) -> list[ActionResult]:
+    """用户对刚保存过的聊天卡片重复说要存时，先提示确认，不直接再建草稿。"""
+    if not _wants_save_again(message) or _forces_new_card(message):
+        return []
+    found: set[str] = set()
+    prompts: list[ActionResult] = []
+    for turn in reversed(recent_messages or []):
+        if not isinstance(turn, dict) or turn.get("role") != "assistant":
+            continue
+        for result in reversed(turn.get("results") or []):
+            if not isinstance(result, dict):
+                continue
+            output = result.get("output")
+            if not isinstance(output, dict):
+                continue
+            result_type = result.get("type")
+            if result_type == "brew_record_parse" and output.get("saved_record_id") and result_type not in found:
+                found.add(result_type)
+                prompts.append(ActionResult(
+                    type="brew_record_parse",
+                    status="done",
+                    source="local",
+                    message="这杯上次已经保存到冲煮记录了。若确实要再新建一条，请明确说“仍然新建”。",
+                ))
+            elif result_type == "equipment_capture" and output.get("saved") is True and result_type not in found:
+                found.add(result_type)
+                prompts.append(ActionResult(
+                    type="equipment_capture",
+                    status="done",
+                    source="local",
+                    message="这组器具上次已经保存到「我的器具」了。若确实要再建一份，请明确说“仍然新建”。",
+                ))
+            elif result_type == "read_bean_card_image" and output.get("saved_bean_id") and result_type not in found:
+                found.add(result_type)
+                prompts.append(ActionResult(
+                    type="read_bean_card_image",
+                    status="done",
+                    source="local",
+                    message="这张豆卡上次已经保存到豆仓了。若确实要再新建一张，请明确说“仍然新建”。",
+                ))
+        if prompts:
+            break
+    return prompts
 
 
 def _equipment_dict(e: UserEquipmentItem) -> dict[str, str | bool | None]:
@@ -230,6 +333,8 @@ async def post_message(
     # 记忆注入层：把最近对话（L1）+ 用户画像（L3）汇总成可注入形态，一次构造、分发给调度器与各能力。
     user_memories = await user_memory_repository.list_active(session, user.id)
     mc = build_memory_context(cs, user_memories=user_memories)
+    duplicate_saved_prompts = _recent_saved_card_prompts(cs.recent_messages, payload.message)
+    duplicate_prompt_types = {r.type for r in duplicate_saved_prompts}
 
     plan = await coffea_dispatch.dispatch(
         message=payload.message,
@@ -255,14 +360,32 @@ async def post_message(
         active_context=active_context,
         history=mc.history_messages,
     )
-    await ensure_brew_draft_result(
-        results,
-        message=payload.message,
-        model=settings.model_default_model,
-        history=mc.history_messages,
-        active_recipe=active_context.get("recipe"),
-    )
-    ensure_equipment_capture_for_brew(results, active_context=active_context)
+    if duplicate_saved_prompts:
+        results = [
+            r for r in results
+            if not (
+                r.type in duplicate_prompt_types
+                and isinstance(r.output, dict)
+                and (r.output.get("draft") or r.output.get("items"))
+            )
+        ]
+        results.extend(duplicate_saved_prompts)
+    if "brew_record_parse" not in duplicate_prompt_types:
+        await ensure_brew_draft_result(
+            results,
+            message=payload.message,
+            model=settings.model_default_model,
+            history=mc.history_messages,
+            active_recipe=active_context.get("recipe"),
+        )
+    if "equipment_capture" not in duplicate_prompt_types:
+        await ensure_equipment_capture_result(
+            results,
+            message=payload.message,
+            model=settings.model_default_model,
+            history=mc.history_messages,
+            active_context=active_context,
+        )
 
     trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
 
@@ -273,6 +396,7 @@ async def post_message(
     auto_saved_bean_id = await _autosave_bean_card(
         session, user_id=user.id, results=results, existing_beans=beans, trace_id=trace_id
     )
+    _ensure_result_ui_state_ids(results)
 
     # 落会话：合并状态更新 + 追加本轮用户消息（按预算裁剪）。
     coffea_session_repository.apply_state_updates(cs, plan.state_updates)
@@ -405,6 +529,30 @@ async def get_session_history(
         state=CoffeaSessionState(**(cs.state or {})),
         turns=turns,
     )
+
+
+@router.patch("/session/result", response_model=CoffeaResultPatchResponse)
+async def patch_session_result(
+    payload: CoffeaResultPatchRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CoffeaResultPatchResponse:
+    """保存聊天草稿卡的交互状态：已保存 / 已忽略。"""
+    await profile_repository.get_or_create(session, user.id, user.email)
+    patch = _safe_result_patch(payload)
+    if not patch:
+        raise HTTPException(status_code=400, detail="empty_patch")
+    cs = await coffea_session_repository.get_or_create_user_session(session, user_id=user.id)
+    ok = coffea_session_repository.patch_result_state(
+        cs,
+        ui_state_id=payload.ui_state_id,
+        patch=patch,
+        message=payload.message,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="result_not_found")
+    await session.flush()
+    return CoffeaResultPatchResponse(ok=True)
 
 
 def _memory_item(m) -> UserMemoryItem:

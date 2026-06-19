@@ -187,6 +187,15 @@ export async function confirmBrew(draft: Record<string, unknown>, rawInput?: str
 }
 
 // DELETE /v1/brew/records/:id
-export async function deleteRecord(id: string): Promise<void> {
-  await apiFetch(`/brew/records/${id}`, { method: 'DELETE' })
+export async function updateRecord(id: string, patch: Record<string, unknown>, token?: string | null): Promise<BrewRecord> {
+  return apiFetch(`/brew/records/${id}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(patch),
+  })
+}
+
+// DELETE /v1/brew/records/:id
+export async function deleteRecord(id: string, token?: string | null): Promise<void> {
+  await apiFetch(`/brew/records/${id}`, { method: 'DELETE', token })
 }

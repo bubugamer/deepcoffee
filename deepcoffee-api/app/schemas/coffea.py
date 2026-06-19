@@ -119,6 +119,20 @@ class CoffeaSessionHistory(BaseModel):
     turns: list[CoffeaSessionTurn] = Field(default_factory=list)
 
 
+class CoffeaResultPatchRequest(BaseModel):
+    """PATCH /coffea/session/result：保存聊天卡片的本地交互状态。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ui_state_id: str = Field(min_length=1, max_length=64)
+    patch: dict[str, Any] = Field(default_factory=dict)
+    message: str | None = Field(default=None, max_length=2000)
+
+
+class CoffeaResultPatchResponse(BaseModel):
+    ok: bool
+
+
 class UserMemoryItem(BaseModel):
     """一条用户长期记忆（L3 画像），供「我的口味档案」展示与编辑。"""
 
