@@ -3,11 +3,11 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { ArrowLeft, ClipboardList, Loader2, MessageSquare, Pencil } from 'lucide-react'
-import { getBean, updateBean, setManualRecommendParams, type ManualRecommendParams } from '@/lib/api/beans'
+import { getBean, updateBean, setManualRecommendParams, type BeanUpdateInput, type ManualRecommendParams } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
 import { formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
 import { RecommendParamsChat } from '@/components/RecommendParamsChat'
-import type { Bean, BeanDraft, FlavorAxis } from '@/types'
+import type { Bean, BeanDraft, BrewEvaluation, BrewEvaluationItem, FlavorAxis } from '@/types'
 
 // 默认五维风味模板（与后端 default_flavor 一致），axes 为空时用作展示占位与编辑底板
 const DEFAULT_AXES = ['酸质', '甜感', '醇厚', '余韵', '发酵感']
@@ -22,6 +22,16 @@ const FIELD_DEFS: { draftKey: keyof BeanDraft & string; beanKey: keyof Bean & st
   { draftKey: 'process_name', beanKey: 'process', label: '处理法' },
 ]
 
+const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
+  { key: 'overall', label: '总评' },
+  { key: 'aroma', label: '香气' },
+  { key: 'flavor', label: '风味' },
+  { key: 'aftertaste', label: '余韵' },
+  { key: 'acidity', label: '酸质' },
+  { key: 'body', label: '触感' },
+  { key: 'balance', label: '平衡度' },
+]
+
 interface EditState {
   name: string
   fields: Record<string, string>   // draftKey -> 文本
@@ -29,6 +39,7 @@ interface EditState {
   flavorNotesText: string
   axes: FlavorAxis[]
   scaleMax: number
+  rating: BrewEvaluation | null
   privateNotes: string
   params: Record<string, string>   // device/grinder/grind_setting/dose_g/water_ml/water_temp_c/ratio/time
 }
@@ -47,6 +58,7 @@ function beanToEdit(bean: Bean): EditState {
     flavorNotesText: bean.flavor.notes.join('，'),
     axes,
     scaleMax: bean.flavor.scale_max || 5,
+    rating: bean.rating ?? null,
     privateNotes: bean.private_notes ?? '',
     params: {
       device: p?.device ?? '',
@@ -59,6 +71,18 @@ function beanToEdit(bean: Bean): EditState {
       time: formatBrewSeconds(p?.brew_time_seconds) ?? '',
     },
   }
+}
+
+function setRatingScore(rating: BrewEvaluation | null, key: keyof BrewEvaluation, score: number | null): BrewEvaluation | null {
+  const next: BrewEvaluation = { ...(rating ?? {}) }
+  const current = next[key] as BrewEvaluationItem | undefined
+  if (score == null) {
+    if (current?.description) next[key] = { description: current.description }
+    else delete next[key]
+  } else {
+    next[key] = { ...(current ?? {}), score }
+  }
+  return Object.keys(next).length > 0 ? next : null
 }
 
 // 时间输入：支持 "2:30" 或纯秒 "150"
@@ -200,6 +224,9 @@ export default function BeanDetailPage() {
           axes: edit.axes,
         }
       }
+      if (JSON.stringify(edit.rating) !== JSON.stringify(initial.rating)) {
+        patch.rating = edit.rating
+      }
 
       const paramsDirty = JSON.stringify(edit.params) !== JSON.stringify(initial.params)
       const paramValues: ManualRecommendParams = {
@@ -215,7 +242,7 @@ export default function BeanDetailPage() {
       const hasParamValue = Object.values(paramValues).some(v => v !== undefined)
 
       if (Object.keys(patch).length > 0) {
-        await updateBean(bean.bean_id, patch as Partial<BeanDraft>, token)
+        await updateBean(bean.bean_id, patch as BeanUpdateInput, token)
       }
       if (paramsDirty && hasParamValue) {
         await setManualRecommendParams(bean.bean_id, paramValues, token)
@@ -275,6 +302,7 @@ export default function BeanDetailPage() {
   }
 
   const paramRows = recommendedParamRows(bean.recommended_params)
+  const beanScore = bean.rating?.overall?.score ?? bean.avg_score
   const viewAxes: FlavorAxis[] = bean.flavor.axes.length > 0
     ? bean.flavor.axes
     : DEFAULT_AXES.map(label => ({ label, value: null }))
@@ -332,10 +360,10 @@ export default function BeanDetailPage() {
                 <Pencil size={13} />
                 编辑
               </button>
-              {bean.avg_score !== null && bean.avg_score !== undefined && (
+              {beanScore !== null && beanScore !== undefined && (
                 <div className="w-14 h-14 rounded-full bg-dc-accent-light flex items-center justify-center flex-shrink-0">
                   <div className="text-center">
-                    <span className="text-xl font-extrabold text-dc-accent">{bean.avg_score}</span>
+                    <span className="text-xl font-extrabold text-dc-accent">{beanScore}</span>
                     <span className="text-xs text-dc-text-3 block leading-none">/5</span>
                   </div>
                 </div>
@@ -422,6 +450,34 @@ export default function BeanDetailPage() {
               ))}
             </div>
             {editing && <p className="mt-2 text-[11px] text-dc-text-3">点击圆点打分，点当前分值可清除。</p>}
+          </div>
+
+          {/* 豆子评分：属于豆卡，所有同豆冲煮记录共用 */}
+          <div className="dc-card p-5">
+            <h2 className="section-title mb-2">评分</h2>
+            <p className="text-xs text-dc-text-3 mb-4">这是豆子的评分，会同步显示到这款豆子的所有冲煮记录。</p>
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
+              {RATING_FIELDS.map(({ key, label }) => {
+                const item = (editing && edit ? edit.rating : bean.rating)?.[key]
+                return (
+                  <div key={key} className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-dc-text-2">{label}</span>
+                    <div className="flex items-center gap-2">
+                      <Dots
+                        value={item?.score}
+                        max={5}
+                        onSelect={editing && edit
+                          ? (value) => setEdit({ ...edit, rating: setRatingScore(edit.rating, key, value) })
+                          : undefined}
+                      />
+                      {item?.score !== undefined && (
+                        <span className="text-xs font-semibold text-dc-accent w-7 text-right">{item.score}/5</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           {/* 私有备注：常驻 */}

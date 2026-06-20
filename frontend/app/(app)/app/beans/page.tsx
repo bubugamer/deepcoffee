@@ -158,6 +158,7 @@ function BeanCard({ bean, onNoParams }: { bean: Bean; onNoParams: () => void }) 
   const axes = flavor?.axes ?? []
   const paramRows = recommendedParamRows(bean.recommended_params)
   const varietal = bean.varietal.length ? bean.varietal.join(' / ') : undefined
+  const beanScore = bean.rating?.overall?.score ?? bean.avg_score
 
   return (
     <div
@@ -221,10 +222,10 @@ function BeanCard({ bean, onNoParams }: { bean: Bean; onNoParams: () => void }) 
                 </span>
               )}
             </div>
-            {bean.avg_score !== null && bean.avg_score !== undefined && (
+            {beanScore !== null && beanScore !== undefined && (
               <div className="text-right flex-shrink-0">
                 <div className="text-3xl font-black leading-none" style={{ color: theme.accent }}>
-                  {bean.avg_score}
+                  {beanScore}
                 </div>
                 <div className="text-xs mt-0.5" style={{ color: theme.textSub }}>/5</div>
               </div>
@@ -337,7 +338,8 @@ export default function BeansPage() {
   const beans = useMemo(() => {
     const q = query.trim().toLowerCase()
     return allBeans.filter((bean) => {
-      if (minScore > 0 && (bean.avg_score == null || bean.avg_score < minScore)) return false
+      const beanScore = bean.rating?.overall?.score ?? bean.avg_score
+      if (minScore > 0 && (beanScore == null || beanScore < minScore)) return false
       if (!q) return true
       const haystack = [
         bean.name,

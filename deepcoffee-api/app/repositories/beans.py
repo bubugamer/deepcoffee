@@ -35,10 +35,10 @@ def _record_to_params(row: BrewRecordORM) -> BeanRecommendedParams:
     )
 
 
-def _overall_score(evaluation: dict | None) -> int | None:
-    if not isinstance(evaluation, dict):
+def _overall_score(rating: dict | None) -> int | None:
+    if not isinstance(rating, dict):
         return None
-    overall = evaluation.get("overall")
+    overall = rating.get("overall")
     if isinstance(overall, dict):
         score = overall.get("score")
         if isinstance(score, (int, float)):
@@ -116,29 +116,23 @@ class BeanRepository:
         )
         return {row[0]: row[1] for row in rows.all()}
 
-    # ---- 统计：用户可见的「user」冲煮记录聚合到豆子（均分 / 条数）。----
+    # ---- 统计：用户可见的「user」冲煮记录数量。----
     async def _stats(self, session: AsyncSession, bean_ids: list[str]) -> dict[str, tuple[float | None, int]]:
         if not bean_ids:
             return {}
         result = await session.execute(
-            select(BrewRecordORM.bean_card_id, BrewRecordORM.evaluation).where(
+            select(BrewRecordORM.bean_card_id).where(
                 BrewRecordORM.bean_card_id.in_(bean_ids),
                 BrewRecordORM.record_type == "user",
                 BrewRecordORM.is_user_visible.is_(True),
             )
         )
-        scores: dict[str, list[int]] = {bid: [] for bid in bean_ids}
         counts: dict[str, int] = {bid: 0 for bid in bean_ids}
-        for bean_id, evaluation in result.all():
+        for bean_id in result.scalars().all():
             counts[bean_id] = counts.get(bean_id, 0) + 1
-            score = _overall_score(evaluation)
-            if score is not None:
-                scores.setdefault(bean_id, []).append(score)
         stats: dict[str, tuple[float | None, int]] = {}
         for bid in bean_ids:
-            bucket = scores.get(bid) or []
-            avg = round(sum(bucket) / len(bucket), 2) if bucket else None
-            stats[bid] = (avg, counts.get(bid, 0))
+            stats[bid] = (None, counts.get(bid, 0))
         return stats
 
     async def _recommended_params(
@@ -158,7 +152,9 @@ class BeanRepository:
         rec_params: BeanRecommendedParams | None,
         roaster_canonical: str | None = None,
     ) -> Bean:
-        avg_score, record_count = stats
+        _, record_count = stats
+        rating = card.rating
+        score = _overall_score(rating)
         return Bean(
             bean_id=card.id,
             name=card.name,
@@ -173,10 +169,11 @@ class BeanRepository:
             process=card.process_name,
             varietal=list(card.varietal_names or []),
             flavor=BeanFlavor.model_validate(card.flavor or default_flavor().model_dump()),
+            rating=rating,
             private_notes=card.private_notes,
             recommended_record_id=card.recommended_record_id,
             recommended_params=rec_params,
-            avg_score=avg_score,
+            avg_score=score,
             record_count=record_count,
             created_at=card.created_at,
             updated_at=card.updated_at,
@@ -248,6 +245,8 @@ class BeanRepository:
         updates = payload.model_dump(exclude_unset=True)
         if "flavor" in updates and payload.flavor is not None:
             updates["flavor"] = payload.flavor.model_dump()
+        if "rating" in updates and payload.rating is not None:
+            updates["rating"] = payload.rating.model_dump()
         if "varietal_names" in updates and payload.varietal_names is not None:
             updates["varietal_names"] = list(payload.varietal_names)
         for key, value in updates.items():

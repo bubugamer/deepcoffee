@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Filter, X } from 'lucide-react'
+import { MessageSquare, PenLine, Search, Filter, X } from 'lucide-react'
 import { getRecords } from '@/lib/api/records'
 import { getToken } from '@/lib/auth'
 import type { BrewRecord } from '@/types'
@@ -61,6 +61,7 @@ export default function RecordsPage() {
   const [range, setRange] = useState<'all' | 'month'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showCreateChoice, setShowCreateChoice] = useState(false)
 
   useEffect(() => {
     setBean(new URLSearchParams(window.location.search).get('bean'))
@@ -98,9 +99,9 @@ export default function RecordsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-dc-text-1">冲煮记录</h1>
-        <Link href="/app/chat?new=1" className="btn-primary text-sm flex items-center gap-1.5">
+        <button onClick={() => setShowCreateChoice(true)} className="btn-primary text-sm flex items-center gap-1.5">
           + 新建记录
-        </Link>
+        </button>
       </div>
 
       {/* Stats — single line */}
@@ -162,12 +163,11 @@ export default function RecordsPage() {
       )}
 
       {/* Table header (desktop) */}
-      <div className="hidden md:grid grid-cols-[minmax(0,1fr)_120px_150px_90px_80px] gap-3 px-4 py-2 text-xs text-dc-text-3 border-b border-dc-border mb-1">
+      <div className="hidden md:grid grid-cols-[minmax(0,1fr)_170px_90px_90px] gap-3 px-4 py-2 text-xs text-dc-text-3 border-b border-dc-border mb-1">
         <span>豆子</span>
-        <span>器具</span>
         <span>参数</span>
         <span>水温</span>
-        <span>评分</span>
+        <span>冲煮评分</span>
       </div>
 
       {/* Records */}
@@ -185,14 +185,13 @@ export default function RecordsPage() {
       ) : (
         <div className="space-y-1.5">
           {records.map(r => {
-            const score = r.evaluation?.overall?.score
+            const score = r.brew_score ?? undefined
             const date = r.created_at.slice(0, 10)
             const params = [
               r.dose_g !== undefined ? `${r.dose_g}g` : null,
               r.water_ml !== undefined ? `${r.water_ml}ml` : null,
               r.ratio,
             ].filter(Boolean).join(' / ')
-
             const device = displayDevice(r)
             const meta = [date, r.origin, r.brew_method, r.grinder, device, r.filter_media].filter(Boolean).join(' · ')
 
@@ -202,14 +201,11 @@ export default function RecordsPage() {
                 href={`/app/records/${r.id}`}
                 className="dc-card block px-4 py-3.5 hover:border-dc-accent-hi transition-colors"
               >
-                <div className="flex items-center gap-3 md:grid md:grid-cols-[minmax(0,1fr)_120px_150px_90px_80px] md:gap-3 md:items-center">
+                <div className="flex items-center gap-3 md:grid md:grid-cols-[minmax(0,1fr)_170px_90px_90px] md:gap-3 md:items-center">
                   <div className="flex-1 min-w-0 md:flex-none">
                     <div className="text-sm font-medium text-dc-text-1 truncate">{r.bean_name ?? '未命名'}</div>
                     <div className="text-xs text-dc-text-3 mt-0.5 truncate">{meta}</div>
                   </div>
-                  <span className={`hidden md:block text-center ${device ? 'dc-tag' : 'text-xs text-dc-text-3'}`}>
-                    {device ?? '未填写'}
-                  </span>
                   <span className="hidden md:block text-xs text-dc-text-2">{params}</span>
                   <span className="hidden md:block text-xs text-dc-text-2">{r.water_temp_c !== undefined ? `${r.water_temp_c}°C` : ''}</span>
                   <span className="hidden md:block text-xs text-dc-text-2 text-center">
@@ -220,6 +216,42 @@ export default function RecordsPage() {
               </Link>
             )
           })}
+        </div>
+      )}
+
+      {showCreateChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setShowCreateChoice(false)}>
+          <div className="dc-card w-full max-w-sm p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-dc-text-1">新建冲煮记录</h2>
+                <p className="text-xs text-dc-text-3 mt-1">选择一种录入方式</p>
+              </div>
+              <button onClick={() => setShowCreateChoice(false)} className="p-1 text-dc-text-3 hover:text-dc-text-1">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <Link href="/app/chat?new=1" className="dc-card p-3 flex items-center gap-3 hover:border-dc-accent-hi transition-colors">
+                <span className="w-9 h-9 rounded-full bg-dc-accent flex items-center justify-center text-white">
+                  <MessageSquare size={16} />
+                </span>
+                <span>
+                  <span className="block text-sm font-medium text-dc-text-1">通过 AI 对话新增</span>
+                  <span className="block text-xs text-dc-text-3">描述冲煮，让 Coffea 整理草稿</span>
+                </span>
+              </Link>
+              <Link href="/app/records/new" className="dc-card p-3 flex items-center gap-3 hover:border-dc-accent-hi transition-colors">
+                <span className="w-9 h-9 rounded-full bg-dc-accent-light flex items-center justify-center text-dc-accent">
+                  <PenLine size={16} />
+                </span>
+                <span>
+                  <span className="block text-sm font-medium text-dc-text-1">通过表单直接新增</span>
+                  <span className="block text-xs text-dc-text-3">不消耗 AI 次数，手动填写参数</span>
+                </span>
+              </Link>
+            </div>
+          </div>
         </div>
       )}
     </div>

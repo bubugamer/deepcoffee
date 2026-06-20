@@ -131,7 +131,7 @@ export default function DashboardPage() {
         ) : (
           <div className="space-y-3">
             {recentBrews.map(b => {
-              const score = b.evaluation?.overall?.score
+              const score = b.brew_score ?? undefined
               const date = b.created_at.slice(0, 10)
               return (
                 <Link

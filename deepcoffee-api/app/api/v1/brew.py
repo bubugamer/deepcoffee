@@ -10,13 +10,17 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
+from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
+from app.repositories.equipment import equipment_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
 from app.schemas.brew import (
     BrewComparisonItem,
     BrewConfirmRequest,
     BrewConfirmResponse,
+    BrewDraft,
+    BrewRecordCreateRequest,
     BrewDeleteResponse,
     BrewParseRequest,
     BrewParseResponse,
@@ -24,14 +28,53 @@ from app.schemas.brew import (
     BrewRecordListResponse,
     BrewRecordUpdateRequest,
 )
+from app.schemas.bean import Bean, BeanUpdateRequest
 from app.services.brew_parse_ai import parse_brew_with_model
 from app.services.brew_recap_ai import recap_with_model
-from app.services.brew_validation import validate_confirm_draft
+from app.services.brew_validation import complete_brew_parameters, validate_confirm_draft
 from app.services.input_parser import assess_brew_draft, parse_brew_input
 from app.services.langfuse_client import langfuse_tracer
 from app.services.recap_service import build_local_recap
 
 router = APIRouter(prefix="/brew", tags=["brew"], dependencies=[Depends(require_member)])
+
+
+async def _upsert_record_equipment(session: AsyncSession, *, user_id: str, record: BrewRecordCreateRequest | BrewRecordUpdateRequest) -> None:
+    mapping = [
+        ("brewer", getattr(record, "device", None)),
+        ("grinder", getattr(record, "grinder", None)),
+        ("filter_media", getattr(record, "filter_media", None)),
+        ("water", getattr(record, "water", None)),
+    ]
+    for category, name in mapping:
+        if isinstance(name, str) and name.strip():
+            await equipment_repository.upsert(session, user_id=user_id, category=category, name=name.strip())
+
+
+def _draft_from_manual(bean: Bean, payload: BrewRecordCreateRequest) -> BrewDraft:
+    draft = BrewDraft(
+        bean_name=bean.name,
+        origin=bean.origin,
+        roaster=bean.roaster,
+        process=bean.process,
+        varietal="、".join(bean.varietal) or None,
+        brew_method=payload.brew_method,
+        device=payload.device,
+        grinder=payload.grinder,
+        grind_setting=payload.grind_setting,
+        filter_media=payload.filter_media,
+        water=payload.water,
+        dose_g=payload.dose_g,
+        water_ml=payload.water_ml,
+        water_temp_c=payload.water_temp_c,
+        brew_time=payload.brew_time,
+        brew_time_seconds=payload.brew_time_seconds,
+        brew_steps=payload.brew_steps,
+        notes=payload.notes,
+    )
+    if draft.dose_g is not None and draft.water_ml is not None:
+        return complete_brew_parameters(draft)
+    return draft
 
 
 @router.post("/parse", response_model=BrewParseResponse, dependencies=[Depends(require_ai_quota)])
@@ -100,6 +143,13 @@ async def confirm_brew(
         trace_id=trace_id,
         bean_card_id=payload.bean_card_id,
     )
+    if payload.bean_card_id and draft.evaluation:
+        await bean_repository.update(
+            session,
+            user_id=user.id,
+            bean_id=payload.bean_card_id,
+            payload=BeanUpdateRequest(rating=draft.evaluation),
+        )
     langfuse_tracer.trace(
         "brew_recap",
         trace_id=trace_id,
@@ -115,6 +165,40 @@ async def confirm_brew(
         source=source,
         trace_id=trace_id,
     )
+
+
+@router.post("/records", response_model=BrewRecord)
+async def create_brew_record(
+    payload: BrewRecordCreateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> BrewRecord:
+    bean = await bean_repository.get(session, user_id=user.id, bean_id=payload.bean_card_id)
+    if bean is None:
+        raise AppError(404, "bean_not_found", "Bean not found.")
+    await profile_repository.get_or_create(session, user.id, user.email)
+    await _upsert_record_equipment(session, user_id=user.id, record=payload)
+    if payload.bean_rating is not None:
+        await bean_repository.update(
+            session,
+            user_id=user.id,
+            bean_id=payload.bean_card_id,
+            payload=BeanUpdateRequest(rating=payload.bean_rating),
+        )
+    draft = _draft_from_manual(bean, payload)
+    record = await brew_record_repository.create(
+        session,
+        user_id=user.id,
+        draft=draft,
+        source_type="manual",
+        raw_input=None,
+        recap=None,
+        suggestions=[],
+        trace_id=f"brew_manual_{uuid4().hex[:12]}",
+        bean_card_id=payload.bean_card_id,
+        brew_score=payload.brew_score,
+    )
+    return await brew_record_repository.get(session, user_id=user.id, record_id=record.id) or record
 
 
 @router.get("/records", response_model=BrewRecordListResponse)
@@ -169,9 +253,8 @@ async def compare_brew_records(
             ratio_value=record.ratio_value,
             water_temp_c=record.water_temp_c,
             brew_time_seconds=record.brew_time_seconds,
-            overall_score=record.evaluation.overall.score
-            if record.evaluation and record.evaluation.overall
-            else None,
+            brew_score=record.brew_score,
+            overall_score=record.brew_score,
             active=record.id == active_id,
         )
         for record in records
@@ -197,6 +280,18 @@ async def update_brew_record(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> BrewRecord:
+    current = await brew_record_repository.get(session, user_id=user.id, record_id=record_id)
+    if not current:
+        raise AppError(404, "brew_record_not_found", "Brew record not found.")
+    if payload.bean_card_id and current.bean_card_id and payload.bean_card_id != current.bean_card_id:
+        raise AppError(422, "bean_card_locked", "Bean card cannot be changed after a brew record is linked.")
+    if "bean_rating" in payload.model_fields_set and not (current.bean_card_id or payload.bean_card_id):
+        raise AppError(422, "bean_card_required", "Link a bean card before editing bean rating.")
+    if payload.bean_card_id:
+        bean = await bean_repository.get(session, user_id=user.id, bean_id=payload.bean_card_id)
+        if bean is None:
+            raise AppError(404, "bean_not_found", "Bean not found.")
+    await _upsert_record_equipment(session, user_id=user.id, record=payload)
     record = await brew_record_repository.update(session, user_id=user.id, record_id=record_id, payload=payload)
     if not record:
         raise AppError(404, "brew_record_not_found", "Brew record not found.")

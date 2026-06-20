@@ -299,6 +299,7 @@ class UserBeanCard(Base):
     )
 
     flavor: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    rating: Mapped[dict | None] = mapped_column(JSONB)
     private_notes: Mapped[str | None] = mapped_column(Text)
     recommended_record_id: Mapped[str | None] = mapped_column(String)
     trace_id: Mapped[str | None] = mapped_column(String)
@@ -353,6 +354,7 @@ class BrewRecord(Base):
 
     brew_steps: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
     evaluation: Mapped[dict | None] = mapped_column(JSONB)
+    brew_score: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
     recap: Mapped[str | None] = mapped_column(Text)
     suggestions: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
