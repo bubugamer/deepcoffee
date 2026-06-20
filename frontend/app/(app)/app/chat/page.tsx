@@ -901,6 +901,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
   const [messages, setMessages] = useState<ChatTurn[]>([])
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<string[]>([])
+  const [preparingImages, setPreparingImages] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)  // 点击放大查看的聊天图片
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -963,14 +964,19 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
-    const urls = await Promise.all(Array.from(files).map(f => compressImage(f)))
-    setPendingImages(cur => [...cur, ...urls])
-    if (fileRef.current) fileRef.current.value = ''
+    setPreparingImages(true)
+    try {
+      const urls = await Promise.all(Array.from(files).map(f => compressImage(f)))
+      setPendingImages(cur => [...cur, ...urls])
+    } finally {
+      setPreparingImages(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
   }
 
   async function send(text?: string) {
     const t = (text ?? input).trim()
-    if ((!t && pendingImages.length === 0) || sending) return
+    if ((!t && pendingImages.length === 0) || sending || preparingImages) return
     const images = pendingImages
     const attachments: CoffeaAttachment[] = images.map(d => ({
       type: 'image',
@@ -1223,7 +1229,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
 
       {/* Input bar */}
       <div className="px-4 sm:px-6 py-4 border-t border-dc-border bg-dc-bg">
-        {pendingImages.length > 0 && (
+        {(pendingImages.length > 0 || preparingImages) && (
           <div className="flex flex-wrap gap-2 mb-3">
             {pendingImages.map((src, i) => (
               <div key={i} className="relative">
@@ -1236,13 +1242,18 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                 </button>
               </div>
             ))}
+            {preparingImages && (
+              <div className="h-16 px-3 rounded-lg border border-dc-border bg-white flex items-center text-xs text-dc-text-3">
+                图片处理中…
+              </div>
+            )}
           </div>
         )}
         <div className="flex gap-2 items-end w-full">
           <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => handleFiles(e.target.files)} />
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={sending}
+            disabled={sending || preparingImages}
             title="上传图片"
             className="text-dc-text-3 hover:text-dc-accent p-2.5 flex-shrink-0 disabled:opacity-40"
           >
@@ -1255,7 +1266,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
             disabled={sending}
             rows={1}
             className="dc-input flex-1 resize-none max-h-28 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
-            placeholder={sending ? 'Coffea 思考中…' : ''}
+            placeholder={sending ? 'Coffea 思考中…' : preparingImages ? '图片处理中…' : ''}
           />
           {sending ? (
             <button
@@ -1268,7 +1279,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
           ) : (
             <button
               onClick={() => send()}
-              disabled={!input.trim() && pendingImages.length === 0}
+              disabled={preparingImages || (!input.trim() && pendingImages.length === 0)}
               className="btn-primary p-2.5 flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Send size={16} />

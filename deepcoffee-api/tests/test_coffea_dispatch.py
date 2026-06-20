@@ -72,6 +72,28 @@ def test_model_invalid_json_falls_back_local() -> None:
     assert plan.primary_intent == "web_verify"
 
 
+def test_image_context_question_redirects_model_clarification_to_knowledge() -> None:
+    payload = json.dumps({
+        "primary_intent": "ask_clarification",
+        "secondary_intents": [],
+        "actions": [],
+        "state_updates": {},
+        "direct_reply": "你想了解点什么？",
+        "should_answer_directly": False,
+    })
+    plan = asyncio.run(
+        dispatch(
+            message="这个水冲咖啡合适吗",
+            attachments=[{"type": "image", "data_url": "data:image/jpeg;base64,xx"}],
+            model="m",
+            gateway=_FakeGateway(payload),
+        )
+    )
+    assert plan.primary_intent == "knowledge_answer"
+    assert plan.actions == [{"type": "knowledge_answer"}]
+    assert plan.direct_reply is None
+
+
 def test_disabled_gateway_returns_none() -> None:
     disabled = SimpleNamespace(enabled=False)
     result = asyncio.run(
