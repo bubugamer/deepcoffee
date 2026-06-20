@@ -5,6 +5,24 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+def _confirm_test_bean(client: TestClient, headers: dict[str, str], name: str = "表单新增测试豆") -> str:
+    response = client.post(
+        "/v1/beans/confirm",
+        headers=headers,
+        json={
+            "draft": {
+                "name": name,
+                "roaster_name": "测试烘焙",
+                "origin_name": "巴拿马",
+                "process_name": "水洗",
+                "varietal_names": ["瑰夏"],
+            }
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["bean_id"]
+
+
 def test_brew_record_lifecycle_and_unified_ai_quota() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:brew-user-1:brew@example.com"}
@@ -107,7 +125,7 @@ def test_brew_record_lifecycle_and_unified_ai_quota() -> None:
     compared_payload = compared.json()
     assert len(compared_payload) == 2
     assert compared_payload[0]["bean_name"] == "千峰庄园 帕卡马拉 CM 日晒"
-    assert compared_payload[0]["overall_score"] in {3, 5}
+    assert compared_payload[0]["overall_score"] is None
 
     deleted = client.delete(f"/v1/brew/records/{record_id}", headers=headers)
     assert deleted.status_code == 200
@@ -152,6 +170,107 @@ def test_brew_confirm_rejects_legacy_top_level_score() -> None:
         },
     )
     assert response.status_code == 422
+
+
+def test_manual_brew_record_keeps_bean_rating_and_brew_score_separate() -> None:
+    client = TestClient(create_app())
+    headers = {"Authorization": "Bearer dev:manual-brew-user:brew@example.com"}
+    bean_id = _confirm_test_bean(client, headers)
+
+    created = client.post(
+        "/v1/brew/records",
+        headers=headers,
+        json={
+            "bean_card_id": bean_id,
+            "brew_method": "滤杯冲煮",
+            "device": "V60",
+            "grinder": "ZP6S",
+            "filter_media": "纸滤",
+            "water": "农夫山泉",
+            "dose_g": 15,
+            "water_ml": 240,
+            "water_temp_c": 92,
+            "brew_time_seconds": 150,
+            "bean_rating": {"overall": {"score": 4}, "aroma": {"score": 3}},
+            "brew_score": 5,
+            "notes": "表单新增，不走 AI",
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["source_type"] == "manual"
+    assert body["raw_input"] is None
+    assert body["ratio"] == "1:16"
+    assert body["bean_rating"]["overall"]["score"] == 4
+    assert body["brew_score"] == 5
+    first_id = body["id"]
+
+    quota = client.get("/v1/me/quota", headers=headers)
+    assert quota.status_code == 200
+    assert quota.json()["ai_used"] == 0
+
+    bean = client.get(f"/v1/beans/{bean_id}", headers=headers)
+    assert bean.status_code == 200
+    assert bean.json()["rating"]["overall"]["score"] == 4
+    assert bean.json()["avg_score"] == 4
+
+    second = client.post(
+        "/v1/brew/records",
+        headers=headers,
+        json={
+            "bean_card_id": bean_id,
+            "device": "V60",
+            "grinder": "ZP6S",
+            "filter_media": "纸滤",
+            "water": "农夫山泉",
+            "notes": "只记录描述，也可以保存",
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_id = second.json()["id"]
+
+    updated = client.patch(
+        f"/v1/brew/records/{first_id}",
+        headers=headers,
+        json={
+            "dose_g": 20,
+            "water_ml": 300,
+            "bean_rating": {"overall": {"score": 3}, "balance": {"score": 4}},
+            "brew_score": 2,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    updated_body = updated.json()
+    assert updated_body["ratio"] == "1:15"
+    assert updated_body["bean_rating"]["overall"]["score"] == 3
+    assert updated_body["brew_score"] == 2
+
+    second_detail = client.get(f"/v1/brew/records/{second_id}", headers=headers)
+    assert second_detail.status_code == 200
+    assert second_detail.json()["bean_rating"]["overall"]["score"] == 3
+    assert second_detail.json()["brew_score"] is None
+
+    equipment = client.get("/v1/equipment", headers=headers)
+    assert equipment.status_code == 200
+    items = equipment.json()
+    assert len([item for item in items if item["category"] == "brewer" and item["name"] == "V60"]) == 1
+    assert len([item for item in items if item["category"] == "grinder" and item["name"] == "ZP6S"]) == 1
+
+
+def test_manual_brew_record_requires_linked_bean_card() -> None:
+    client = TestClient(create_app())
+    headers = {"Authorization": "Bearer dev:manual-brew-missing-bean:brew@example.com"}
+
+    missing = client.post("/v1/brew/records", headers=headers, json={"notes": "没有豆卡"})
+    assert missing.status_code == 422
+
+    invalid = client.post(
+        "/v1/brew/records",
+        headers=headers,
+        json={"bean_card_id": "bean_missing", "notes": "不存在的豆卡"},
+    )
+    assert invalid.status_code == 404
+    assert invalid.json()["error"]["code"] == "bean_not_found"
 
 
 def test_brew_confirm_completes_ratio_fields_from_any_two_values() -> None:

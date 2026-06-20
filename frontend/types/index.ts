@@ -48,6 +48,8 @@ export interface BrewRecord {
   brew_time_seconds?: number
   brew_steps: BrewStep[]
   evaluation?: BrewEvaluation
+  bean_rating?: BrewEvaluation | null
+  brew_score?: number | null
   notes?: string
   raw_input?: string
   recap?: string
@@ -82,6 +84,25 @@ export interface BrewDraft {
   notes?: string
 }
 
+export interface BrewRecordFormInput {
+  bean_card_id: string
+  brew_method?: string | null
+  device?: string | null
+  grinder?: string | null
+  grind_setting?: string | null
+  filter_media?: string | null
+  water?: string | null
+  dose_g?: number | null
+  water_ml?: number | null
+  water_temp_c?: number | null
+  brew_time?: string | null
+  brew_time_seconds?: number | null
+  brew_steps?: BrewStep[]
+  bean_rating?: BrewEvaluation | null
+  brew_score?: number | null
+  notes?: string | null
+}
+
 export interface BrewComparisonItem {
   id: string
   date: string
@@ -95,7 +116,8 @@ export interface BrewComparisonItem {
   ratio_value?: number
   water_temp_c?: number
   brew_time_seconds?: number
-  overall_score?: number
+  brew_score?: number | null
+  overall_score?: number | null
   active: boolean
 }
 
@@ -152,6 +174,7 @@ export interface Bean {
   process?: string | null
   varietal: string[]
   flavor: BeanFlavor
+  rating?: BrewEvaluation | null
   private_notes?: string | null
   recommended_record_id?: string | null
   recommended_params?: BeanRecommendedParams | null

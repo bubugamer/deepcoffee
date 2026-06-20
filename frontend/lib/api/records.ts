@@ -1,4 +1,4 @@
-import type { BrewRecord, BrewComparisonItem } from '@/types'
+import type { BrewRecord, BrewComparisonItem, BrewRecordFormInput } from '@/types'
 import { ApiError, apiFetch, isApiEnabled } from './client'
 
 // ── Mock Data ─────────────────────────────────────────────────────────────
@@ -186,7 +186,16 @@ export async function confirmBrew(draft: Record<string, unknown>, rawInput?: str
   })
 }
 
-// DELETE /v1/brew/records/:id
+// POST /v1/brew/records
+export async function createRecord(body: BrewRecordFormInput, token?: string | null): Promise<BrewRecord> {
+  return apiFetch('/brew/records', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body),
+  })
+}
+
+// PATCH /v1/brew/records/:id
 export async function updateRecord(id: string, patch: Record<string, unknown>, token?: string | null): Promise<BrewRecord> {
   return apiFetch(`/brew/records/${id}`, {
     method: 'PATCH',

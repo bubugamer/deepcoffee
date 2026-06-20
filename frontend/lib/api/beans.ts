@@ -2,6 +2,7 @@ import type {
   Bean,
   BeanConfirmResponse,
   BeanDraft,
+  BrewEvaluation,
   BeanParseResponse,
   BeanRecommendedParams,
   RecommendationParams,
@@ -29,6 +30,8 @@ const DEFAULT_FLAVOR = {
     { label: '发酵感', value: 2 },
   ],
 }
+
+const DEFAULT_RATING = null
 
 const FALLBACK_FLAVORS: Record<string, Bean['flavor']> = {
   '千峰庄园 帕卡马拉 CM 日晒': {
@@ -131,6 +134,7 @@ function fallbackBeans(): Bean[] {
       process: first.process ?? null,
       varietal: first.varietal ? [first.varietal] : [],
       flavor: FALLBACK_FLAVORS[name] ?? DEFAULT_FLAVOR,
+      rating: DEFAULT_RATING,
       private_notes: null,
       recommended_record_id: recommended?.record_id ?? null,
       recommended_params: recommended,
@@ -253,7 +257,9 @@ export async function confirmBean(
 }
 
 // PATCH /v1/beans/:id
-export async function updateBean(beanId: string, draft: Partial<BeanDraft>, token?: string | null): Promise<Bean> {
+export type BeanUpdateInput = Partial<BeanDraft> & { rating?: BrewEvaluation | null }
+
+export async function updateBean(beanId: string, draft: BeanUpdateInput, token?: string | null): Promise<Bean> {
   if (isApiEnabled) {
     return apiFetch<Bean>(`/beans/${beanId}`, {
       method: 'PATCH',
@@ -275,6 +281,7 @@ export async function updateBean(beanId: string, draft: Partial<BeanDraft>, toke
     process: draft.process_name ?? existing.process,
     varietal: draft.varietal_names ?? existing.varietal,
     flavor: draft.flavor ?? existing.flavor,
+    rating: Object.prototype.hasOwnProperty.call(draft, 'rating') ? draft.rating ?? null : existing.rating,
     private_notes: draft.private_notes ?? existing.private_notes,
   }
 }

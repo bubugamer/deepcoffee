@@ -57,6 +57,27 @@ class BrewDraft(BaseModel):
     notes: str | None = Field(default=None, max_length=4000)
 
 
+class BrewRecordCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bean_card_id: str = Field(min_length=1, max_length=64)
+    brew_method: str | None = Field(default=None, max_length=120)
+    device: str | None = Field(default=None, max_length=120)
+    grinder: str | None = Field(default=None, max_length=120)
+    grind_setting: str | None = Field(default=None, max_length=80)
+    filter_media: str | None = Field(default=None, max_length=120)
+    water: str | None = Field(default=None, max_length=120)
+    dose_g: float | None = Field(default=None, gt=0)
+    water_ml: float | None = Field(default=None, gt=0)
+    water_temp_c: float | None = Field(default=None, gt=0)
+    brew_time: str | None = Field(default=None, max_length=40)
+    brew_time_seconds: int | None = Field(default=None, gt=0)
+    brew_steps: list[BrewStep] = Field(default_factory=list)
+    bean_rating: BrewEvaluation | None = None
+    brew_score: int | None = Field(default=None, ge=1, le=5)
+    notes: str | None = Field(default=None, max_length=4000)
+
+
 class BrewParseResponse(BaseModel):
     draft: BrewDraft
     confidence: float
@@ -115,6 +136,8 @@ class BrewRecord(BaseModel):
     brew_time_seconds: int | None = None
     brew_steps: list[BrewStep]
     evaluation: BrewEvaluation | None = None
+    bean_rating: BrewEvaluation | None = None
+    brew_score: int | None = None
     notes: str | None = None
     recap: str | None = None
     suggestions: list[str]
@@ -131,6 +154,7 @@ class BrewRecordListResponse(BaseModel):
 
 
 class BrewRecordUpdateRequest(BaseModel):
+    bean_card_id: str | None = Field(default=None, max_length=64)
     bean_name: str | None = None
     origin: str | None = None
     roaster: str | None = None
@@ -151,6 +175,8 @@ class BrewRecordUpdateRequest(BaseModel):
     brew_time_seconds: int | None = Field(default=None, gt=0)
     brew_steps: list[BrewStep] | None = None
     evaluation: BrewEvaluation | None = None
+    bean_rating: BrewEvaluation | None = None
+    brew_score: int | None = Field(default=None, ge=1, le=5)
     notes: str | None = None
 
 
@@ -171,5 +197,6 @@ class BrewComparisonItem(BaseModel):
     ratio_value: float | None = None
     water_temp_c: float | None = None
     brew_time_seconds: int | None = None
+    brew_score: int | None = None
     overall_score: int | None = None
     active: bool = False

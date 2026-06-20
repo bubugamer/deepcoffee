@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.brew import BrewEvaluation
+
 # 默认风味维度模板（烘焙商没给官方维度时用）：以「余韵」替换传统的「苦」。
 DEFAULT_FLAVOR_LABELS = ["酸质", "甜感", "醇厚", "余韵", "发酵感"]
 
@@ -84,6 +86,7 @@ class BeanUpdateRequest(BaseModel):
     process_name: str | None = Field(default=None, max_length=120)
     varietal_names: list[str] | None = None
     flavor: BeanFlavor | None = None
+    rating: BrewEvaluation | None = None
     private_notes: str | None = Field(default=None, max_length=4000)
 
 
@@ -117,6 +120,7 @@ class Bean(BaseModel):
     process: str | None = None
     varietal: list[str] = Field(default_factory=list)
     flavor: BeanFlavor
+    rating: BrewEvaluation | None = None
     private_notes: str | None = None
     recommended_record_id: str | None = None
     recommended_params: BeanRecommendedParams | None = None
