@@ -43,6 +43,25 @@ def test_answer_with_model_returns_none_without_grounding() -> None:
     assert result is None
 
 
+def test_answer_with_model_uses_image_even_without_grounding() -> None:
+    gw = _FakeGateway("这款水可以作为冲煮参考，但还要看矿物质含量。")
+    result = asyncio.run(
+        answer_with_model(
+            "这个水冲咖啡合适吗",
+            [],
+            model="deepseek-chat",
+            image_urls=[_IMG],
+            vision_model="kimi-k2.6",
+            gateway=gw,
+        )
+    )
+    assert result == "这款水可以作为冲煮参考，但还要看矿物质含量。"
+    assert gw.last_kwargs["model"] == "kimi-k2.6"
+    user_msg = gw.last_kwargs["messages"][-1]
+    assert isinstance(user_msg["content"], list)
+    assert any(p.get("type") == "image_url" and p["image_url"]["url"] == _IMG for p in user_msg["content"])
+
+
 def test_answer_with_model_sends_images_to_vision_model() -> None:
     gw = _FakeGateway("结合图片和知识库回答。")
     result = asyncio.run(

@@ -327,8 +327,12 @@ async def _run_knowledge(
     kb = knowledge_service.answer_question(message)
     answer = kb.answer
     source = "local"
-    if kb.from_knowledge_base:
-        grounding = knowledge_service.build_grounding([f.slug for f in kb.selected_files], settings)
+    if kb.from_knowledge_base or image_urls:
+        grounding = (
+            knowledge_service.build_grounding([f.slug for f in kb.selected_files], settings)
+            if kb.from_knowledge_base
+            else []
+        )
         model_answer = await answer_with_model(
             message,
             grounding,

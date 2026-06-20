@@ -84,6 +84,33 @@ def test_knowledge_stays_local_when_not_from_kb() -> None:
     assert results[0].source == "local"
 
 
+def test_knowledge_with_image_uses_model_even_without_kb_match() -> None:
+    captured: dict = {}
+
+    class _CaptureGW:
+        enabled = True
+        vision_enabled = True
+
+        async def chat(self, **kwargs):  # noqa: ANN003
+            captured["model"] = kwargs["model"]
+            captured["user"] = kwargs["messages"][-1]["content"]
+            return SimpleNamespace(content="看图后回答这款水是否适合冲咖啡", model="fake")
+
+    plan = DispatchPlan(primary_intent="knowledge_answer", actions=[{"type": "knowledge_answer"}])
+    results = _run(
+        plan,
+        message="这个水冲咖啡合适吗",
+        attachments=[{"type": "image", "data_url": _IMG}],
+        knowledge_service=_FakeKB(from_kb=False),
+        settings=SimpleNamespace(vision_model="kimi-k2.6", web_search_enabled=False, brave_api_key=None, brave_search_count=5),
+        gateway=_CaptureGW(),
+    )
+    assert results[0].source == "model"
+    assert results[0].message == "看图后回答这款水是否适合冲咖啡"
+    assert captured["model"] == "kimi-k2.6"
+    assert any(p.get("type") == "image_url" and p["image_url"]["url"] == _IMG for p in captured["user"])
+
+
 def test_image_action_degraded_without_image_bytes() -> None:
     # 附件只有文字 note、没有图片 base64 → 无图可识别 → 降级。
     plan = DispatchPlan(
