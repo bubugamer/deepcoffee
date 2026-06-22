@@ -23,6 +23,7 @@ from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
 from app.repositories.coffea_sessions import coffea_session_repository
 from app.repositories.equipment import equipment_repository
+from app.repositories.knowledge_grants import knowledge_grant_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
 from app.repositories.user_memories import user_memory_repository
@@ -403,6 +404,22 @@ async def post_message(
         )
 
     trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
+    knowledge_source_slugs: list[str] = []
+    for result in results:
+        if result.type != "knowledge_answer" or not isinstance(result.output, dict):
+            continue
+        sources = result.output.get("sources")
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            if isinstance(source, dict) and isinstance(source.get("slug"), str):
+                knowledge_source_slugs.append(source["slug"])
+    await knowledge_grant_repository.grant_many(
+        session,
+        user_id=user.id,
+        slugs=knowledge_source_slugs,
+        trace_id=trace_id,
+    )
 
     # 先把图片上传到 Supabase 图床，拿到公开 URL 用于跨设备展示，也用于 Langfuse trace metadata。
     image_urls = await upload_chat_images(attachments, user_id=user.id, settings=settings)

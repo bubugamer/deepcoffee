@@ -6,6 +6,7 @@ import { getRecords } from '@/lib/api/records'
 import { getKbCategories } from '@/lib/api/knowledge'
 import { getToken } from '@/lib/auth'
 import { useProfile } from '@/components/ProfileContext'
+import { canBrowseKnowledge } from '@/lib/entitlements'
 import type { BrewRecord, KBCategory } from '@/types'
 
 // 按用户时区的当前小时取问候语；拿不到时区就退回浏览器本地时区。
@@ -48,6 +49,7 @@ function ScoreDot({ score }: { score: number }) {
 
 export default function DashboardPage() {
   const { profile } = useProfile()
+  const canViewKnowledge = canBrowseKnowledge(profile)
   const greeting = greetingFor(profile?.timezone)
   const [recentBrews, setRecentBrews] = useState<BrewRecord[]>([])
   const [categories, setCategories] = useState<KBCategory[]>([])
@@ -64,7 +66,7 @@ export default function DashboardPage() {
 
     Promise.allSettled([
       getRecords({ page_size: 3 }, token),
-      getKbCategories(),
+      canViewKnowledge ? getKbCategories() : Promise.resolve([]),
     ]).then(([recordsResult, categoriesResult]) => {
       if (cancelled) return
       if (recordsResult.status === 'fulfilled') {
@@ -82,7 +84,7 @@ export default function DashboardPage() {
     })
 
     return () => { cancelled = true }
-  }, [])
+  }, [canViewKnowledge])
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -162,7 +164,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Knowledge categories */}
+      {canViewKnowledge && (
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="section-title">知识库</h2>
@@ -200,6 +202,7 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

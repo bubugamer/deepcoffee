@@ -2,8 +2,9 @@
 import { FormEvent, Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Check } from 'lucide-react'
-import { getBillingPlans, getUserProfile, getUserQuota, proPlanFeatures, updateUserProfile } from '@/lib/api/user'
+import { getBillingPlans, getUserProfile, getUserQuota, maxPlanFeatures, proPlanFeatures, updateUserProfile } from '@/lib/api/user'
 import { getToken } from '@/lib/auth'
+import { planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from '@/lib/entitlements'
 import type { BillingPlan, UserProfile, UserQuota } from '@/types'
 
 type Tab = 'profile' | 'plan' | 'prefs'
@@ -18,7 +19,7 @@ function SettingsContent() {
   const [tab, setTab] = useState<Tab>(initialTab && TABS.includes(initialTab) ? initialTab : 'profile')
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [quota, setQuota] = useState<UserQuota | null>(null)
-  const [proPlan, setProPlan] = useState<BillingPlan | null>(null)
+  const [plans, setPlans] = useState<BillingPlan[]>([])
   const [displayName, setDisplayName] = useState('')
   const [timezone, setTimezone] = useState('Asia/Shanghai')
   const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric')
@@ -57,7 +58,7 @@ function SettingsContent() {
     // 套餐价格/权益读接口，不写死；失败时静默回退到本地兜底文案
     getBillingPlans()
       .then((plans) => {
-        if (!cancelled) setProPlan(plans.find((p) => p.id === 'pro') ?? null)
+        if (!cancelled) setPlans(plans)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -92,12 +93,9 @@ function SettingsContent() {
   }
 
   const initial = (displayName || profile?.email || '?').charAt(0)
-  const planLabel = profile?.plan === 'pro' ? 'Pro 版' : '免费版'
+  const planLabel = displayPlanLabel(profile)
   const joinedAt = profile?.created_at ? profile.created_at.slice(0, 7) : '--'
-  const isUnlimited = quota?.ai_total === null
-  const quotaPercent = quota && !isUnlimited && quota.ai_total
-    ? Math.round((quota.ai_used / quota.ai_total) * 100)
-    : 0
+  const quotaPercent = calcQuotaPercent(quota)
   const resetDate = quota?.reset_at
     ? new Date(quota.reset_at).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
     : ''
@@ -186,23 +184,18 @@ function SettingsContent() {
                       <div className="flex justify-between text-sm mb-2">
                         <span className="text-dc-text-2">AI 问答</span>
                         <span className="font-semibold text-dc-text-1">
-                          剩余 {isUnlimited ? '无限' : quota.ai_remaining ?? 0}
-                          <span className="text-dc-text-3 font-normal">
-                            {' '}（已用 {quota.ai_used} / {isUnlimited ? '无限' : quota.ai_total}）
-                          </span>
+                          已用 {quotaPercent}%
                         </span>
                       </div>
-                      {!isUnlimited && (
-                        <div className="h-2 bg-dc-subtle rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${quotaPercent > 80 ? 'bg-dc-yellow' : 'bg-dc-accent'}`}
-                            style={{ width: `${Math.min(quotaPercent, 100)}%` }}
-                          />
-                        </div>
-                      )}
+                      <div className="h-2 bg-dc-subtle rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${quotaPercent > 80 ? 'bg-dc-yellow' : 'bg-dc-accent'}`}
+                          style={{ width: `${Math.min(quotaPercent, 100)}%` }}
+                        />
+                      </div>
                     </div>
                     <p className="text-xs text-dc-text-3">
-                      记录冲煮和知识库问答统一消耗 AI 问答次数；知识库文章浏览不消耗次数。
+                      记录冲煮、豆卡识别和知识库问答统一消耗 AI 问答次数。
                     </p>
                     {resetDate && (
                       <p className="text-xs text-dc-text-3">配额于 {resetDate} 重置</p>
@@ -213,25 +206,36 @@ function SettingsContent() {
                 )}
               </div>
 
-              {/* Upgrade card */}
-              <div className="dc-card p-6 border-dc-accent ring-1 ring-dc-accent/20">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="section-title">Pro 版</h2>
-                  <span className="dc-tag-accent">推荐</span>
-                </div>
-                <div className="text-3xl font-extrabold text-dc-text-1 mb-1">
-                  ¥{proPlan?.price ?? 49} <span className="text-sm font-normal text-dc-text-3">/ 月</span>
-                </div>
-                <p className="text-xs text-dc-text-3 mb-5">随时取消，无最低承诺</p>
-                <ul className="space-y-2.5 mb-5">
-                  {(proPlan?.features ?? proPlanFeatures).map(f => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
-                      <Check size={13} className="text-dc-accent flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <button className="btn-primary w-full py-3 text-sm">立即升级</button>
+              <div className="grid gap-4">
+                {[
+                  { id: 'basic', title: 'Basic', fallbackPrice: 0, fallbackFeatures: ['AI 问答 99 次 / 月', '可使用 AI 知识库问答', '可打开 AI 引用文章'] },
+                  { id: 'pro', title: 'Pro', fallbackPrice: 59, fallbackFeatures: proPlanFeatures },
+                  { id: 'max', title: 'Max', fallbackPrice: 99, fallbackFeatures: maxPlanFeatures },
+                ].map((plan) => {
+                  const apiPlan = plans.find((item) => item.id === plan.id)
+                  const active = profile.plan === plan.id
+                  return (
+                    <div key={plan.id} className={`dc-card p-6 ${active ? 'border-dc-accent ring-1 ring-dc-accent/20' : ''}`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="section-title">{plan.title} 版</h2>
+                        {active && <span className="dc-tag-accent">当前套餐</span>}
+                      </div>
+                      <div className="text-3xl font-extrabold text-dc-text-1 mb-1">
+                        ¥{apiPlan?.price ?? plan.fallbackPrice} <span className="text-sm font-normal text-dc-text-3">/ 月</span>
+                      </div>
+                      <p className="text-xs text-dc-text-3 mb-5">{plan.id === 'basic' ? '免费使用' : '支付暂未开放，可联系管理员开通'}</p>
+                      <ul className="space-y-2.5 mb-5">
+                        {(apiPlan?.features ?? plan.fallbackFeatures).map(f => (
+                          <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
+                            <Check size={13} className="text-dc-accent flex-shrink-0" />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                      {plan.id !== 'basic' && <button className="btn-primary w-full py-3 text-sm opacity-70 cursor-not-allowed" disabled>支付暂未开放</button>}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}

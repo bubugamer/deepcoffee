@@ -1,4 +1,4 @@
-import type { BrewRecord, BrewComparisonItem, BrewRecordFormInput } from '@/types'
+import type { AnonymousBrewRecord, BrewRecord, BrewComparisonItem, BrewRecordFormInput } from '@/types'
 import { ApiError, apiFetch, isApiEnabled } from './client'
 
 // ── Mock Data ─────────────────────────────────────────────────────────────
@@ -156,6 +156,18 @@ export async function getComparisons(beanName: string, token?: string | null): P
     return apiFetch<BrewComparisonItem[]>(`/brew/compare?bean_name=${encodeURIComponent(beanName)}`, { token })
   }
   return fallbackComparisons[beanName] ?? []
+}
+
+export async function getPeerRecords(beanCardId: string, token?: string | null): Promise<AnonymousBrewRecord[]> {
+  if (isApiEnabled) {
+    return apiFetch<AnonymousBrewRecord[]>(`/brew/records/peer?bean_card_id=${encodeURIComponent(beanCardId)}`, { token })
+  }
+  return mockRecords
+    .filter((record) => record.bean_card_id === beanCardId)
+    .map(({ user_id: _userId, raw_input: _rawInput, trace_id: _traceId, notes: _notes, recap: _recap, suggestions: _suggestions, ...record }) => ({
+      ...record,
+      evaluation: record.evaluation ?? null,
+    }))
 }
 
 // POST /v1/brew/parse

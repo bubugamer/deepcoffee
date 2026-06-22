@@ -16,20 +16,24 @@ const fallbackQuota: UserQuota = {
   plan: 'basic',
   balance: 0,
   ai_used: 22,
-  ai_total: 500,
-  ai_remaining: 478,
+  ai_total: 99,
+  ai_remaining: 77,
   reset_at: '2026-07-01T00:00:00+08:00',
-  features: ['AI 问答 500 次 / 月', '知识库文章免费浏览', '冲煮记录不限条数'],
+  features: ['AI 问答 99 次 / 月', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
 }
 
 // Pro plan features (shown in the upgrade card)
 export const proPlanFeatures: string[] = [
-  'AI 问答无限次',
-  '知识库文章免费浏览',
-  '冲煮记录不限条数',
-  '多记录横向对比',
-  '优先体验新功能',
-  '随时取消',
+  'AI 问答 500 次 / 月',
+  '可查看同豆匿名冲煮记录',
+  '可进入豆仓广场',
+  '可打开 AI 引用文章',
+]
+
+export const maxPlanFeatures: string[] = [
+  'AI 问答 1000 次 / 月',
+  '包含 Pro 权益',
+  '可自由浏览知识库',
 ]
 
 // ── API Functions ─────────────────────────────────────────────────────────
@@ -67,8 +71,9 @@ export async function getBillingPlans(): Promise<BillingPlan[]> {
     return apiFetch('/billing/plans')
   }
   return [
-    { id: 'basic', name: 'Basic', price: 0, currency: 'CNY', token_limit: 0, request_limit: 500, period: 'month', features: fallbackQuota.features },
-    { id: 'pro', name: 'Pro', price: 49, currency: 'CNY', token_limit: null, request_limit: null, period: 'month', features: proPlanFeatures },
+    { id: 'basic', name: 'Basic', price: 0, currency: 'CNY', token_limit: 0, request_limit: 99, period: 'month', features: fallbackQuota.features },
+    { id: 'pro', name: 'Pro', price: 59, currency: 'CNY', token_limit: null, request_limit: 500, period: 'month', features: proPlanFeatures },
+    { id: 'max', name: 'Max', price: 99, currency: 'CNY', token_limit: null, request_limit: 1000, period: 'month', features: maxPlanFeatures },
   ]
 }
 

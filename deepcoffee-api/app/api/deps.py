@@ -44,7 +44,7 @@ async def require_ai_quota(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    """AI 调用前的次数门禁依赖：basic 用满 settings.ai_quota_basic 即 402；pro 无限放行。
+    """AI 调用前的次数门禁依赖：按当前套餐月额度拦截。
 
     挂在路由装饰器的 dependencies 里即可，handler 函数签名/函数体无需改动。FastAPI 在单个
     请求内复用同一 get_session 依赖结果，门禁与 handler 用同一 session，计数一致。

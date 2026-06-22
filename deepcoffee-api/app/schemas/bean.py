@@ -58,6 +58,7 @@ class BeanDraft(BaseModel):
     bean_components: list[BeanComponent] = Field(default_factory=list)
     flavor: BeanFlavor | None = None
     private_notes: str | None = Field(default=None, max_length=4000)
+    public_comment: str | None = Field(default=None, max_length=1000)
 
 
 class BeanParseRequest(BaseModel):
@@ -106,6 +107,7 @@ class BeanUpdateRequest(BaseModel):
     flavor: BeanFlavor | None = None
     rating: BrewEvaluation | None = None
     private_notes: str | None = Field(default=None, max_length=4000)
+    public_comment: str | None = Field(default=None, max_length=1000)
 
 
 class BeanRecommendedParams(BaseModel):
@@ -145,6 +147,7 @@ class Bean(BaseModel):
     flavor: BeanFlavor
     rating: BrewEvaluation | None = None
     private_notes: str | None = None
+    public_comment: str | None = None
     recommended_record_id: str | None = None
     recommended_params: BeanRecommendedParams | None = None
     avg_score: float | None = None
@@ -156,6 +159,54 @@ class Bean(BaseModel):
 class BeanListResponse(BaseModel):
     items: list[Bean]
     total: int
+
+
+class BeanSquareItem(BaseModel):
+    bean_id: str
+    name: str
+    roaster: str | None = None
+    roaster_canonical: str | None = None
+    roaster_product: str | None = None
+    coffee_source: str | None = None
+    green_bean_merchant: str | None = None
+    green_bean_product: str | None = None
+    origin: str | None = None
+    process: str | None = None
+    varietal: list[str] = Field(default_factory=list)
+    altitude_text: str | None = None
+    harvest_date_text: str | None = None
+    roast_date_text: str | None = None
+    net_weight_text: str | None = None
+    bean_components: list[BeanComponent] = Field(default_factory=list)
+    flavor: BeanFlavor
+    rating: BrewEvaluation | None = None
+    public_comment: str | None = None
+    recommended_params: BeanRecommendedParams | None = None
+    avg_score: float | None = None
+    record_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class BeanSquareListResponse(BaseModel):
+    items: list[BeanSquareItem]
+    total: int
+
+
+class BeanSquareImportRequest(BaseModel):
+    bean_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class BeanSquareImportItem(BaseModel):
+    source_bean_id: str
+    bean_id: str
+    status: Literal["created", "existing"]
+
+
+class BeanSquareImportResponse(BaseModel):
+    items: list[BeanSquareImportItem]
+    created_count: int
+    existing_count: int
 
 
 class RecommendParamsResponse(BaseModel):

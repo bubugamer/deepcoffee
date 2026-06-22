@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import BrewRecord as BrewRecordORM
@@ -14,6 +14,9 @@ from app.schemas.bean import (
     BeanDraft,
     BeanFlavor,
     BeanRecommendedParams,
+    BeanSquareImportItem,
+    BeanSquareImportResponse,
+    BeanSquareItem,
     BeanUpdateRequest,
     default_flavor,
 )
@@ -96,6 +99,7 @@ class BeanRepository:
             bean_components=[component.model_dump(exclude_none=True) for component in draft.bean_components],
             flavor=flavor.model_dump(),
             private_notes=draft.private_notes,
+            public_comment=draft.public_comment,
             trace_id=trace_id,
         )
         session.add(card)
@@ -198,9 +202,46 @@ class BeanRepository:
             flavor=BeanFlavor.model_validate(card.flavor or default_flavor().model_dump()),
             rating=rating,
             private_notes=card.private_notes,
+            public_comment=card.public_comment,
             recommended_record_id=card.recommended_record_id,
             recommended_params=rec_params,
             avg_score=score,
+            record_count=record_count,
+            created_at=card.created_at,
+            updated_at=card.updated_at,
+        )
+
+    def _to_square_item(
+        self,
+        card: UserBeanCardORM,
+        stats: tuple[float | None, int],
+        rec_params: BeanRecommendedParams | None,
+        roaster_canonical: str | None = None,
+    ) -> BeanSquareItem:
+        _, record_count = stats
+        rating = card.rating
+        return BeanSquareItem(
+            bean_id=card.id,
+            name=card.name,
+            roaster=card.roaster_name,
+            roaster_canonical=roaster_canonical,
+            roaster_product=card.roaster_product_name,
+            coffee_source=card.coffee_source_name,
+            green_bean_merchant=card.green_bean_merchant_name,
+            green_bean_product=card.green_bean_product_name,
+            origin=card.origin_name,
+            process=card.process_name,
+            varietal=list(card.varietal_names or []),
+            altitude_text=card.altitude_text,
+            harvest_date_text=card.harvest_date_text,
+            roast_date_text=card.roast_date_text,
+            net_weight_text=card.net_weight_text,
+            bean_components=list(card.bean_components or []),
+            flavor=BeanFlavor.model_validate(card.flavor or default_flavor().model_dump()),
+            rating=rating,
+            public_comment=card.public_comment,
+            recommended_params=rec_params,
+            avg_score=_overall_score(rating),
             record_count=record_count,
             created_at=card.created_at,
             updated_at=card.updated_at,
@@ -262,6 +303,186 @@ class BeanRepository:
                 continue
             beans.append(bean)
         return beans, len(beans)
+
+    async def list_square(
+        self,
+        session: AsyncSession,
+        *,
+        q: str | None = None,
+        process: str | None = None,
+    ) -> tuple[list[BeanSquareItem], int]:
+        conditions = [UserBeanCardORM.status == "active"]
+        if q:
+            like = f"%{q.strip()}%"
+            conditions.append(
+                or_(
+                    UserBeanCardORM.name.ilike(like),
+                    UserBeanCardORM.roaster_name.ilike(like),
+                    UserBeanCardORM.roaster_product_name.ilike(like),
+                    UserBeanCardORM.origin_name.ilike(like),
+                    UserBeanCardORM.process_name.ilike(like),
+                    UserBeanCardORM.public_comment.ilike(like),
+                )
+            )
+        if process:
+            conditions.append(UserBeanCardORM.process_name.ilike(f"%{process.strip()}%"))
+
+        result = await session.execute(
+            select(UserBeanCardORM).where(*conditions).order_by(UserBeanCardORM.created_at.desc())
+        )
+        cards = list(result.scalars().all())
+        stats = await self._stats(session, [c.id for c in cards])
+        canon = await self._roaster_canonicals(session, cards)
+        items: list[BeanSquareItem] = []
+        for card in cards:
+            rec = await self._recommended_params(session, card.recommended_record_id)
+            items.append(self._to_square_item(card, stats.get(card.id, (None, 0)), rec, canon.get(card.roaster_entity_id)))
+        return items, len(items)
+
+    async def get_square(self, session: AsyncSession, *, bean_id: str) -> BeanSquareItem | None:
+        card = await session.get(UserBeanCardORM, bean_id)
+        if card is None or card.status != "active":
+            return None
+        stats = (await self._stats(session, [card.id]))[card.id]
+        rec = await self._recommended_params(session, card.recommended_record_id)
+        canon = await self._roaster_canonicals(session, [card])
+        return self._to_square_item(card, stats, rec, canon.get(card.roaster_entity_id))
+
+    async def _existing_import(
+        self, session: AsyncSession, *, user_id: str, source_bean_id: str
+    ) -> UserBeanCardORM | None:
+        result = await session.execute(
+            select(UserBeanCardORM).where(
+                UserBeanCardORM.user_id == user_id,
+                UserBeanCardORM.source_bean_card_id == source_bean_id,
+                UserBeanCardORM.status == "active",
+            )
+        )
+        return result.scalars().first()
+
+    async def _copy_recommended_record(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        source_record_id: str | None,
+        target_bean_id: str,
+        trace_id: str,
+    ) -> str | None:
+        if not source_record_id:
+            return None
+        source = await session.get(BrewRecordORM, source_record_id)
+        if source is None:
+            return None
+        record = BrewRecordORM(
+            id=f"brew_{uuid4().hex[:12]}",
+            user_id=user_id,
+            bean_card_id=target_bean_id,
+            record_type="user_suggestion",
+            is_user_visible=False,
+            source_type="square_import",
+            raw_input=None,
+            bean_name=source.bean_name,
+            origin=source.origin,
+            roaster=source.roaster,
+            process=source.process,
+            varietal=source.varietal,
+            brew_method=source.brew_method,
+            device=source.device,
+            grinder=source.grinder,
+            grind_setting=source.grind_setting,
+            filter_media=source.filter_media,
+            water=source.water,
+            dose_g=source.dose_g,
+            water_ml=source.water_ml,
+            water_temp_c=source.water_temp_c,
+            ratio=source.ratio,
+            ratio_value=source.ratio_value,
+            brew_time=source.brew_time,
+            brew_time_seconds=source.brew_time_seconds,
+            brew_steps=[],
+            evaluation=None,
+            brew_score=None,
+            notes=None,
+            recap=None,
+            suggestions=[],
+            trace_id=trace_id,
+        )
+        session.add(record)
+        await session.flush()
+        return record.id
+
+    async def import_from_square(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        source_bean_ids: list[str],
+    ) -> BeanSquareImportResponse:
+        items: list[BeanSquareImportItem] = []
+        for source_id in dict.fromkeys(source_bean_ids):
+            source = await session.get(UserBeanCardORM, source_id)
+            if source is None or source.status != "active":
+                continue
+            if source.user_id == user_id:
+                items.append(BeanSquareImportItem(source_bean_id=source.id, bean_id=source.id, status="existing"))
+                continue
+            existing = await self._existing_import(session, user_id=user_id, source_bean_id=source.id)
+            if existing is not None:
+                items.append(BeanSquareImportItem(source_bean_id=source.id, bean_id=existing.id, status="existing"))
+                continue
+
+            trace_id = f"bean_square_import_{uuid4().hex[:12]}"
+            card = UserBeanCardORM(
+                id=f"bean_{uuid4().hex[:12]}",
+                user_id=user_id,
+                source_type="square_import",
+                raw_input=None,
+                name=source.name,
+                roaster_name=source.roaster_name,
+                roaster_product_name=source.roaster_product_name,
+                coffee_source_name=source.coffee_source_name,
+                green_bean_merchant_name=source.green_bean_merchant_name,
+                green_bean_product_name=source.green_bean_product_name,
+                origin_name=source.origin_name,
+                process_name=source.process_name,
+                varietal_names=list(source.varietal_names or []),
+                altitude_text=source.altitude_text,
+                harvest_date_text=source.harvest_date_text,
+                roast_date_text=source.roast_date_text,
+                net_weight_text=source.net_weight_text,
+                bean_components=list(source.bean_components or []),
+                roaster_entity_id=source.roaster_entity_id,
+                roaster_product_entity_id=source.roaster_product_entity_id,
+                coffee_source_entity_id=source.coffee_source_entity_id,
+                green_bean_merchant_entity_id=source.green_bean_merchant_entity_id,
+                green_bean_product_entity_id=source.green_bean_product_entity_id,
+                origin_entity_id=source.origin_entity_id,
+                process_entity_id=source.process_entity_id,
+                flavor=dict(source.flavor or default_flavor().model_dump()),
+                rating=source.rating,
+                private_notes=None,
+                public_comment=None,
+                recommended_record_id=None,
+                source_bean_card_id=source.id,
+                trace_id=trace_id,
+            )
+            session.add(card)
+            await session.flush()
+            copied_record_id = await self._copy_recommended_record(
+                session,
+                user_id=user_id,
+                source_record_id=source.recommended_record_id,
+                target_bean_id=card.id,
+                trace_id=trace_id,
+            )
+            card.recommended_record_id = copied_record_id
+            await session.flush()
+            items.append(BeanSquareImportItem(source_bean_id=source.id, bean_id=card.id, status="created"))
+
+        created_count = sum(1 for item in items if item.status == "created")
+        existing_count = sum(1 for item in items if item.status == "existing")
+        return BeanSquareImportResponse(items=items, created_count=created_count, existing_count=existing_count)
 
     async def update(
         self, session: AsyncSession, *, user_id: str, bean_id: str, payload: BeanUpdateRequest

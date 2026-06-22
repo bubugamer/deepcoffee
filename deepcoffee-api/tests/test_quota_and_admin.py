@@ -51,10 +51,12 @@ def test_basic_quota_gate_blocks_after_limit() -> None:
         settings.ai_quota_basic = original
 
 
-def test_pro_plan_is_unlimited() -> None:
+def test_pro_plan_uses_its_own_monthly_quota() -> None:
     settings = get_settings()
-    original = settings.ai_quota_basic
+    original_basic = settings.ai_quota_basic
+    original_pro = settings.ai_quota_pro
     settings.ai_quota_basic = 2
+    settings.ai_quota_pro = 3
     try:
         client = TestClient(create_app())
         headers = {"Authorization": "Bearer dev:pro-user:pro@example.com"}
@@ -63,17 +65,21 @@ def test_pro_plan_is_unlimited() -> None:
         assert client.get("/v1/me", headers=headers).status_code == 200
         _set_plan("pro-user", "pro")
 
-        # pro：ai_total 为 None（无限），且连调超过 basic 阈值仍放行。
+        # pro：使用自己的有限额度，不再是无限。
         quota = client.get("/v1/me/quota", headers=headers)
         assert quota.status_code == 200
-        assert quota.json()["ai_total"] is None
-        assert quota.json()["ai_remaining"] is None
+        assert quota.json()["ai_total"] == 3
+        assert quota.json()["ai_remaining"] == 3
         assert quota.json()["plan"] == "pro"
 
         for _ in range(3):
             assert _ask(client, headers).status_code == 200
+        blocked = _ask(client, headers)
+        assert blocked.status_code == 402
+        assert blocked.json()["error"]["code"] == "ai_quota_exceeded"
     finally:
-        settings.ai_quota_basic = original
+        settings.ai_quota_basic = original_basic
+        settings.ai_quota_pro = original_pro
 
 
 def test_billing_plans_reflect_launch_pricing() -> None:
@@ -84,12 +90,16 @@ def test_billing_plans_reflect_launch_pricing() -> None:
 
     basic = plans["basic"]
     assert basic["price"] == 0
-    assert basic["request_limit"] == get_settings().ai_quota_basic  # 默认 500
+    assert basic["request_limit"] == get_settings().ai_quota_basic
     assert any("次 / 月" in f for f in basic["features"])
 
     pro = plans["pro"]
-    assert pro["price"] == 49
-    assert pro["request_limit"] is None  # 无限
+    assert pro["price"] == 59
+    assert pro["request_limit"] == get_settings().ai_quota_pro
+
+    max_plan = plans["max"]
+    assert max_plan["price"] == 99
+    assert max_plan["request_limit"] == get_settings().ai_quota_max
 
 
 def test_bootstrap_invite_grants_admin_role() -> None:
@@ -235,9 +245,10 @@ def test_admin_changes_are_audited_and_listed() -> None:
     # 改角色 + 套餐（两个字段 → 两条审计）
     resp = client.patch(
         f"/v1/admin/users/{user_id}", headers=admin_headers,
-        json={"role": "admin", "plan": "pro"},
+        json={"role": "admin", "plan": "max"},
     )
     assert resp.status_code == 200, resp.text
+    assert resp.json()["plan"] == "max"
     # 调额度：上限 + 已用 + 原因
     resp = client.patch(
         f"/v1/admin/users/{user_id}/quota", headers=admin_headers,

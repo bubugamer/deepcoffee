@@ -93,7 +93,7 @@ class AdminUserInfo(BaseModel):
 class AdminUserUpdateRequest(BaseModel):
     """管理员对用户的操作：改套餐 / 任免管理员 / 禁用恢复。全部可选，至少给一项。"""
 
-    plan: str | None = Field(default=None, pattern="^(basic|pro)$")
+    plan: str | None = Field(default=None, pattern="^(basic|pro|max)$")
     role: str | None = Field(default=None, pattern="^(user|admin)$")
     status: str | None = Field(default=None, pattern="^(active|disabled)$")
 

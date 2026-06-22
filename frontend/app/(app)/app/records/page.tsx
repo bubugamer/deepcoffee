@@ -2,9 +2,10 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { MessageSquare, PenLine, Search, Filter, X } from 'lucide-react'
-import { getRecords } from '@/lib/api/records'
+import { ApiError } from '@/lib/api/client'
+import { getPeerRecords, getRecords } from '@/lib/api/records'
 import { getToken } from '@/lib/auth'
-import type { BrewRecord } from '@/types'
+import type { AnonymousBrewRecord, BrewRecord } from '@/types'
 
 function ScoreChip({ score }: { score: number }) {
   const cls = score >= 5
@@ -24,7 +25,7 @@ function isMethodLikeDevice(value?: string | null) {
   return ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃'].includes(text)
 }
 
-function displayDevice(record: BrewRecord) {
+function displayDevice(record: Pick<BrewRecord, 'device' | 'brew_method'> | Pick<AnonymousBrewRecord, 'device' | 'brew_method'>) {
   const device = (record.device ?? '').trim()
   if (!device || device === record.brew_method || isMethodLikeDevice(device)) return null
   return device
@@ -54,9 +55,22 @@ function matchesQuery(record: BrewRecord, query: string) {
   ].filter(Boolean).join(' ').toLowerCase().includes(needle)
 }
 
+function compactParams(record: AnonymousBrewRecord | BrewRecord) {
+  return [
+    record.dose_g !== undefined && record.dose_g !== null ? `${record.dose_g}g` : null,
+    record.water_ml !== undefined && record.water_ml !== null ? `${record.water_ml}ml` : null,
+    record.ratio,
+  ].filter(Boolean).join(' / ')
+}
+
 export default function RecordsPage() {
   const [allRecords, setAllRecords] = useState<BrewRecord[]>([])
   const [bean, setBean] = useState<string | null>(null)
+  const [beanId, setBeanId] = useState<string | null>(null)
+  const [peerRecords, setPeerRecords] = useState<AnonymousBrewRecord[]>([])
+  const [peerLoading, setPeerLoading] = useState(false)
+  const [peerError, setPeerError] = useState('')
+  const [peerUpgrade, setPeerUpgrade] = useState(false)
   const [query, setQuery] = useState('')
   const [range, setRange] = useState<'all' | 'month'>('all')
   const [loading, setLoading] = useState(true)
@@ -64,7 +78,9 @@ export default function RecordsPage() {
   const [showCreateChoice, setShowCreateChoice] = useState(false)
 
   useEffect(() => {
-    setBean(new URLSearchParams(window.location.search).get('bean'))
+    const params = new URLSearchParams(window.location.search)
+    setBean(params.get('bean'))
+    setBeanId(params.get('bean_id'))
     const token = getToken()
     let cancelled = false
     setLoading(true)
@@ -81,6 +97,44 @@ export default function RecordsPage() {
       })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (!beanId) {
+      setPeerRecords([])
+      setPeerError('')
+      setPeerUpgrade(false)
+      setPeerLoading(false)
+      return
+    }
+    const token = getToken()
+    let cancelled = false
+    setPeerLoading(true)
+    setPeerError('')
+    setPeerUpgrade(false)
+    getPeerRecords(beanId, token)
+      .then((records) => {
+        if (!cancelled) setPeerRecords(records)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 403) {
+          setPeerUpgrade(true)
+          setPeerRecords([])
+          return
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          setPeerError('需要先把这支豆加入我的豆仓，才能查看同豆冲煮参考。')
+          setPeerRecords([])
+          return
+        }
+        setPeerError(err instanceof Error ? err.message : '同豆冲煮参考加载失败，请稍后重试。')
+        setPeerRecords([])
+      })
+      .finally(() => {
+        if (!cancelled) setPeerLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [beanId])
 
   const records = useMemo(() => {
     return allRecords.filter((record) => {
@@ -187,11 +241,7 @@ export default function RecordsPage() {
           {records.map(r => {
             const score = r.brew_score ?? undefined
             const date = r.created_at.slice(0, 10)
-            const params = [
-              r.dose_g !== undefined ? `${r.dose_g}g` : null,
-              r.water_ml !== undefined ? `${r.water_ml}ml` : null,
-              r.ratio,
-            ].filter(Boolean).join(' / ')
+            const params = compactParams(r)
             const device = displayDevice(r)
             const meta = [date, r.origin, r.brew_method, r.grinder, device, r.filter_media].filter(Boolean).join(' · ')
 
@@ -217,6 +267,64 @@ export default function RecordsPage() {
             )
           })}
         </div>
+      )}
+
+      {beanId && (
+        <section className="mt-8">
+          <div className="flex items-baseline justify-between gap-3 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-dc-text-1">其他用户同豆冲煮</h2>
+              <p className="text-xs text-dc-text-3 mt-1">仅展示匿名冲煮参数，不展示身份、备注或原始输入。</p>
+            </div>
+            {peerRecords.length > 0 && (
+              <span className="text-xs text-dc-text-3">{peerRecords.length} 条参考</span>
+            )}
+          </div>
+
+          {peerLoading ? (
+            <div className="dc-card p-5 text-sm text-dc-text-3">正在加载同豆冲煮参考…</div>
+          ) : peerUpgrade ? (
+            <div className="dc-card p-5">
+              <div className="text-sm font-semibold text-dc-text-1 mb-1">升级后可查看同豆冲煮参考</div>
+              <p className="text-sm text-dc-text-3 mb-4">Pro 或 Max 用户可以在拥有对应豆卡后查看其他用户的匿名冲煮记录。</p>
+              <Link href="/app/settings" className="btn-primary inline-flex text-sm">查看会员方案</Link>
+            </div>
+          ) : peerError ? (
+            <div className="dc-card p-5">
+              <div className="text-sm font-semibold text-dc-text-1 mb-1">同豆冲煮参考暂时不可用</div>
+              <p className="text-sm text-dc-text-3">{peerError}</p>
+            </div>
+          ) : peerRecords.length === 0 ? (
+            <div className="dc-card p-5 text-sm text-dc-text-3">暂无其他用户同豆冲煮参考。</div>
+          ) : (
+            <div className="space-y-1.5">
+              {peerRecords.map((r) => {
+                const score = r.brew_score ?? r.evaluation?.overall?.score ?? undefined
+                const date = r.created_at.slice(0, 10)
+                const params = compactParams(r)
+                const device = displayDevice(r)
+                const meta = [date, r.origin, r.brew_method, r.grinder, device, r.filter_media].filter(Boolean).join(' · ')
+
+                return (
+                  <div key={r.id} className="dc-card px-4 py-3.5">
+                    <div className="flex items-center gap-3 md:grid md:grid-cols-[minmax(0,1fr)_170px_90px_90px] md:gap-3 md:items-center">
+                      <div className="flex-1 min-w-0 md:flex-none">
+                        <div className="text-sm font-medium text-dc-text-1 truncate">{r.bean_name ?? bean ?? '未命名'}</div>
+                        <div className="text-xs text-dc-text-3 mt-0.5 truncate">{meta}</div>
+                      </div>
+                      <span className="hidden md:block text-xs text-dc-text-2">{params}</span>
+                      <span className="hidden md:block text-xs text-dc-text-2">{r.water_temp_c !== undefined && r.water_temp_c !== null ? `${r.water_temp_c}°C` : ''}</span>
+                      <span className="hidden md:block text-xs text-dc-text-2 text-center">
+                        {score !== undefined ? `${score}/5` : '—'}
+                      </span>
+                      {score !== undefined && <span className="md:hidden"><ScoreChip score={score} /></span>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
       )}
 
       {showCreateChoice && (

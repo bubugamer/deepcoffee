@@ -5,6 +5,8 @@ import type {
   BrewEvaluation,
   BeanParseResponse,
   BeanRecommendedParams,
+  BeanSquareImportResponse,
+  BeanSquareItem,
   RecommendationParams,
   RecommendParamsResponse,
   RecommendParamsTurnResponse,
@@ -135,6 +137,7 @@ function fallbackBeans(): Bean[] {
       flavor: FALLBACK_FLAVORS[name] ?? DEFAULT_FLAVOR,
       rating: DEFAULT_RATING,
       private_notes: null,
+      public_comment: null,
       recommended_record_id: recommended?.record_id ?? null,
       recommended_params: recommended,
       avg_score: avgScore,
@@ -184,6 +187,7 @@ function fallbackDraft(input: string): BeanDraft {
     varietal_names: varietal ? [varietal] : [],
     flavor: DEFAULT_FLAVOR,
     private_notes: input,
+    public_comment: undefined,
   }
 }
 
@@ -212,6 +216,53 @@ export async function getBean(beanId: string, token?: string | null): Promise<Be
     }
   }
   return fallbackBeans().find((bean) => bean.bean_id === beanId) ?? null
+}
+
+export async function getBeanSquare(filters: BeanFilters = {}, token?: string | null): Promise<BeanSquareItem[]> {
+  if (isApiEnabled) {
+    const params = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.set(key, String(value))
+    })
+    const qs = params.toString()
+    const res = await apiFetch<{ items: BeanSquareItem[]; total: number }>(`/beans/square${qs ? `?${qs}` : ''}`, { token })
+    return res.items
+  }
+  return filterFallbackBeans(filters).map((bean) => ({
+    ...bean,
+    public_comment: bean.public_comment ?? '这支豆子的风味信息可以作为冲煮参考。',
+  }))
+}
+
+export async function getBeanSquareDetail(beanId: string, token?: string | null): Promise<BeanSquareItem | null> {
+  if (isApiEnabled) {
+    try {
+      return await apiFetch<BeanSquareItem>(`/beans/square/${beanId}`, { token })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    }
+  }
+  return (await getBeanSquare({}, token)).find((bean) => bean.bean_id === beanId) ?? null
+}
+
+export async function importBeanSquare(beanIds: string[], token?: string | null): Promise<BeanSquareImportResponse> {
+  if (isApiEnabled) {
+    return apiFetch<BeanSquareImportResponse>('/beans/square/import', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ bean_ids: beanIds }),
+    })
+  }
+  return {
+    items: beanIds.map((beanId, index) => ({
+      source_bean_id: beanId,
+      bean_id: `fallback-import-${index}-${beanId}`,
+      status: 'created',
+    })),
+    created_count: beanIds.length,
+    existing_count: 0,
+  }
 }
 
 // POST /v1/beans/parse
@@ -286,6 +337,7 @@ export async function updateBean(beanId: string, draft: BeanUpdateInput, token?:
     flavor: draft.flavor ?? existing.flavor,
     rating: Object.prototype.hasOwnProperty.call(draft, 'rating') ? draft.rating ?? null : existing.rating,
     private_notes: draft.private_notes ?? existing.private_notes,
+    public_comment: draft.public_comment ?? existing.public_comment,
   }
 }
 
