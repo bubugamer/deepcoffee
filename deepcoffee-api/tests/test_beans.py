@@ -374,6 +374,13 @@ def test_bean_square_requires_pro_and_imports_private_copy_without_private_field
     assert repeated.json()["existing_count"] == 1
     assert repeated.json()["items"][0]["bean_id"] == imported_id
 
+    # 副本不进广场：广场列表只剩原创豆卡，导入的副本不出现；副本的广场详情 404。
+    square_after = client.get("/v1/beans/square", headers=viewer_headers)
+    square_ids = [bean["bean_id"] for bean in square_after.json()["items"]]
+    assert source_id in square_ids
+    assert imported_id not in square_ids
+    assert client.get(f"/v1/beans/square/{imported_id}", headers=viewer_headers).status_code == 404
+
     detail = client.get(f"/v1/beans/{imported_id}", headers=viewer_headers)
     assert detail.status_code == 200, detail.text
     payload = detail.json()
