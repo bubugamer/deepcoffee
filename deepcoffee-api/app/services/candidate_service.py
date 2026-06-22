@@ -64,6 +64,23 @@ class CandidateService:
         for varietal in card.varietal_names or []:
             if varietal:
                 facts.append(("varietal", varietal, {"name": varietal}))
+        for component in card.bean_components or []:
+            if not isinstance(component, dict):
+                continue
+            origin = component.get("origin_name")
+            if isinstance(origin, str) and origin.strip():
+                facts.append(("origin", origin.strip(), {"name": origin.strip()}))
+            process = component.get("process_name")
+            if isinstance(process, str) and process.strip():
+                facts.append(("process_method", process.strip(), {"name": process.strip()}))
+            source = component.get("coffee_source_name")
+            if isinstance(source, str) and source.strip():
+                facts.append(("coffee_source", source.strip(), {"name": source.strip()}))
+            varietals = component.get("varietal_names")
+            if isinstance(varietals, list):
+                for varietal in varietals:
+                    if isinstance(varietal, str) and varietal.strip():
+                        facts.append(("varietal", varietal.strip(), {"name": varietal.strip()}))
 
         created: list[str] = []
         for entity_type, name, payload in facts:

@@ -46,6 +46,23 @@ def _overall_score(rating: dict | None) -> int | None:
     return None
 
 
+def _clean_text(value: str | None) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _card_name(draft: BeanDraft) -> str:
+    """豆卡主名称创建后保持稳定，优先使用豆袋正面 / 烘焙商产品名。"""
+
+    return (
+        _clean_text(draft.name)
+        or _clean_text(draft.roaster_product_name)
+        or _clean_text(draft.coffee_source_name)
+        or "未命名豆子"
+    )
+
+
 class BeanRepository:
     async def create(
         self,
@@ -63,7 +80,7 @@ class BeanRepository:
             user_id=user_id,
             source_type=source_type,
             raw_input=raw_input,
-            name=draft.name or "未命名豆子",
+            name=_card_name(draft),
             roaster_name=draft.roaster_name,
             roaster_product_name=draft.roaster_product_name,
             coffee_source_name=draft.coffee_source_name,
@@ -72,6 +89,11 @@ class BeanRepository:
             origin_name=draft.origin_name,
             process_name=draft.process_name,
             varietal_names=list(draft.varietal_names or []),
+            altitude_text=draft.altitude_text,
+            harvest_date_text=draft.harvest_date_text,
+            roast_date_text=draft.roast_date_text,
+            net_weight_text=draft.net_weight_text,
+            bean_components=[component.model_dump(exclude_none=True) for component in draft.bean_components],
             flavor=flavor.model_dump(),
             private_notes=draft.private_notes,
             trace_id=trace_id,
@@ -168,6 +190,11 @@ class BeanRepository:
             origin=card.origin_name,
             process=card.process_name,
             varietal=list(card.varietal_names or []),
+            altitude_text=card.altitude_text,
+            harvest_date_text=card.harvest_date_text,
+            roast_date_text=card.roast_date_text,
+            net_weight_text=card.net_weight_text,
+            bean_components=list(card.bean_components or []),
             flavor=BeanFlavor.model_validate(card.flavor or default_flavor().model_dump()),
             rating=rating,
             private_notes=card.private_notes,
@@ -249,8 +276,14 @@ class BeanRepository:
             updates["rating"] = payload.rating.model_dump()
         if "varietal_names" in updates and payload.varietal_names is not None:
             updates["varietal_names"] = list(payload.varietal_names)
+        if "bean_components" in updates and payload.bean_components is not None:
+            updates["bean_components"] = [
+                component.model_dump(exclude_none=True) for component in payload.bean_components
+            ]
         for key, value in updates.items():
             setattr(card, key, value)
+        await session.flush()
+        await self._link_entities(session, card)
         await session.flush()
         await session.refresh(card)
         return await self.get(session, user_id=user_id, bean_id=bean_id)

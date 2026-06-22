@@ -95,7 +95,8 @@ IMAGE_UNDERSTANDING_SYSTEM = """你是 DeepCoffee 的图片理解助手。任务
 - suggested_next_actions: 字符串数组
 
 bean_fields 仅 bean_card 时填写，可包含：
-- name / roaster_name / roaster_product_name / origin_name / process_name / varietal_names / coffee_source_name / green_bean_merchant_name / flavor_notes / roast_date / harvest_date / altitude / official_recipe
+- name / roaster_name / roaster_product_name / origin_name / process_name / varietal_names / coffee_source_name / green_bean_merchant_name / flavor_notes / flavor_axes / roast_date_text / harvest_date_text / altitude_text / net_weight_text / bean_components / official_recipe
+- bean_components 是数组，用于拼配 / 多豆源；每项可包含 origin_name / coffee_source_name / process_name / varietal_names / altitude_text / share_text / notes。
 
 brew_photo_assessment 仅 brew_photo 时填写，可包含：
 - bed_evenness / fines_migration / clogging_risk / channeling_risk / filter_staining / center_collapse / observed_facts / inferred_risks / suggested_adjustments
@@ -108,7 +109,8 @@ equipment_fields 仅 equipment_photo 时填写，可包含：
 2. 不要编造图片上看不清的文字；读不清就放进 uncertainties。
 3. 粉床图片不能直接证明杯中风味，只能判断可能风险；如果用户没有杯测反馈，建议追问口味表现。
 4. 豆卡图片如果同时包含官方配方，要把官方配方放进 official_recipe，不要和你自己的建议混在一起。
-5. 不要新增任何键。"""
+5. 拼配或多产地产品要尽量填 bean_components；单一豆源可以只填顶层 origin_name / process_name 等字段。
+6. 不要新增任何键。"""
 
 IMAGE_UNDERSTANDING_USER_TEMPLATE = """用户文字说明：
 {message}
@@ -140,7 +142,7 @@ KNOWLEDGE_ANSWER_SYSTEM = (
 BEAN_PARSE_SYSTEM = """你是 DeepCoffee 的咖啡豆信息抽取器。任务：只从用户输入的一段咖啡豆描述里抽取明确写出的客观豆卡信息。
 
 只输出一个合法 JSON 对象，不要输出解释、不要 markdown、不要代码块、不要多余文本。JSON 必须且只能包含下面这些键：
-- name: 字符串或 null。豆子名称；如果用户只写了一串可作为豆名的描述（如产地/庄园/品种/处理法组合），可以原样作为 name。
+- name: 字符串或 null。豆子名称，优先取豆袋正面主标题 / 烘焙商产品名 / 批次名；如果用户只写了一串可作为豆名的描述（如产地/庄园/品种/处理法组合），可以原样作为 name。
 - roaster_name: 字符串或 null。烘焙商。
 - roaster_product_name: 字符串或 null。烘焙商产品名、批次名、系列名；不要和豆子名称强行重复。
 - origin_name: 字符串或 null。产地，优先保留国家 + 知名产区（如「埃塞俄比亚 耶加雪菲」）。
@@ -148,12 +150,17 @@ BEAN_PARSE_SYSTEM = """你是 DeepCoffee 的咖啡豆信息抽取器。任务：
 - varietal_names: 字符串数组。品种，如 ["瑰夏"]；没有就 []。
 - green_bean_merchant_name: 字符串或 null。生豆商、进口商。
 - coffee_source_name: 字符串或 null。生产者、庄园、处理站、合作社。
+- altitude_text: 字符串或 null。海拔原文，如 "2,200 masl"。
+- harvest_date_text: 字符串或 null。采收期原文。
+- roast_date_text: 字符串或 null。烘焙日期原文。
+- net_weight_text: 字符串或 null。净含量原文。
+- bean_components: 数组。拼配 / 多豆源时填写；每项可包含 origin_name / coffee_source_name / process_name / varietal_names / altitude_text / share_text / notes。单一豆源或抽不到就 []。
 - flavor_notes: 字符串数组。只放用户明确写出的风味描述词，如 ["茉莉花香","柑橘"]；没有就 []。
 
 规则：
 1. 只抽取用户明确写出的信息；不要根据常识、产地、品种、处理法补全字段。
 2. 用户的喜好、评价、冲煮理念、购买原因不算风味描述，不要放进 flavor_notes。
-3. 不要输出空字符串；抽不到的字符串字段用 null，数组字段用 []。
+3. 不要输出空字符串；抽不到的字符串字段用 null，数组字段用 []；不要把多个豆源硬塞进单个 origin_name，优先拆到 bean_components。
 4. 不要新增任何键。"""
 
 # user 消息模板：直接传用户输入的豆子描述原文（见清单 §4）。

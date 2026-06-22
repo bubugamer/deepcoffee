@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
   Send, AlertTriangle, AlertCircle, CheckCircle2, Clock, RotateCcw,
-  ImagePlus, X, Globe, Square,
+  ImagePlus, X, Globe, Square, Plus, Trash2,
 } from 'lucide-react'
 import { confirmBean, getBeans, parseBeanInput } from '@/lib/api/beans'
 import {
@@ -505,7 +505,17 @@ function ChatBrewDraft({
         if (match) {
           beanCardId = match.bean_id
         } else if (createBeanCard) {
-          const created = await confirmBean({ name: customBeanName }, rawInput, token)
+          const draftBean = {
+            name: customBeanName,
+            roaster_name: typeof baseDraft.roaster === 'string' ? baseDraft.roaster : undefined,
+            origin_name: typeof baseDraft.origin === 'string' ? baseDraft.origin : undefined,
+            process_name: typeof baseDraft.process === 'string' ? baseDraft.process : undefined,
+            varietal_names: typeof baseDraft.varietal === 'string' ? [baseDraft.varietal] : [],
+          }
+          if (!draftBean.roaster_name || !draftBean.origin_name || !draftBean.process_name) {
+            throw new Error('这张豆卡还缺烘焙商、产地或处理法。可以取消「同时建豆卡」先保存冲煮记录，或到豆仓补齐后再建档。')
+          }
+          const created = await confirmBean(draftBean, rawInput, token)
           beanCardId = created.bean_id
           createdBeanId = created.bean_id
         }
@@ -1348,6 +1358,16 @@ function BeanDraftCard({
   const setField = <K extends keyof BeanDraft>(key: K, value: BeanDraft[K]) => {
     onChange({ ...draft, [key]: value })
   }
+  const components = draft.bean_components ?? []
+  const setComponent = (index: number, patch: Partial<NonNullable<BeanDraft['bean_components']>[number]>) => {
+    setField('bean_components', components.map((component, i) => i === index ? { ...component, ...patch } : component))
+  }
+  const canSave = Boolean(
+    (draft.name?.trim() || draft.roaster_product_name?.trim())
+    && draft.roaster_name?.trim()
+    && draft.origin_name?.trim()
+    && draft.process_name?.trim(),
+  )
 
   return (
     <div className="dc-card overflow-hidden">
@@ -1370,12 +1390,16 @@ function BeanDraftCard({
         />
         <div className="grid sm:grid-cols-2 gap-3">
           <DraftInput label="烘焙商" value={draft.roaster_name ?? ''} lowConf={isLow('roaster_name')} onChange={(value) => setField('roaster_name', value)} />
-          <DraftInput label="烘焙商产品" value={draft.roaster_product_name ?? ''} lowConf={isLow('roaster_product_name')} onChange={(value) => setField('roaster_product_name', value)} />
+          <DraftInput label="烘焙商产品 / 批次名" value={draft.roaster_product_name ?? ''} lowConf={isLow('roaster_product_name')} onChange={(value) => setField('roaster_product_name', value)} />
           <DraftInput label="生产者/庄园/处理站" value={draft.coffee_source_name ?? ''} lowConf={isLow('coffee_source_name')} onChange={(value) => setField('coffee_source_name', value)} />
           <DraftInput label="生豆商/进口商" value={draft.green_bean_merchant_name ?? ''} lowConf={isLow('green_bean_merchant_name')} onChange={(value) => setField('green_bean_merchant_name', value)} />
           <DraftInput label="生豆商产品" value={draft.green_bean_product_name ?? ''} lowConf={isLow('green_bean_product_name')} onChange={(value) => setField('green_bean_product_name', value)} />
           <DraftInput label="产地" value={draft.origin_name ?? ''} lowConf={isLow('origin_name')} onChange={(value) => setField('origin_name', value)} />
           <DraftInput label="处理法" value={draft.process_name ?? ''} lowConf={isLow('process_name')} onChange={(value) => setField('process_name', value)} />
+          <DraftInput label="海拔" value={draft.altitude_text ?? ''} lowConf={isLow('altitude_text')} onChange={(value) => setField('altitude_text', value)} />
+          <DraftInput label="采收期" value={draft.harvest_date_text ?? ''} lowConf={isLow('harvest_date_text')} onChange={(value) => setField('harvest_date_text', value)} />
+          <DraftInput label="烘焙日期" value={draft.roast_date_text ?? ''} lowConf={isLow('roast_date_text')} onChange={(value) => setField('roast_date_text', value)} />
+          <DraftInput label="净含量" value={draft.net_weight_text ?? ''} lowConf={isLow('net_weight_text')} onChange={(value) => setField('net_weight_text', value)} />
           <DraftInput
             label="品种"
             value={(draft.varietal_names ?? []).join('，')}
@@ -1383,8 +1407,62 @@ function BeanDraftCard({
             onChange={(value) => setField('varietal_names', value.split(/[，,]/).map((item) => item.trim()).filter(Boolean))}
           />
         </div>
+        <div className="border-t border-dc-border pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-dc-text-2">豆源组成</span>
+            <button
+              type="button"
+              onClick={() => setField('bean_components', [...components, {
+                origin_name: '',
+                coffee_source_name: '',
+                process_name: '',
+                varietal_names: [],
+                altitude_text: '',
+                share_text: '',
+                notes: '',
+              }])}
+              className="text-xs text-dc-accent inline-flex items-center gap-1"
+            >
+              <Plus size={12} />
+              添加
+            </button>
+          </div>
+          {components.length === 0 ? (
+            <p className="text-xs text-dc-text-3">拼配或多产地产品可以补充豆源组成。</p>
+          ) : (
+            <div className="space-y-3">
+              {components.map((component, index) => (
+                <div key={index} className="border border-dc-border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-dc-text-1">豆源 {index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setField('bean_components', components.filter((_, i) => i !== index))}
+                      className="text-dc-red hover:bg-dc-red/5 rounded-md p-1"
+                      aria-label="删除豆源"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <DraftInput label="产地" value={component.origin_name ?? ''} onChange={(value) => setComponent(index, { origin_name: value })} />
+                    <DraftInput label="庄园/处理站" value={component.coffee_source_name ?? ''} onChange={(value) => setComponent(index, { coffee_source_name: value })} />
+                    <DraftInput label="处理法" value={component.process_name ?? ''} onChange={(value) => setComponent(index, { process_name: value })} />
+                    <DraftInput
+                      label="品种"
+                      value={(component.varietal_names ?? []).join('，')}
+                      onChange={(value) => setComponent(index, { varietal_names: value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })}
+                    />
+                    <DraftInput label="海拔" value={component.altitude_text ?? ''} onChange={(value) => setComponent(index, { altitude_text: value })} />
+                    <DraftInput label="占比/说明" value={component.share_text ?? ''} onChange={(value) => setComponent(index, { share_text: value })} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <label className="block">
-          <span className="text-xs text-dc-text-3 mb-1 block">私有备注</span>
+          <span className="text-xs text-dc-text-3 mb-1 block">备注</span>
           <textarea
             value={draft.private_notes ?? ''}
             onChange={(event) => setField('private_notes', event.target.value)}
@@ -1403,7 +1481,7 @@ function BeanDraftCard({
       <div className="px-4 py-3 border-t border-dc-border flex gap-2">
         <button
           onClick={onConfirm}
-          disabled={saving || !draft.name?.trim()}
+          disabled={saving || !canSave}
           className="btn-primary text-sm py-2 flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saving ? '保存中…' : '确认保存'}

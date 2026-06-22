@@ -160,7 +160,7 @@ def test_bean_links_roaster_and_search_aggregates() -> None:
             id1 = await bean_repository.create(
                 session,
                 user_id="u-bean",
-                draft=BeanDraft(name="豆A", roaster_name="coffee buff"),
+                draft=BeanDraft(name="豆A", roaster_name="coffee buff", origin_name="巴拿马", process_name="水洗"),
                 source_type="text",
                 raw_input=None,
                 trace_id="t1",
@@ -168,7 +168,7 @@ def test_bean_links_roaster_and_search_aggregates() -> None:
             id2 = await bean_repository.create(
                 session,
                 user_id="u-bean",
-                draft=BeanDraft(name="豆B", roaster_name="Coffeebuff"),
+                draft=BeanDraft(name="豆B", roaster_name="Coffeebuff", origin_name="巴拿马", process_name="水洗"),
                 source_type="text",
                 raw_input=None,
                 trace_id="t2",
@@ -206,7 +206,7 @@ def test_merge_entities_migrates_refs_and_alias() -> None:
             bid = await bean_repository.create(
                 session,
                 user_id="u-merge",
-                draft=BeanDraft(name="豆", roaster_name="SEY"),
+                draft=BeanDraft(name="豆", roaster_name="SEY", origin_name="秘鲁", process_name="水洗"),
                 source_type="text",
                 raw_input=None,
                 trace_id="t",

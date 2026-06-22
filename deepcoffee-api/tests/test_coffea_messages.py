@@ -103,6 +103,7 @@ def test_message_hydrates_user_context_without_error() -> None:
         json={
             "draft": {
                 "name": "千峰庄园 瑰夏 日晒",
+                "roaster_name": "千峰",
                 "origin_name": "巴拿马",
                 "process_name": "日晒",
                 "varietal_names": ["瑰夏"],
@@ -209,7 +210,7 @@ def test_duplicate_bean_name_blocks_auto_save(monkeypatch) -> None:  # noqa: ANN
     client = TestClient(create_app())
     first = client.post(
         "/v1/beans/confirm", headers=headers,
-        json={"draft": {"name": "自动录入测试豆"}, "source_type": "text"},
+        json={"draft": _FULL_BEAN_FIELDS, "source_type": "text"},
     )
     assert first.status_code == 200, first.text
     resp = client.post(

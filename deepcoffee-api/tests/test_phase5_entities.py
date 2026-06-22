@@ -133,7 +133,7 @@ def test_existing_entity_suppresses_duplicate_candidate() -> None:
     client.post(
         "/v1/beans/confirm",
         headers=USER,
-        json={"draft": {"name": "水洗测试豆", "process_name": "水洗"}},
+        json={"draft": {"name": "水洗测试豆", "roaster_name": "测试烘焙", "origin_name": "巴拿马", "process_name": "水洗"}},
     )
     process_candidates = client.get(
         "/v1/admin/candidates", headers=ADMIN, params={"entity_type": "process_method"}
@@ -146,7 +146,7 @@ def test_candidate_reject() -> None:
     client.post(
         "/v1/beans/confirm",
         headers=USER,
-        json={"draft": {"name": "拒绝测试豆", "roaster_name": "某不知名烘焙商X"}},
+        json={"draft": {"name": "拒绝测试豆", "roaster_name": "某不知名烘焙商X", "origin_name": "巴拿马", "process_name": "水洗"}},
     )
     candidates = client.get("/v1/admin/candidates", headers=ADMIN, params={"entity_type": "roaster"})
     target = next(c for c in candidates.json() if c["title"] == "某不知名烘焙商X")
