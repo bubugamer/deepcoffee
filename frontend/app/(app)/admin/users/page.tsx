@@ -124,6 +124,7 @@ function UserDetailModal({
             >
               <option value="basic">basic</option>
               <option value="pro">pro</option>
+              <option value="max">max</option>
             </select>
           </div>
           <div className="flex items-center gap-3">

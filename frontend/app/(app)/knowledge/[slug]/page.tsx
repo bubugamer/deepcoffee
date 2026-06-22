@@ -1,7 +1,13 @@
+'use client'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import { ArrowLeft, MessageSquare } from 'lucide-react'
 import { getArticleDetail } from '@/lib/api/knowledge'
+import { ApiError } from '@/lib/api/client'
+import { getToken } from '@/lib/auth'
+import type { ArticleDetail } from '@/types'
 
 const ROOT_KNOWLEDGE_DIRS = new Set([
   'brewing',
@@ -261,13 +267,62 @@ function MarkdownBody({ markdown, basePath }: { markdown: string; basePath?: str
   return <div className="space-y-4 text-sm leading-loose text-dc-text-1">{nodes}</div>
 }
 
-export default async function ArticlePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  let error = ''
-  const article = await getArticleDetail(slug).catch((err) => {
-    error = err instanceof Error ? err.message : '文章加载失败，请稍后重试。'
-    return null
-  })
+export default function ArticlePage() {
+  const params = useParams<{ slug: string }>()
+  const slug = params.slug
+  const [article, setArticle] = useState<ArticleDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [upgrade, setUpgrade] = useState(false)
+
+  useEffect(() => {
+    const token = getToken()
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    setUpgrade(false)
+    setArticle(null)
+    getArticleDetail(slug, token)
+      .then((nextArticle) => {
+        if (!cancelled) setArticle(nextArticle)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 403) {
+          setUpgrade(true)
+          return
+        }
+        setError(err instanceof Error ? err.message : '文章加载失败，请稍后重试。')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [slug])
+
+  if (loading) {
+    return (
+      <div className="p-4 sm:p-8 max-w-content mx-auto">
+        <div className="dc-card p-6 text-sm text-dc-text-3">正在加载文章…</div>
+      </div>
+    )
+  }
+
+  if (upgrade) {
+    return (
+      <div className="p-4 sm:p-8 max-w-content mx-auto">
+        <Link href="/app/chat" className="flex items-center gap-1.5 text-sm text-dc-text-3 hover:text-dc-accent mb-6 w-fit">
+          <ArrowLeft size={15} />
+          返回 AI
+        </Link>
+        <div className="dc-card p-6 max-w-lg">
+          <div className="text-sm font-semibold text-dc-text-1 mb-1">这篇文章尚未被 AI 引用</div>
+          <p className="text-sm text-dc-text-3 mb-4">Basic 和 Pro 可以打开 AI 回答中引用过的文章；升级 Max 后可自由浏览知识库。</p>
+          <Link href="/app/settings?tab=plan" className="btn-primary text-sm px-4 py-2 inline-flex">查看会员权益</Link>
+        </div>
+      </div>
+    )
+  }
 
   if (error) {
     return (

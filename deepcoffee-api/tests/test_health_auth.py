@@ -41,7 +41,7 @@ def test_invite_and_profile_flow() -> None:
 
     quota = client.get("/v1/me/quota", headers=headers)
     assert quota.status_code == 200
-    assert quota.json()["ai_total"] == 500
+    assert quota.json()["ai_total"] == 99
     assert quota.json()["ai_used"] == 0
     assert "records_used" not in quota.json()
 

@@ -10,24 +10,19 @@ from app.core.errors import AppError
 from app.models.tables import InviteCode, UserAiQuotaSetting, UserProfile as UserProfileORM
 from app.repositories.usage import ai_usage_repository, current_month_window
 from app.schemas.auth import AdminUserInfo, UserProfile, UserQuota
+from app.services.entitlements import normalize_plan, plan_definitions, quota_for_plan
 
 
 def quota_total_for(plan: str, settings: Settings, custom_limit: int | None = None) -> int | None:
-    """每月 AI 问答次数上限：basic 取配置值，pro（及其它付费档）视为无限（None）。"""
-    if custom_limit is not None:
-        return custom_limit
-    if plan == "basic":
-        return settings.ai_quota_basic
-    return None
+    """每月 AI 问答次数上限。保留返回类型兼容旧调用，正常套餐均为有限次数。"""
+    return quota_for_plan(plan, settings, custom_limit)
 
 
-def _quota_features(total: int | None) -> list[str]:
-    ai_line = "AI 问答无限次" if total is None else f"AI 问答 {total} 次 / 月"
-    return [
-        "知识库文章免费浏览",
-        ai_line,
-        "冲煮记录不限条数，AI 录入消耗问答次数",
-    ]
+def _quota_features(plan: str, settings: Settings, total: int | None) -> list[str]:
+    definition = plan_definitions(settings)[normalize_plan(plan)]
+    if total != definition.monthly_quota:
+        return [f"AI 问答 {total} 次 / 月", "自定义月额度"]
+    return list(definition.features)
 
 
 def _to_schema(row: UserProfileORM) -> UserProfile:
@@ -35,7 +30,7 @@ def _to_schema(row: UserProfileORM) -> UserProfile:
         id=row.id,
         email=row.email,
         display_name=row.display_name,
-        plan=row.plan,
+        plan=normalize_plan(row.plan),
         role=row.role,
         status=row.status,
         timezone=row.timezone,
@@ -90,13 +85,13 @@ class ProfileRepository:
 
     async def quota_for(self, session: AsyncSession, user_id: str, settings: Settings) -> UserQuota:
         row = await session.get(UserProfileORM, user_id)
-        plan = row.plan if row is not None else "basic"
+        plan = normalize_plan(row.plan if row is not None else "basic")
         quota_setting = await session.get(UserAiQuotaSetting, user_id)
         custom_limit = quota_setting.monthly_limit if quota_setting is not None else None
         total = quota_total_for(plan, settings, custom_limit)
         _, reset_at = current_month_window()
         used = await ai_usage_repository.effective_count_for(session, user_id)
-        remaining = None if total is None else max(0, total - used)
+        remaining = max(0, total - used)
         return UserQuota(
             plan=plan,
             balance=0,
@@ -104,7 +99,7 @@ class ProfileRepository:
             ai_total=total,
             ai_remaining=remaining,
             reset_at=reset_at,
-            features=_quota_features(total),
+            features=_quota_features(plan, settings, total),
         )
 
     async def list_users_with_invites(
@@ -139,12 +134,12 @@ class ProfileRepository:
         custom_limit = quota_setting.monthly_limit if quota_setting is not None else None
         total = quota_total_for(row.plan, settings, custom_limit)
         used = await ai_usage_repository.effective_count_for(session, row.id)
-        remaining = None if total is None else max(0, total - used)
+        remaining = max(0, total - used)
         return AdminUserInfo(
             id=row.id,
             email=row.email,
             display_name=row.display_name,
-            plan=row.plan,
+            plan=normalize_plan(row.plan),
             role=row.role,
             status=row.status,
             created_at=row.created_at,
@@ -179,23 +174,21 @@ class ProfileRepository:
         await session.flush()
 
     async def assert_ai_quota(self, session: AsyncSession, user_id: str, *, settings: Settings) -> None:
-        """AI 调用前的次数门禁：basic 用满即 402；pro 无限放行。
+        """AI 调用前的次数门禁：当前套餐月额度用满即 402。
 
         只读（查 plan + 计数），不建档也不写记录——profile 缺失视为 basic，由下游 handler 负责建档。
         """
         row = await session.get(UserProfileORM, user_id)
-        plan = row.plan if row is not None else "basic"
+        plan = normalize_plan(row.plan if row is not None else "basic")
         quota_setting = await session.get(UserAiQuotaSetting, user_id)
         custom_limit = quota_setting.monthly_limit if quota_setting is not None else None
         total = quota_total_for(plan, settings, custom_limit)
-        if total is None:
-            return
         used = await ai_usage_repository.effective_count_for(session, user_id)
         if used >= total:
             raise AppError(
                 402,
                 "ai_quota_exceeded",
-                "本月 AI 问答次数已用完，升级 Pro 可无限使用。",
+                "本月 AI 问答次数已用完，升级会员可获得更高额度。",
             )
 
 

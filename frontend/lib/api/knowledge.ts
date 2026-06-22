@@ -67,36 +67,36 @@ const fallbackArticleDetails: Record<string, { article: Article; body: ArticleSe
 
 // ── API Functions ─────────────────────────────────────────────────────────
 // GET /v1/knowledge/categories
-export async function getKbCategories(): Promise<KBCategory[]> {
-  if (isApiEnabled) return apiFetch<KBCategory[]>('/knowledge/categories')
+export async function getKbCategories(token?: string | null): Promise<KBCategory[]> {
+  if (isApiEnabled) return apiFetch<KBCategory[]>('/knowledge/categories', { token })
   return fallbackKbCategories
 }
 
-export async function getKbFilterCategories(): Promise<string[]> {
+export async function getKbFilterCategories(token?: string | null): Promise<string[]> {
   if (isApiEnabled) {
-    const categories = await getKbCategories()
+    const categories = await getKbCategories(token)
     return ['全部', ...categories.map((category) => category.label)]
   }
   return fallbackKbFilterCategories
 }
 
 // GET /v1/knowledge/articles
-export async function getArticles(category?: string, q?: string): Promise<Article[]> {
+export async function getArticles(category?: string, q?: string, token?: string | null): Promise<Article[]> {
   if (isApiEnabled) {
     const params = new URLSearchParams()
     if (category) params.set('category', category)
     if (q) params.set('q', q)
     const qs = params.toString()
-    return apiFetch<Article[]>(`/knowledge/articles${qs ? `?${qs}` : ''}`)
+    return apiFetch<Article[]>(`/knowledge/articles${qs ? `?${qs}` : ''}`, { token })
   }
   return fallbackArticles
 }
 
 // GET /v1/knowledge/articles/:slug
-export async function getArticle(slug: string): Promise<Article | null> {
+export async function getArticle(slug: string, token?: string | null): Promise<Article | null> {
   if (isApiEnabled) {
     try {
-      return await apiFetch<Article>(`/knowledge/articles/${slug}`)
+      return await apiFetch<Article>(`/knowledge/articles/${slug}`, { token })
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return null
       throw error
@@ -105,10 +105,10 @@ export async function getArticle(slug: string): Promise<Article | null> {
   return fallbackArticleDetails[slug]?.article ?? fallbackArticles.find(a => a.slug === slug) ?? null
 }
 
-export async function getArticleDetail(slug: string): Promise<ArticleDetail | null> {
+export async function getArticleDetail(slug: string, token?: string | null): Promise<ArticleDetail | null> {
   if (isApiEnabled) {
     try {
-      return await apiFetch<ArticleDetail>(`/knowledge/articles/${slug}`)
+      return await apiFetch<ArticleDetail>(`/knowledge/articles/${slug}`, { token })
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return null
       throw error

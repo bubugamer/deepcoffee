@@ -1,8 +1,22 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+import asyncio
 
+from fastapi.testclient import TestClient
+from sqlalchemy import update
+
+from app.core.db import get_sessionmaker
 from app.main import create_app
+from app.models.tables import UserProfile
+
+
+def _set_plan(user_id: str, plan: str) -> None:
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await session.execute(update(UserProfile).where(UserProfile.id == user_id).values(plan=plan))
+            await session.commit()
+
+    asyncio.run(_run())
 
 
 def _confirm_test_bean(client: TestClient, headers: dict[str, str], name: str = "表单新增测试豆") -> str:
@@ -322,3 +336,46 @@ def test_brew_confirm_completes_ratio_fields_from_any_two_values() -> None:
     assert second_record.status_code == 200
     assert second_record.json()["dose_g"] == 15
     assert second_record.json()["ratio"] == "1:17"
+
+
+def test_peer_brew_records_require_pro_and_return_anonymous_same_bean_records() -> None:
+    client = TestClient(create_app())
+    source_headers = {"Authorization": "Bearer dev:peer-source:source@example.com"}
+    viewer_headers = {"Authorization": "Bearer dev:peer-viewer:viewer@example.com"}
+
+    source_bean_id = _confirm_test_bean(client, source_headers, name="同豆参考测试 瑰夏 水洗")
+    viewer_bean_id = _confirm_test_bean(client, viewer_headers, name="同豆参考测试 瑰夏 水洗")
+
+    created = client.post(
+        "/v1/brew/records",
+        headers=source_headers,
+        json={
+            "bean_card_id": source_bean_id,
+            "device": "V60",
+            "grinder": "C40",
+            "dose_g": 15,
+            "water_ml": 240,
+            "water_temp_c": 92,
+            "brew_time_seconds": 155,
+            "brew_score": 4,
+            "notes": "源用户自己的备注，不应返回给其他用户",
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    denied = client.get("/v1/brew/records/peer", headers=viewer_headers, params={"bean_card_id": viewer_bean_id})
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "upgrade_required"
+
+    _set_plan("peer-viewer", "pro")
+    peers = client.get("/v1/brew/records/peer", headers=viewer_headers, params={"bean_card_id": viewer_bean_id})
+    assert peers.status_code == 200, peers.text
+    body = peers.json()
+    assert len(body) == 1
+    assert body[0]["bean_name"] == "同豆参考测试 瑰夏 水洗"
+    assert body[0]["device"] == "V60"
+    assert body[0]["brew_score"] == 4
+    assert "user_id" not in body[0]
+    assert "raw_input" not in body[0]
+    assert "notes" not in body[0]
+    assert "trace_id" not in body[0]

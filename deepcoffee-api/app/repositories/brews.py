@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import BrewRecord as BrewRecordORM
 from app.models.tables import UserBeanCard as UserBeanCardORM
-from app.schemas.brew import BrewDraft, BrewEvaluation, BrewRecord, BrewRecordUpdateRequest
+from app.schemas.brew import AnonymousBrewRecord, BrewDraft, BrewEvaluation, BrewRecord, BrewRecordUpdateRequest
 from app.services.brew_validation import format_ratio
 
 
@@ -49,6 +49,34 @@ def _to_record(row: BrewRecordORM, bean_rating: dict | None = None) -> BrewRecor
     record = BrewRecord.model_validate(row)
     record.bean_rating = _rating_model(bean_rating)
     return record
+
+
+def _to_anonymous_record(row: BrewRecordORM) -> AnonymousBrewRecord:
+    return AnonymousBrewRecord(
+        id=row.id,
+        bean_name=row.bean_name,
+        origin=row.origin,
+        roaster=row.roaster,
+        process=row.process,
+        varietal=row.varietal,
+        brew_method=row.brew_method,
+        device=row.device,
+        grinder=row.grinder,
+        grind_setting=row.grind_setting,
+        filter_media=row.filter_media,
+        water=row.water,
+        dose_g=row.dose_g,
+        water_ml=row.water_ml,
+        water_temp_c=row.water_temp_c,
+        ratio=row.ratio,
+        ratio_value=row.ratio_value,
+        brew_time=row.brew_time,
+        brew_time_seconds=row.brew_time_seconds,
+        brew_steps=row.brew_steps or [],
+        evaluation=_rating_model(row.evaluation),
+        brew_score=row.brew_score,
+        created_at=row.created_at,
+    )
 
 
 def _apply_ratio_from_amounts(updates: dict, row: BrewRecordORM) -> None:
@@ -172,6 +200,55 @@ class BrewRecordRepository:
             card = await session.get(UserBeanCardORM, row.bean_card_id)
             rating = card.rating if card else None
         return _to_record(row, rating)
+
+    async def list_peer_for_bean(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        bean_card_id: str,
+        limit: int = 50,
+    ) -> list[AnonymousBrewRecord] | None:
+        source_card = await session.get(UserBeanCardORM, bean_card_id)
+        if source_card is None or source_card.user_id != user_id or source_card.status != "active":
+            return None
+
+        conditions = [
+            BrewRecordORM.user_id != user_id,
+            BrewRecordORM.record_type == "user",
+            BrewRecordORM.is_user_visible.is_(True),
+            BrewRecordORM.bean_card_id.is_not(None),
+            UserBeanCardORM.status == "active",
+        ]
+
+        entity_conditions = []
+        for attr in ("roaster_product_entity_id", "green_bean_product_entity_id"):
+            value = getattr(source_card, attr)
+            if value:
+                entity_conditions.append(getattr(UserBeanCardORM, attr) == value)
+        if entity_conditions:
+            conditions.append(or_(*entity_conditions))
+        else:
+            exact_fields = [
+                ("name", source_card.name),
+                ("roaster_name", source_card.roaster_name),
+                ("origin_name", source_card.origin_name),
+                ("process_name", source_card.process_name),
+            ]
+            available = [(field, value.strip().lower()) for field, value in exact_fields if isinstance(value, str) and value.strip()]
+            if len(available) < 3:
+                return []
+            for field, value in available:
+                conditions.append(func.lower(getattr(UserBeanCardORM, field)) == value)
+
+        result = await session.execute(
+            select(BrewRecordORM)
+            .join(UserBeanCardORM, UserBeanCardORM.id == BrewRecordORM.bean_card_id)
+            .where(*conditions)
+            .order_by(BrewRecordORM.created_at.desc())
+            .limit(limit)
+        )
+        return [_to_anonymous_record(row) for row in result.scalars().all()]
 
     async def update(
         self, session: AsyncSession, *, user_id: str, record_id: str, payload: BrewRecordUpdateRequest

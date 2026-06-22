@@ -153,6 +153,32 @@ class BrewRecordListResponse(BaseModel):
     total: int
 
 
+class AnonymousBrewRecord(BaseModel):
+    id: str
+    bean_name: str | None = None
+    origin: str | None = None
+    roaster: str | None = None
+    process: str | None = None
+    varietal: str | None = None
+    brew_method: str | None = None
+    device: str | None = None
+    grinder: str | None = None
+    grind_setting: str | None = None
+    filter_media: str | None = None
+    water: str | None = None
+    dose_g: float | None = None
+    water_ml: float | None = None
+    water_temp_c: float | None = None
+    ratio: str | None = None
+    ratio_value: float | None = None
+    brew_time: str | None = None
+    brew_time_seconds: int | None = None
+    brew_steps: list[BrewStep] = Field(default_factory=list)
+    evaluation: BrewEvaluation | None = None
+    brew_score: int | None = None
+    created_at: datetime
+
+
 class BrewRecordUpdateRequest(BaseModel):
     bean_card_id: str | None = Field(default=None, max_length=64)
     bean_name: str | None = None

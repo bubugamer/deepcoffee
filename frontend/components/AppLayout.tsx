@@ -11,6 +11,7 @@ import { ProfileContext } from '@/components/ProfileContext'
 import { getUserProfile, getUserQuota } from '@/lib/api/user'
 import { ApiError, isApiEnabled } from '@/lib/api/client'
 import { getToken, removeToken, setToken } from '@/lib/auth'
+import { canBrowseKnowledge, canUseBeanSquare, planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from '@/lib/entitlements'
 import { supabase } from '@/lib/supabase'
 import type { UserProfile, UserQuota } from '@/types'
 
@@ -25,8 +26,6 @@ const nav: NavItem[] = [
   { label: '我的豆仓',      href: '/app/beans',     icon: LayoutGrid },
   { label: '冲煮记录',      href: '/app/records',   icon: ClipboardList },
   { label: '我的器具',      href: '/app/equipment', icon: Wrench },
-  { label: '知识库',        href: '/knowledge',     icon: BookOpen },
-  { label: '设置',          href: '/app/settings',  icon: Settings },
 ]
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -98,6 +97,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
         setToken(session.access_token)
       } else if (event === 'SIGNED_OUT') {
+        if (getToken()?.startsWith('dev:')) return
         removeToken()
         router.replace('/')
       }
@@ -113,14 +113,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const displayName = profile?.display_name ?? profile?.email ?? '账户'
   const initial = displayName.charAt(0) || '?'
-  const planLabel  = profile?.plan === 'pro' ? 'Pro 版' : profile ? '免费版' : '载入中'
-  const isUnlimited = quota?.ai_total === null
-  const quotaUsageLabel = quota
-    ? isUnlimited ? `${quota.ai_used} / 无限` : `${quota.ai_used} / ${quota.ai_total}`
-    : '暂不可用'
-  const quotaPercent = quota && !isUnlimited && quota.ai_total
-    ? Math.min(Math.round((quota.ai_used / quota.ai_total) * 100), 100)
-    : 0
+  const planLabel = displayPlanLabel(profile)
+  const quotaPercent = calcQuotaPercent(quota)
+  const quotaUsageLabel = quota ? `${quotaPercent}%` : '暂不可用'
+  const visibleNav: NavItem[] = [
+    ...nav,
+    ...(canUseBeanSquare(profile) ? [{ label: '豆仓广场', href: '/app/bean-square', icon: LayoutGrid }] : []),
+    ...(canBrowseKnowledge(profile) ? [{ label: '知识库', href: '/knowledge', icon: BookOpen }] : []),
+    { label: '设置', href: '/app/settings', icon: Settings },
+  ]
 
   // 侧边栏内容（桌面与移动抽屉共用）
   const sidebar = (
@@ -135,7 +136,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Nav（管理员追加管理后台入口） */}
       <nav className="flex-1 py-4 px-3 flex flex-col gap-0.5 overflow-y-auto">
-        {[...nav, ...(profile?.role === 'admin' ? [{ label: '管理后台', href: '/admin', icon: ShieldCheck }] : [])].map(({ label, href, icon: Icon }) => {
+        {[...visibleNav, ...(profile?.role === 'admin' ? [{ label: '管理后台', href: '/admin', icon: ShieldCheck }] : [])].map(({ label, href, icon: Icon }) => {
           const active = path === href || (href !== '/app' && path.startsWith(href))
           return (
             <Link
@@ -166,7 +167,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {accountError && (
             <div className="mt-1.5 text-xs text-dc-red leading-relaxed">{accountError}</div>
           )}
-          {quota && !isUnlimited && (
+          {quota && (
             <div className="mt-1.5 h-1.5 bg-dc-border rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${quotaPercent > 80 ? 'bg-dc-yellow' : 'bg-dc-accent'}`}

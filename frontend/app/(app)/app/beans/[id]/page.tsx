@@ -62,6 +62,7 @@ interface EditState {
   axes: FlavorAxis[]
   rating: BrewEvaluation | null
   privateNotes: string
+  publicComment: string
   params: Record<string, string>
   components: ComponentDraft[]
 }
@@ -101,6 +102,7 @@ function beanToEdit(bean: Bean): EditState {
     axes: (bean.flavor.axes ?? []).map(a => ({ label: a.label, value: a.value ?? null })),
     rating: bean.rating ?? null,
     privateNotes: bean.private_notes ?? '',
+    publicComment: bean.public_comment ?? '',
     components: (bean.bean_components ?? []).map(componentToDraft),
     params: {
       device: p?.device ?? '',
@@ -287,6 +289,7 @@ export default function BeanDetailPage() {
       }
       if (edit.varietalsText !== initial.varietalsText) patch.varietal_names = splitList(edit.varietalsText)
       if (edit.privateNotes !== initial.privateNotes) patch.private_notes = edit.privateNotes.trim() || null
+      if (edit.publicComment !== initial.publicComment) patch.public_comment = edit.publicComment.trim() || null
       if (JSON.stringify(edit.components) !== JSON.stringify(initial.components)) {
         patch.bean_components = edit.components.map(draftToComponent)
       }
@@ -573,11 +576,22 @@ export default function BeanDetailPage() {
           </Section>
 
           <Section title="备注">
+            <p className="text-xs text-dc-text-3 mb-2">仅本人可见。</p>
             <textarea
               value={edit.privateNotes}
               onChange={event => setEdit({ ...edit, privateNotes: event.target.value })}
               placeholder="采收期、购买渠道、豆袋长文、个人备注…"
               className="dc-input text-sm min-h-[120px] resize-none leading-relaxed"
+            />
+          </Section>
+
+          <Section title="评论">
+            <p className="text-xs text-dc-text-3 mb-2">评论会被公开，其他用户看到该豆卡时，会看到您的匿名评论。</p>
+            <textarea
+              value={edit.publicComment}
+              onChange={event => setEdit({ ...edit, publicComment: event.target.value })}
+              placeholder="写下这支豆子的公开评价、购买印象或冲煮感受…"
+              className="dc-input text-sm min-h-[100px] resize-none leading-relaxed"
             />
           </Section>
         </div>
@@ -656,7 +670,15 @@ export default function BeanDetailPage() {
 
             {bean.private_notes && (
               <Section title="备注">
+                <p className="text-xs text-dc-text-3 mb-2">仅本人可见。</p>
                 <p className="text-sm text-dc-text-2 leading-relaxed whitespace-pre-line">{bean.private_notes}</p>
+              </Section>
+            )}
+
+            {bean.public_comment && (
+              <Section title="评论">
+                <p className="text-xs text-dc-text-3 mb-2">会以匿名评论展示在豆仓广场。</p>
+                <p className="text-sm text-dc-text-2 leading-relaxed whitespace-pre-line">{bean.public_comment}</p>
               </Section>
             )}
           </div>
@@ -686,7 +708,7 @@ export default function BeanDetailPage() {
               </div>
             </Section>
 
-            <Link href={`/app/records?bean=${encodeURIComponent(bean.name)}`} className="dc-card p-5 flex items-center gap-3 hover:border-dc-accent-hi transition-colors block">
+            <Link href={`/app/records?bean=${encodeURIComponent(bean.name)}&bean_id=${encodeURIComponent(bean.bean_id)}`} className="dc-card p-5 flex items-center gap-3 hover:border-dc-accent-hi transition-colors block">
               <div className="w-9 h-9 rounded-full bg-dc-accent-light flex-shrink-0 flex items-center justify-center">
                 <ClipboardList size={16} className="text-dc-accent" strokeWidth={1.8} />
               </div>

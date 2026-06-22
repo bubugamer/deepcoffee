@@ -3,12 +3,26 @@ from __future__ import annotations
 import asyncio
 
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from app.core.db import get_sessionmaker
 from app.main import create_app
-from app.models.tables import UserEquipmentItem
+from app.models.tables import UserEquipmentItem, UserProfile
 
 HEADERS = {"Authorization": "Bearer dev:bean-user-1:bean@example.com"}
+
+
+def _headers(user_id: str, email: str | None = None) -> dict[str, str]:
+    return {"Authorization": f"Bearer dev:{user_id}:{email or f'{user_id}@example.com'}"}
+
+
+def _set_plan(user_id: str, plan: str) -> None:
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await session.execute(update(UserProfile).where(UserProfile.id == user_id).values(plan=plan))
+            await session.commit()
+
+    asyncio.run(_run())
 
 
 def _seed_equipment(user_id: str, dripper: str = "V60", grinder: str = "Comandante C40", filter_media: str = "Hario V60 滤纸") -> None:
@@ -48,10 +62,10 @@ def _seed_equipment(user_id: str, dripper: str = "V60", grinder: str = "Comandan
     asyncio.run(_do())
 
 
-def _confirm_bean(client: TestClient, name: str = "千峰庄园 瑰夏 日晒") -> str:
+def _confirm_bean(client: TestClient, name: str = "千峰庄园 瑰夏 日晒", headers: dict[str, str] = HEADERS) -> str:
     resp = client.post(
         "/v1/beans/confirm",
-        headers=HEADERS,
+        headers=headers,
         json={
             "draft": {
                 "name": name,
@@ -104,6 +118,7 @@ def test_bean_confirm_list_detail_and_flavor_update() -> None:
         f"/v1/beans/{bean_id}",
         headers=HEADERS,
         json={
+            "public_comment": "这支豆子适合稍低温拉甜感。",
             "flavor": {
                 "notes": ["茉莉花香", "柑橘"],
                 "source": "user",
@@ -115,6 +130,7 @@ def test_bean_confirm_list_detail_and_flavor_update() -> None:
     assert updated.status_code == 200
     assert updated.json()["flavor"]["source"] == "user"
     assert updated.json()["flavor"]["axes"][1]["value"] == 5
+    assert updated.json()["public_comment"] == "这支豆子适合稍低温拉甜感。"
 
     blocked = client.patch(
         f"/v1/beans/{bean_id}",
@@ -314,3 +330,53 @@ def test_recommend_params_put_requires_exactly_one_of_record_or_params() -> None
         json={"record_id": "brew_x", "params": {"device": "V60"}},
     )
     assert both.status_code == 422
+
+
+def test_bean_square_requires_pro_and_imports_private_copy_without_private_fields() -> None:
+    client = TestClient(create_app())
+    source_headers = _headers("square-source", "source@example.com")
+    viewer_headers = _headers("square-viewer", "viewer@example.com")
+    source_id = _confirm_bean(client, name="广场测试豆 日晒", headers=source_headers)
+
+    updated = client.patch(
+        f"/v1/beans/{source_id}",
+        headers=source_headers,
+        json={
+            "private_notes": "只有本人能看的进货渠道",
+            "public_comment": "匿名评论会出现在豆仓广场。",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+
+    assert client.get("/v1/me", headers=viewer_headers).status_code == 200
+    denied = client.get("/v1/beans/square", headers=viewer_headers)
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "upgrade_required"
+
+    _set_plan("square-viewer", "pro")
+    listed = client.get("/v1/beans/square", headers=viewer_headers)
+    assert listed.status_code == 200, listed.text
+    item = next(bean for bean in listed.json()["items"] if bean["bean_id"] == source_id)
+    assert item["public_comment"] == "匿名评论会出现在豆仓广场。"
+    assert "private_notes" not in item
+    assert "user_id" not in item
+
+    imported = client.post("/v1/beans/square/import", headers=viewer_headers, json={"bean_ids": [source_id, source_id]})
+    assert imported.status_code == 200, imported.text
+    body = imported.json()
+    assert body["created_count"] == 1
+    assert body["existing_count"] == 0
+    imported_id = body["items"][0]["bean_id"]
+
+    repeated = client.post("/v1/beans/square/import", headers=viewer_headers, json={"bean_ids": [source_id]})
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["created_count"] == 0
+    assert repeated.json()["existing_count"] == 1
+    assert repeated.json()["items"][0]["bean_id"] == imported_id
+
+    detail = client.get(f"/v1/beans/{imported_id}", headers=viewer_headers)
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["name"] == "广场测试豆 日晒"
+    assert payload["private_notes"] is None
+    assert payload["public_comment"] is None

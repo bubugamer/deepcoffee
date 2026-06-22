@@ -93,9 +93,10 @@ function Dots({ value, max = 5, color }: { value?: number | null; max?: number; 
 }
 
 function BrewRecordsBtn({ bean, textColor, bgColor }: { bean: Bean; textColor: string; bgColor: string }) {
+  const href = `/app/records?bean=${encodeURIComponent(bean.name)}&bean_id=${encodeURIComponent(bean.bean_id)}`
   return (
     <Link
-      href={`/app/records?bean=${encodeURIComponent(bean.name)}`}
+      href={href}
       onClick={(event) => event.stopPropagation()}
       className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity hover:opacity-70"
       style={{ background: bgColor, color: textColor }}

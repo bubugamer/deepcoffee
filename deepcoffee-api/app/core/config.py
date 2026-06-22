@@ -15,7 +15,7 @@ def default_repo_root() -> Path:
 
 class Settings(BaseSettings):
     app_name: str = "DeepCoffee API"
-    app_version: str = "0.25.0"
+    app_version: str = "0.26.0"
     app_env: str = Field(default="local", validation_alias=AliasChoices("DEEPCOFFEE_APP_ENV", "APP_ENV"))
     api_prefix: str = "/v1"
     docs_enabled: bool = True
@@ -137,9 +137,10 @@ class Settings(BaseSettings):
     # 天然一次性（消费即标记 used）。dev/beta 如需临时复用码，可显式配 DEEPCOFFEE_DEFAULT_INVITE_CODES。
     default_invite_codes: list[str] = Field(default_factory=list)
 
-    # Basic 套餐每月 AI 问答次数上限（真门禁阈值，同时作为 /me/quota、/billing/plans 的展示数）。
-    # Pro 视为无限。放进 Settings 便于按环境调参与测试覆写。
-    ai_quota_basic: int = Field(default=500, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_BASIC", "AI_QUOTA_BASIC"))
+    # 各套餐每月 AI 问答次数上限（真门禁阈值，同时作为 /me/quota、/billing/plans 的展示数）。
+    ai_quota_basic: int = Field(default=99, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_BASIC", "AI_QUOTA_BASIC"))
+    ai_quota_pro: int = Field(default=500, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_PRO", "AI_QUOTA_PRO"))
+    ai_quota_max: int = Field(default=1000, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_MAX", "AI_QUOTA_MAX"))
 
     model_config = SettingsConfigDict(
         env_file=".env",

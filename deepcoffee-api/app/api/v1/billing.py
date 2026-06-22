@@ -9,33 +9,44 @@ from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.schemas.billing import BillingPlan, UsageSummary
 from app.services.billing_service import billing_service
+from app.services.entitlements import plan_definitions
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 
 @router.get("/plans", response_model=list[BillingPlan])
 async def list_plans(settings: Settings = Depends(get_settings)) -> list[BillingPlan]:
-    basic_quota = settings.ai_quota_basic
+    plans = plan_definitions(settings)
     return [
         BillingPlan(
             id="basic",
-            name="Basic",
+            name=plans["basic"].name,
             price=0,
             currency="CNY",
             token_limit=0,
-            request_limit=basic_quota,
+            request_limit=plans["basic"].monthly_quota,
             period="month",
-            features=[f"AI 问答 {basic_quota} 次 / 月", "知识库文章免费浏览", "冲煮记录不限条数"],
+            features=list(plans["basic"].features),
         ),
         BillingPlan(
             id="pro",
-            name="Pro",
-            price=49,
+            name=plans["pro"].name,
+            price=59,
             currency="CNY",
             token_limit=None,
-            request_limit=None,
+            request_limit=plans["pro"].monthly_quota,
             period="month",
-            features=["AI 问答无限次", "知识库文章免费浏览", "冲煮记录不限条数", "多记录横向对比"],
+            features=list(plans["pro"].features),
+        ),
+        BillingPlan(
+            id="max",
+            name=plans["max"].name,
+            price=99,
+            currency="CNY",
+            token_limit=None,
+            request_limit=plans["max"].monthly_quota,
+            period="month",
+            features=list(plans["max"].features),
         ),
     ]
 

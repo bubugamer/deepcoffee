@@ -10,12 +10,14 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
+from app.models.tables import UserProfile
 from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
 from app.repositories.equipment import equipment_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
 from app.schemas.brew import (
+    AnonymousBrewRecord,
     BrewComparisonItem,
     BrewConfirmRequest,
     BrewConfirmResponse,
@@ -32,6 +34,7 @@ from app.schemas.bean import Bean, BeanUpdateRequest
 from app.services.brew_parse_ai import parse_brew_with_model
 from app.services.brew_recap_ai import recap_with_model
 from app.services.brew_validation import complete_brew_parameters, validate_confirm_draft
+from app.services.entitlements import is_admin_user, require_bean_square
 from app.services.input_parser import assess_brew_draft, parse_brew_input
 from app.services.langfuse_client import langfuse_tracer
 from app.services.recap_service import build_local_recap
@@ -259,6 +262,21 @@ async def compare_brew_records(
         )
         for record in records
     ]
+
+
+@router.get("/records/peer", response_model=list[AnonymousBrewRecord])
+async def list_peer_brew_records(
+    bean_card_id: str = Query(min_length=1, max_length=64),
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> list[AnonymousBrewRecord]:
+    profile = await session.get(UserProfile, user.id)
+    require_bean_square(profile.plan if profile else "basic", is_admin=is_admin_user(profile, user, settings))
+    records = await brew_record_repository.list_peer_for_bean(session, user_id=user.id, bean_card_id=bean_card_id)
+    if records is None:
+        raise AppError(404, "bean_not_found", "Bean not found.")
+    return records
 
 
 @router.get("/records/{record_id}", response_model=BrewRecord)

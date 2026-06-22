@@ -59,6 +59,32 @@ export interface BrewRecord {
   updated_at: string
 }
 
+export interface AnonymousBrewRecord {
+  id: string
+  bean_name?: string | null
+  origin?: string | null
+  roaster?: string | null
+  process?: string | null
+  varietal?: string | null
+  brew_method?: string | null
+  device?: string | null
+  grinder?: string | null
+  grind_setting?: string | null
+  filter_media?: string | null
+  water?: string | null
+  dose_g?: number | null
+  water_ml?: number | null
+  water_temp_c?: number | null
+  ratio?: string | null
+  ratio_value?: number | null
+  brew_time?: string | null
+  brew_time_seconds?: number | null
+  brew_steps: BrewStep[]
+  evaluation?: BrewEvaluation | null
+  brew_score?: number | null
+  created_at: string
+}
+
 export interface BrewDraft {
   bean_card_id?: string
   bean_name?: string
@@ -161,6 +187,7 @@ export interface BeanDraft {
   bean_components?: BeanComponent[]
   flavor?: BeanFlavor
   private_notes?: string
+  public_comment?: string
 }
 
 export interface BeanRecommendedParams {
@@ -196,12 +223,52 @@ export interface Bean {
   flavor: BeanFlavor
   rating?: BrewEvaluation | null
   private_notes?: string | null
+  public_comment?: string | null
   recommended_record_id?: string | null
   recommended_params?: BeanRecommendedParams | null
   avg_score?: number | null
   record_count: number
   created_at: string
   updated_at: string
+}
+
+export interface BeanSquareItem {
+  bean_id: string
+  name: string
+  roaster?: string | null
+  roaster_canonical?: string | null
+  roaster_product?: string | null
+  coffee_source?: string | null
+  green_bean_merchant?: string | null
+  green_bean_product?: string | null
+  origin?: string | null
+  process?: string | null
+  varietal: string[]
+  altitude_text?: string | null
+  harvest_date_text?: string | null
+  roast_date_text?: string | null
+  net_weight_text?: string | null
+  bean_components: BeanComponent[]
+  flavor: BeanFlavor
+  rating?: BrewEvaluation | null
+  public_comment?: string | null
+  recommended_params?: BeanRecommendedParams | null
+  avg_score?: number | null
+  record_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface BeanSquareImportItem {
+  source_bean_id: string
+  bean_id: string
+  status: 'created' | 'existing'
+}
+
+export interface BeanSquareImportResponse {
+  items: BeanSquareImportItem[]
+  created_count: number
+  existing_count: number
 }
 
 export interface BeanParseResponse {
@@ -326,7 +393,7 @@ export interface UserQuota {
   plan: string
   balance: number
   ai_used: number
-  ai_total: number | null  // null = unlimited (Pro)
+  ai_total: number | null
   ai_remaining: number | null
   reset_at?: string | null
   features: string[]
@@ -339,7 +406,7 @@ export interface BillingPlan {
   price: number
   currency: string
   token_limit: number | null
-  request_limit: number | null   // null = 无限次（Pro）
+  request_limit: number | null
   period: string
   features: string[]
 }

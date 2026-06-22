@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
+from app.models.tables import UserProfile
 from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
 from app.repositories.coffea_sessions import coffea_session_repository
@@ -23,6 +24,10 @@ from app.schemas.bean import (
     BeanListResponse,
     BeanParseRequest,
     BeanParseResponse,
+    BeanSquareImportRequest,
+    BeanSquareImportResponse,
+    BeanSquareItem,
+    BeanSquareListResponse,
     BeanUpdateRequest,
     RecommendationParams,
     RecommendEquipment,
@@ -37,6 +42,7 @@ from app.services.bean_parser import assess_bean_draft, parse_bean_input
 from app.services.bean_recommend_service import evaluate_turn
 from app.services.brew_validation import complete_brew_parameters
 from app.services.candidate_service import candidate_service
+from app.services.entitlements import is_admin_user, require_bean_square
 from app.services.langfuse_client import langfuse_tracer
 
 router = APIRouter(prefix="/beans", tags=["beans"], dependencies=[Depends(require_member)])
@@ -158,6 +164,48 @@ async def confirm_bean(
         output={"bean_id": bean_id},
     )
     return BeanConfirmResponse(bean_id=bean_id, trace_id=trace_id)
+
+
+@router.get("/square", response_model=BeanSquareListResponse)
+async def list_bean_square(
+    q: str | None = Query(default=None, description="搜索豆名/烘焙商/产地/处理法/评论"),
+    process: str | None = Query(default=None),
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> BeanSquareListResponse:
+    profile = await session.get(UserProfile, user.id)
+    require_bean_square(profile.plan if profile else "basic", is_admin=is_admin_user(profile, user, settings))
+    items, total = await bean_repository.list_square(session, q=q, process=process)
+    return BeanSquareListResponse(items=items, total=total)
+
+
+@router.post("/square/import", response_model=BeanSquareImportResponse)
+async def import_bean_square(
+    payload: BeanSquareImportRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> BeanSquareImportResponse:
+    profile = await session.get(UserProfile, user.id)
+    require_bean_square(profile.plan if profile else "basic", is_admin=is_admin_user(profile, user, settings))
+    await profile_repository.get_or_create(session, user.id, user.email)
+    return await bean_repository.import_from_square(session, user_id=user.id, source_bean_ids=payload.bean_ids)
+
+
+@router.get("/square/{bean_id}", response_model=BeanSquareItem)
+async def get_bean_square(
+    bean_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> BeanSquareItem:
+    profile = await session.get(UserProfile, user.id)
+    require_bean_square(profile.plan if profile else "basic", is_admin=is_admin_user(profile, user, settings))
+    item = await bean_repository.get_square(session, bean_id=bean_id)
+    if item is None:
+        raise AppError(404, "bean_not_found", "Bean not found.")
+    return item
 
 
 @router.get("/{bean_id}", response_model=Bean)
