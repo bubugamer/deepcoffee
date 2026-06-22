@@ -26,7 +26,7 @@
 ## 目录结构
 
 ```
-deepcoffee-api/   # FastAPI 后端（app/、tests/、migrations/）
+deepcoffee-api/   # FastAPI 后端（app/、tests/、schema/、migrations/）
 frontend/         # Next.js 前端
 knowledge/        # Markdown 知识库（后端只读挂载）
 deploy/           # 前端 Dockerfile、引导邀请码生成脚本
@@ -47,7 +47,7 @@ docker-compose.yml
 
    模型配置留空也能跑：所有 AI 能力自动退回本地规则。
 
-2. **初始化数据库**：在 Supabase SQL Editor 依次执行 `deepcoffee-api/migrations/` 下的 SQL（新表会在 api 启动时自动创建，已有表的加列必须手动执行迁移）。
+2. **初始化数据库**：新库先执行 `deepcoffee-api/schema/baseline_2026_06_22.sql`；之后只执行 `deepcoffee-api/migrations/` 根目录下的新迁移。`deepcoffee-api/migrations/archive/` 是已执行过的历史 SQL，仅作追溯，不再作为初始化步骤。
 
 3. **生成引导邀请码**（首个管理员）：
 

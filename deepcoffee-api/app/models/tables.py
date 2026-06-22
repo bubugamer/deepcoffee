@@ -17,7 +17,7 @@ class UserProfile(Base):
     display_name: Mapped[str | None] = mapped_column(String)
     plan: Mapped[str] = mapped_column(String, default="basic", server_default="basic", nullable=False)
     # 管理员身份持久化在 DB（user / admin）。环境变量 DEEPCOFFEE_ADMIN_USER_IDS 仍可作兜底名单。
-    # 注意：user_profiles 在 Supabase 已存在，create_all 不会补列，上线前需手跑 ALTER（见 migrations/004、005）。
+    # 注意：user_profiles 在 Supabase 已存在，create_all 不会补列；新库用 schema baseline，存量库用后续迁移补列。
     role: Mapped[str] = mapped_column(String, default="user", server_default="user", nullable=False)
     # 账号状态（active / disabled）。disabled 由管理员设置，业务接口与 /me 一律 403 account_disabled。
     status: Mapped[str] = mapped_column(String, default="active", server_default="active", nullable=False)
