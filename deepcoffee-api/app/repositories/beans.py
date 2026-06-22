@@ -311,7 +311,12 @@ class BeanRepository:
         q: str | None = None,
         process: str | None = None,
     ) -> tuple[list[BeanSquareItem], int]:
-        conditions = [UserBeanCardORM.status == "active"]
+        # 广场只展示「原创」豆卡：排除「加入我的豆仓」产生的副本（source_bean_card_id 不为空），
+        # 否则同一支豆会随导入次数在广场重复出现。
+        conditions = [
+            UserBeanCardORM.status == "active",
+            UserBeanCardORM.source_bean_card_id.is_(None),
+        ]
         if q:
             like = f"%{q.strip()}%"
             conditions.append(
@@ -341,7 +346,8 @@ class BeanRepository:
 
     async def get_square(self, session: AsyncSession, *, bean_id: str) -> BeanSquareItem | None:
         card = await session.get(UserBeanCardORM, bean_id)
-        if card is None or card.status != "active":
+        # 副本（source_bean_card_id 不为空）不是广场条目：详情同样不暴露，保持与列表一致。
+        if card is None or card.status != "active" or card.source_bean_card_id is not None:
             return None
         stats = (await self._stats(session, [card.id]))[card.id]
         rec = await self._recommended_params(session, card.recommended_record_id)
