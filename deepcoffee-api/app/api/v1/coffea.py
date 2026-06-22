@@ -263,7 +263,22 @@ async def _autosave_bean_card(
             continue
         draft = BeanDraft(**output["draft"])
         summary = summarize_draft(draft)
-        name = (draft.name or "").strip()
+        name = (draft.name or draft.roaster_product_name or "").strip()
+        missing_required = [
+            label for label, value in [
+                ("烘焙商", draft.roaster_name),
+                ("产地", draft.origin_name),
+                ("处理法", draft.process_name),
+            ]
+            if not (isinstance(value, str) and value.strip())
+        ]
+        if not name or missing_required:
+            output["auto_save_eligible"] = False
+            result.message = (
+                f"我从图片里识别到：{summary}。还缺{'、'.join(missing_required) if missing_required else '豆名'}，"
+                "请在下面的草稿卡里确认后再保存。"
+            )
+            continue
         if any(b.name.strip() == name for b in existing_beans):
             output["auto_save_eligible"] = False
             result.message = (

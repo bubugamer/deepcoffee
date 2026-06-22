@@ -275,6 +275,11 @@ class UserBeanCard(Base):
     origin_name: Mapped[str | None] = mapped_column(String)
     process_name: Mapped[str | None] = mapped_column(String)
     varietal_names: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    altitude_text: Mapped[str | None] = mapped_column(String)
+    harvest_date_text: Mapped[str | None] = mapped_column(String)
+    roast_date_text: Mapped[str | None] = mapped_column(String)
+    net_weight_text: Mapped[str | None] = mapped_column(String)
+    bean_components: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
 
     roaster_entity_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True

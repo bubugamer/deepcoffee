@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.brew import BrewEvaluation
 
-# 默认风味维度模板（烘焙商没给官方维度时用）：以「余韵」替换传统的「苦」。
+# 可选风味维度标签建议。无官方维度时不再自动生成默认维度。
 DEFAULT_FLAVOR_LABELS = ["酸质", "甜感", "醇厚", "余韵", "发酵感"]
 
 
@@ -26,12 +26,19 @@ class BeanFlavor(BaseModel):
 
 
 def default_flavor() -> BeanFlavor:
-    return BeanFlavor(
-        notes=[],
-        source="default",
-        scale_max=5,
-        axes=[FlavorAxis(label=label, value=None) for label in DEFAULT_FLAVOR_LABELS],
-    )
+    return BeanFlavor(notes=[], source="default", scale_max=5, axes=[])
+
+
+class BeanComponent(BaseModel):
+    """拼配 / 多豆源组成。单品可为空，拼配可有多条。"""
+
+    origin_name: str | None = Field(default=None, max_length=160)
+    coffee_source_name: str | None = Field(default=None, max_length=160)
+    process_name: str | None = Field(default=None, max_length=120)
+    varietal_names: list[str] = Field(default_factory=list)
+    altitude_text: str | None = Field(default=None, max_length=120)
+    share_text: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class BeanDraft(BaseModel):
@@ -44,6 +51,11 @@ class BeanDraft(BaseModel):
     origin_name: str | None = Field(default=None, max_length=120)
     process_name: str | None = Field(default=None, max_length=120)
     varietal_names: list[str] = Field(default_factory=list)
+    altitude_text: str | None = Field(default=None, max_length=120)
+    harvest_date_text: str | None = Field(default=None, max_length=120)
+    roast_date_text: str | None = Field(default=None, max_length=120)
+    net_weight_text: str | None = Field(default=None, max_length=80)
+    bean_components: list[BeanComponent] = Field(default_factory=list)
     flavor: BeanFlavor | None = None
     private_notes: str | None = Field(default=None, max_length=4000)
 
@@ -76,7 +88,8 @@ class BeanConfirmResponse(BaseModel):
 
 
 class BeanUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, max_length=160)
+    model_config = ConfigDict(extra="forbid")
+
     roaster_name: str | None = Field(default=None, max_length=120)
     roaster_product_name: str | None = Field(default=None, max_length=160)
     coffee_source_name: str | None = Field(default=None, max_length=160)
@@ -85,6 +98,11 @@ class BeanUpdateRequest(BaseModel):
     origin_name: str | None = Field(default=None, max_length=120)
     process_name: str | None = Field(default=None, max_length=120)
     varietal_names: list[str] | None = None
+    altitude_text: str | None = Field(default=None, max_length=120)
+    harvest_date_text: str | None = Field(default=None, max_length=120)
+    roast_date_text: str | None = Field(default=None, max_length=120)
+    net_weight_text: str | None = Field(default=None, max_length=80)
+    bean_components: list[BeanComponent] | None = None
     flavor: BeanFlavor | None = None
     rating: BrewEvaluation | None = None
     private_notes: str | None = Field(default=None, max_length=4000)
@@ -119,6 +137,11 @@ class Bean(BaseModel):
     origin: str | None = None
     process: str | None = None
     varietal: list[str] = Field(default_factory=list)
+    altitude_text: str | None = None
+    harvest_date_text: str | None = None
+    roast_date_text: str | None = None
+    net_weight_text: str | None = None
+    bean_components: list[BeanComponent] = Field(default_factory=list)
     flavor: BeanFlavor
     rating: BrewEvaluation | None = None
     private_notes: str | None = None

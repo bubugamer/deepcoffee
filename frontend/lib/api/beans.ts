@@ -22,13 +22,7 @@ const DEFAULT_FLAVOR = {
   notes: ['花香', '果味', '甜感'],
   source: 'default' as const,
   scale_max: 5,
-  axes: [
-    { label: '酸质', value: 3 },
-    { label: '甜感', value: 3 },
-    { label: '醇厚', value: 3 },
-    { label: '余韵', value: 3 },
-    { label: '发酵感', value: 2 },
-  ],
+  axes: [],
 }
 
 const DEFAULT_RATING = null
@@ -133,6 +127,11 @@ function fallbackBeans(): Bean[] {
       origin: first.origin ?? null,
       process: first.process ?? null,
       varietal: first.varietal ? [first.varietal] : [],
+      altitude_text: null,
+      harvest_date_text: null,
+      roast_date_text: null,
+      net_weight_text: null,
+      bean_components: [],
       flavor: FALLBACK_FLAVORS[name] ?? DEFAULT_FLAVOR,
       rating: DEFAULT_RATING,
       private_notes: null,
@@ -257,7 +256,7 @@ export async function confirmBean(
 }
 
 // PATCH /v1/beans/:id
-export type BeanUpdateInput = Partial<BeanDraft> & { rating?: BrewEvaluation | null }
+export type BeanUpdateInput = Omit<Partial<BeanDraft>, 'name'> & { rating?: BrewEvaluation | null }
 
 export async function updateBean(beanId: string, draft: BeanUpdateInput, token?: string | null): Promise<Bean> {
   if (isApiEnabled) {
@@ -271,7 +270,6 @@ export async function updateBean(beanId: string, draft: BeanUpdateInput, token?:
   if (!existing) throw new ApiError(404, 'not_found', '豆卡不存在')
   return {
     ...existing,
-    name: draft.name ?? existing.name,
     roaster: draft.roaster_name ?? existing.roaster,
     roaster_product: draft.roaster_product_name ?? existing.roaster_product,
     coffee_source: draft.coffee_source_name ?? existing.coffee_source,
@@ -280,6 +278,11 @@ export async function updateBean(beanId: string, draft: BeanUpdateInput, token?:
     origin: draft.origin_name ?? existing.origin,
     process: draft.process_name ?? existing.process,
     varietal: draft.varietal_names ?? existing.varietal,
+    altitude_text: draft.altitude_text ?? existing.altitude_text,
+    harvest_date_text: draft.harvest_date_text ?? existing.harvest_date_text,
+    roast_date_text: draft.roast_date_text ?? existing.roast_date_text,
+    net_weight_text: draft.net_weight_text ?? existing.net_weight_text,
+    bean_components: draft.bean_components ?? existing.bean_components,
     flavor: draft.flavor ?? existing.flavor,
     rating: Object.prototype.hasOwnProperty.call(draft, 'rating') ? draft.rating ?? null : existing.rating,
     private_notes: draft.private_notes ?? existing.private_notes,

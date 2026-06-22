@@ -66,7 +66,7 @@ def _confirm_bean(client: TestClient, name: str = "千峰庄园 瑰夏 日晒") 
     return resp.json()["bean_id"]
 
 
-def test_bean_parse_returns_default_flavor_template() -> None:
+def test_bean_parse_returns_flavor_without_default_axes() -> None:
     client = TestClient(create_app())
     resp = client.post(
         "/v1/beans/parse",
@@ -79,8 +79,7 @@ def test_bean_parse_returns_default_flavor_template() -> None:
     assert draft["origin_name"] == "巴拿马"
     assert draft["process_name"] == "日晒"
     assert "瑰夏" in draft["varietal_names"]
-    # 默认动态风味维度（5 根轴）。
-    assert len(draft["flavor"]["axes"]) == 5
+    assert draft["flavor"]["axes"] == []
     assert "茉莉" in draft["flavor"]["notes"]
     assert body["trace_id"].startswith("bean_parse_")
 
@@ -116,6 +115,56 @@ def test_bean_confirm_list_detail_and_flavor_update() -> None:
     assert updated.status_code == 200
     assert updated.json()["flavor"]["source"] == "user"
     assert updated.json()["flavor"]["axes"][1]["value"] == 5
+
+    blocked = client.patch(
+        f"/v1/beans/{bean_id}",
+        headers=HEADERS,
+        json={"name": "不应该改名"},
+    )
+    assert blocked.status_code == 422
+
+
+def test_bean_confirm_uses_roaster_product_as_stable_name_and_saves_components() -> None:
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/beans/confirm",
+        headers=HEADERS,
+        json={
+            "draft": {
+                "roaster_product_name": "Bong Bong",
+                "roaster_name": "coffee buff",
+                "origin_name": "多产地 / 拼配",
+                "process_name": "多处理法",
+                "altitude_text": "1700-2300m",
+                "harvest_date_text": "2026",
+                "roast_date_text": "2026/05/18",
+                "net_weight_text": "100g",
+                "bean_components": [
+                    {
+                        "origin_name": "Panama Chiriqui",
+                        "coffee_source_name": "Santamaria Estate",
+                        "process_name": "Washed",
+                        "varietal_names": ["Geisha"],
+                        "altitude_text": "1800m",
+                    },
+                    {
+                        "origin_name": "Ethiopia Oromia Guji",
+                        "coffee_source_name": "Gogogu Station",
+                        "process_name": "Washed",
+                        "varietal_names": ["Heirloom"],
+                        "altitude_text": "2100-2300m",
+                    },
+                ],
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    bean = client.get(f"/v1/beans/{resp.json()['bean_id']}", headers=HEADERS).json()
+    assert bean["name"] == "Bong Bong"
+    assert bean["altitude_text"] == "1700-2300m"
+    assert bean["net_weight_text"] == "100g"
+    assert len(bean["bean_components"]) == 2
+    assert bean["bean_components"][0]["coffee_source_name"] == "Santamaria Estate"
 
 
 def test_recommend_params_needs_equipment_then_completes() -> None:

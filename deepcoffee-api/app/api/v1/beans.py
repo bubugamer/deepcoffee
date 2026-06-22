@@ -42,6 +42,44 @@ from app.services.langfuse_client import langfuse_tracer
 router = APIRouter(prefix="/beans", tags=["beans"], dependencies=[Depends(require_member)])
 
 
+def _validate_required_bean_fields(draft: BeanConfirmRequest | BeanUpdateRequest) -> None:
+    data = draft.draft if isinstance(draft, BeanConfirmRequest) else draft
+    missing: list[str] = []
+    if isinstance(draft, BeanConfirmRequest) and not (
+        (data.name and data.name.strip())
+        or (data.roaster_product_name and data.roaster_product_name.strip())
+    ):
+        missing.append("draft.name")
+    for field in ("roaster_name", "origin_name", "process_name"):
+        value = getattr(data, field, None)
+        if not (isinstance(value, str) and value.strip()):
+            missing.append(f"draft.{field}" if isinstance(draft, BeanConfirmRequest) else field)
+    if missing:
+        raise AppError(
+            422,
+            "bean_required_fields_missing",
+            "确认建档前请填写烘焙商、产地和处理法。",
+            details={"fields": missing},
+        )
+
+
+def _validate_update_required_fields(payload: BeanUpdateRequest, current: Bean) -> None:
+    updates = payload.model_dump(exclude_unset=True)
+    values = {
+        "roaster_name": updates.get("roaster_name", current.roaster),
+        "origin_name": updates.get("origin_name", current.origin),
+        "process_name": updates.get("process_name", current.process),
+    }
+    missing = [field for field, value in values.items() if not (isinstance(value, str) and value.strip())]
+    if missing:
+        raise AppError(
+            422,
+            "bean_required_fields_missing",
+            "请填写烘焙商、产地和处理法后再保存豆卡。",
+            details={"fields": missing},
+        )
+
+
 @router.get("", response_model=BeanListResponse)
 async def list_beans(
     q: str | None = Query(default=None, description="搜索豆名/烘焙商/产地/处理法"),
@@ -98,8 +136,7 @@ async def confirm_bean(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> BeanConfirmResponse:
-    if not (payload.draft.name and payload.draft.name.strip()):
-        raise AppError(422, "bean_name_required", "确认建档前请填写豆名。", details={"field": "draft.name"})
+    _validate_required_bean_fields(payload)
     trace_id = f"bean_confirm_{uuid4().hex[:12]}"
     await profile_repository.get_or_create(session, user.id, user.email)
     bean_id = await bean_repository.create(
@@ -142,7 +179,12 @@ async def update_bean(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> Bean:
+    current = await bean_repository.get(session, user_id=user.id, bean_id=bean_id)
+    if current is None:
+        raise AppError(404, "bean_not_found", "Bean not found.")
+    _validate_update_required_fields(payload, current)
     bean = await bean_repository.update(session, user_id=user.id, bean_id=bean_id, payload=payload)
+    await candidate_service.extract_from_bean(session, user_id=user.id, bean_id=bean_id, trace_id=f"bean_update_{uuid4().hex[:12]}")
     if bean is None:
         raise AppError(404, "bean_not_found", "Bean not found.")
     return bean

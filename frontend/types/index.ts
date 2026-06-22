@@ -134,6 +134,16 @@ export interface BeanFlavor {
   axes: FlavorAxis[]
 }
 
+export interface BeanComponent {
+  origin_name?: string | null
+  coffee_source_name?: string | null
+  process_name?: string | null
+  varietal_names: string[]
+  altitude_text?: string | null
+  share_text?: string | null
+  notes?: string | null
+}
+
 export interface BeanDraft {
   name?: string
   roaster_name?: string
@@ -144,6 +154,11 @@ export interface BeanDraft {
   origin_name?: string
   process_name?: string
   varietal_names?: string[]
+  altitude_text?: string | null
+  harvest_date_text?: string | null
+  roast_date_text?: string | null
+  net_weight_text?: string | null
+  bean_components?: BeanComponent[]
   flavor?: BeanFlavor
   private_notes?: string
 }
@@ -173,6 +188,11 @@ export interface Bean {
   origin?: string | null
   process?: string | null
   varietal: string[]
+  altitude_text?: string | null
+  harvest_date_text?: string | null
+  roast_date_text?: string | null
+  net_weight_text?: string | null
+  bean_components: BeanComponent[]
   flavor: BeanFlavor
   rating?: BrewEvaluation | null
   private_notes?: string | null

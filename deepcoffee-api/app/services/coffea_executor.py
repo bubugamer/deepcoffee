@@ -407,7 +407,7 @@ def _bean_card_result(data: dict[str, Any], settings: Settings) -> ActionResult:
     draft = bean_card_intake.draft_from_bean_fields(data)
     confidence = bean_card_intake.effective_confidence(data, draft)
     summary = bean_card_intake.summarize_draft(draft)
-    if not draft.name:
+    if not (draft.name or draft.roaster_product_name):
         return ActionResult(
             type="read_bean_card_image",
             status="degraded",

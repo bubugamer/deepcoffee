@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from app.schemas.bean import BeanDraft, BeanFlavor, FlavorAxis, default_flavor
+from app.schemas.bean import BeanDraft, BeanFlavor, default_flavor
 
 # 处理法词表（含中英与常见别名）。
 _PROCESS_PATTERNS: list[tuple[str, str]] = [
@@ -148,19 +148,13 @@ def _extract_name(text: str, roaster: str | None, origin: str | None, varietals:
 
 
 def build_flavor(notes: list[str]) -> BeanFlavor:
-    """风味：有用户明确写出的关键词就标 source=user，否则用默认动态维度模板。
+    """风味：有明确写出的关键词就保存标签；无官方维度时不自动生成默认维度。
 
     本地解析和模型解析（bean_parse_ai）共用，保证两条路径产出的豆卡风味结构一致。
     """
-    base = default_flavor()
     if not notes:
-        return base
-    return BeanFlavor(
-        notes=notes,
-        source="user",
-        scale_max=base.scale_max,
-        axes=[FlavorAxis(label=a.label, value=None) for a in base.axes],
-    )
+        return default_flavor()
+    return BeanFlavor(notes=notes, source="user", scale_max=5, axes=[])
 
 
 def assess_bean_draft(draft: BeanDraft) -> tuple[float, list[str], str | None]:
@@ -170,13 +164,12 @@ def assess_bean_draft(draft: BeanDraft) -> tuple[float, list[str], str | None]:
         "roaster_name": draft.roaster_name,
         "origin_name": draft.origin_name,
         "process_name": draft.process_name,
-        "varietal_names": draft.varietal_names or None,
     }
     low_confidence = [field for field, value in important.items() if not value]
     confidence = round((len(important) - len(low_confidence)) / len(important), 2)
     clarification = None
     if low_confidence:
-        clarification = "请补充豆名、烘焙商、产地、处理法或品种中缺失的信息。"
+        clarification = "请补充豆名、烘焙商、产地或处理法中缺失的信息。"
     return confidence, low_confidence, clarification
 
 
