@@ -6,12 +6,14 @@ from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.db import get_sessionmaker
+from pathlib import Path
+
 from app.models.tables import (
     EntityAlias,
     EntitySource,
-    GreenBeanProduct,
     PublicEntity,
     Roaster,
+    RoasterProduct,
 )
 from app.repositories.entities import normalize_name
 from app.services.entity_seed_importer import EntitySeedImporter
@@ -134,33 +136,63 @@ def test_resync_skips_alias_already_present_from_other_source() -> None:
     asyncio.run(_run())
 
 
-def test_same_batch_links_product_to_merchant() -> None:
+def test_same_batch_links_roaster_product_to_roaster() -> None:
     async def _run() -> None:
         sm = get_sessionmaker()
         async with sm() as session:
             await _importer().run(session, dry_run=False)
             await session.commit()
 
-            merchant = (
+            roaster = (
                 await session.execute(
                     select(PublicEntity).where(
-                        PublicEntity.entity_type == "green_bean_merchant",
-                        PublicEntity.normalized_name == normalize_name("Ally Coffee"),
+                        PublicEntity.entity_type == "roaster",
+                        PublicEntity.normalized_name == normalize_name("DAK Coffee Roasters"),
                     )
                 )
             ).scalar_one()
+            # DAK Milky Cake 是具体单品（非产品线），应正常建实体并连上烘焙商。
             product = (
                 await session.execute(
                     select(PublicEntity).where(
-                        PublicEntity.normalized_name == normalize_name("Ally Coffee Core Coffee Program")
+                        PublicEntity.normalized_name == normalize_name("DAK Milky Cake")
                     )
                 )
             ).scalar_one()
-            row = await session.get(GreenBeanProduct, product.id)
-            assert row.merchant_name == "Ally Coffee"
-            assert row.merchant_entity_id == merchant.id  # 同批精确名匹配连上了外键
+            row = await session.get(RoasterProduct, product.id)
+            assert row.roaster_name == "DAK Coffee Roasters"
+            assert row.roaster_entity_id == roaster.id  # 同批精确名匹配连上了外键
 
-    asyncio.run(_run())
+
+def test_product_line_seeds_are_skipped() -> None:
+    """产品线/项目类产品种子（product_type 含 line/program/... ）不建实体；具体单品照常建。"""
+    imp = _importer()
+    rel = Path("roaster-products/x.md")
+
+    def build(etype: str, product_type: str):
+        meta = {
+            "title": f"Demo {product_type}",
+            "entity_type": etype,
+            "product_type": product_type,
+            "visibility": "support",
+            "knowledge_role": "entity_seed",
+        }
+        return imp._build_seed(rel, meta, body="# Demo\n\n正文。", raw="raw")
+
+    # 产品线/项目/订阅/系列/选品/平台 → 跳过（返回 None）
+    for pt in ("product_line", "green_coffee_program", "selection_program", "subscription", "filter_series", "small_bag_green_coffee_platform"):
+        assert build("roaster_product", pt) is None, pt
+        assert build("green_bean_product", pt) is None, pt
+    # 具体单品 → 照常建（非 None）
+    assert build("roaster_product", "blend") is not None
+    assert build("green_bean_product", "microlot") is not None
+    # 守卫只作用于产品类;其它类型不受影响
+    other = imp._build_seed(
+        Path("varietals/x.md"),
+        {"title": "Demo V", "entity_type": "varietal", "product_type": "anything_line", "visibility": "support", "knowledge_role": "entity_seed"},
+        body="# Demo\n\n正文。", raw="raw",
+    )
+    assert other is not None
 
 
 def test_ownership_human_touched_is_read_only() -> None:

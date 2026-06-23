@@ -11,6 +11,8 @@ country: Ethiopia
 coffee_source_type: cooperative
 aliases:
 - Konga Cooperative
+- Konga
+- 孔加
 source_quality: official_or_authoritative
 sources:
 - title: Trabocca Coffee Origins
