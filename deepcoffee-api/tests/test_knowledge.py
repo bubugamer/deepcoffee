@@ -127,13 +127,13 @@ def test_support_articles_are_searchable_but_not_listed() -> None:
     assert any("Tim Wendelboe" in item["title"] for item in candidates)
 
 
-def test_green_bean_product_support_detail_has_chinese_category() -> None:
+def test_roaster_product_support_detail_has_chinese_category() -> None:
     client = TestClient(create_app())
-    headers = _max_headers(client, "knowledge-green-max")
+    headers = _max_headers(client, "knowledge-rp-max")
 
-    detail = client.get("/v1/knowledge/articles/green-bean-products__project-origin-cm-selections", headers=headers)
+    detail = client.get("/v1/knowledge/articles/roaster-products__onyx-monarch", headers=headers)
     assert detail.status_code == 200
-    assert detail.json()["category"] == "生豆商产品"
+    assert detail.json()["category"] == "代表产品"
 
 
 def test_internal_content_not_served_to_users() -> None:

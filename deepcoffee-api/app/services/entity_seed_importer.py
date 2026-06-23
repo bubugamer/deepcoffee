@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -45,6 +46,12 @@ from app.services.knowledge_service import (
 
 SYNC_TARGET = "public_entity"
 ALIAS_SOURCE = "markdown_seed"
+
+# 产品类实体(roaster_product / green_bean_product)只收「具体单品」。frontmatter 的
+# product_type 命中「产品线 / 订阅 / 系列 / 项目 / 平台 / 选品」这类粒度时不建实体——
+# 否则会把「April 订阅」「Crown Jewels 选品」这种非单品灌进产品库,污染同豆/聚合判定。
+_PRODUCT_ENTITY_TYPES = frozenset({"roaster_product", "green_bean_product"})
+_PRODUCT_LINE_RE = re.compile(r"line|program|platform|selection|subscription|series", re.IGNORECASE)
 
 # 准入白名单（已归一的规范类型）。green_merchant 在归一阶段映射为 green_bean_merchant。
 SEED_ENTITY_TYPES = frozenset(
@@ -166,6 +173,11 @@ class EntitySeedImporter:
         title = _meta_str(meta.get("title")) or extract_title(body, rel.with_suffix("").name)
         if not title:
             return None
+        # 产品线/订阅/系列/项目类的产品种子不建实体(产品类只收具体单品)。
+        if etype in _PRODUCT_ENTITY_TYPES:
+            product_type = _meta_str(meta.get("product_type")) or ""
+            if _PRODUCT_LINE_RE.search(product_type):
+                return None
         summary = extract_summary(body) or None
         merchant_name = _meta_str(meta.get("merchant"))
         roaster_name = _meta_str(meta.get("roaster"))

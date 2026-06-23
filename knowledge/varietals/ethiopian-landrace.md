@@ -9,6 +9,9 @@ created: '2026-06-03'
 last_updated: '2026-06-03'
 aliases:
 - Ethiopian Landrace
+- 原生种
+- Heirloom
+- Ethiopian Heirloom
 source_quality: official_or_authoritative
 sources:
 - title: World Coffee Research Varieties Catalog
