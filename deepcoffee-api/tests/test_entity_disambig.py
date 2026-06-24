@@ -9,6 +9,7 @@ from app.repositories.entities import (
     alias_fragments,
     disambig_key,
     entity_repository,
+    prefer_canonical,
 )
 
 
@@ -26,6 +27,44 @@ def test_alias_fragments_splits_mixed_name() -> None:
     f = alias_fragments("Captain George / 乔治队长")
     assert "Captain George" in f and "乔治队长" in f
     assert "Captain George / 乔治队长" in f  # 整名也保留
+
+
+def test_prefer_canonical_picks_chinese_side() -> None:
+    # 「中文 / English」与「English / 中文」都取中文为主名,其余(含整条双语串)转别名。
+    canon, aliases = prefer_canonical("卡杜拉 / Caturra")
+    assert canon == "卡杜拉"
+    assert "Caturra" in aliases and "卡杜拉 / Caturra" in aliases
+    assert "卡杜拉" not in aliases
+
+    canon, aliases = prefer_canonical("Captain George / 乔治队长")
+    assert canon == "乔治队长"
+    assert "Captain George" in aliases
+
+    # 多名取首个中文片段,其余英文写法全转别名。
+    canon, aliases = prefer_canonical("瑰夏 / Geisha / Gesha")
+    assert canon == "瑰夏"
+    assert "Geisha" in aliases and "Gesha" in aliases
+
+    # 括号双语「中文（English）」也取中文(复用 alias_fragments 的括号拆分)。
+    canon, aliases = prefer_canonical("邵长平（Dr. Shao Changping）")
+    assert canon == "邵长平"
+    assert "Dr. Shao Changping" in aliases
+
+
+def test_prefer_canonical_falls_back_when_no_chinese() -> None:
+    # 含汉字但混排拉丁(无纯中文片段)→ 取含汉字的那段。
+    canon, _ = prefer_canonical("ASD 处理 / Anaerobic Slow Dry")
+    assert canon == "ASD 处理"
+
+    # 纯英文双写法(无中文/汉字)→ 主名保持原标题,片段仍转别名供匹配。
+    canon, aliases = prefer_canonical("Mokka / Mocca")
+    assert canon == "Mokka / Mocca"
+    assert "Mokka" in aliases and "Mocca" in aliases
+
+    # 单一名 → 原样,无副作用。
+    assert prefer_canonical("AOKKA Coffee") == ("AOKKA Coffee", [])
+    assert prefer_canonical("哥斯达黎加") == ("哥斯达黎加", [])
+    assert prefer_canonical("") == ("", [])
 
 
 # ---------- 走测试库：自动建别名 + 匹配 + 判重 ----------

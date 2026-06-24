@@ -143,6 +143,33 @@ def alias_fragments(canonical_name: str) -> list[str]:
     return out
 
 
+def prefer_canonical(name: str, *, locale: str = "zh") -> tuple[str, list[str]]:
+    """从可能是「中文 / English」的双语标题里,取目标语言片段作 canonical 主名,其余片段转别名。
+
+    用于种子导入:知识库标题多写成「中文 / English」,应取中文为主名、英文等转别名,从源头杜绝
+    双语主名(及「删台账后 reseed 按双语名匹配不上 → 造重复实体」的隐患)。选取规则:
+    ① 优先纯目标语言(默认中文)的干净片段;② 没有则取「含该语言字符」的片段(如 "ASD 处理");
+    ③ 都没有(纯英文 / 判不出)则主名保持原标题,行为不变。
+
+    返回 (canonical, aliases):aliases 是去掉 canonical 后的其余拆分片段(含整条双语串、英文/
+    别语片段),供英文/别名匹配。单一名标题 → (原名, []),无副作用。复用 alias_fragments 的切分
+    (斜杠/顿号 + 括号双语),保持与全局别名逻辑一致。
+    """
+    whole = (name or "").strip()
+    if not whole:
+        return whole, []
+    fragments = alias_fragments(whole)
+    parts = fragments[1:]  # fragments[0] 是整条标题本身
+    script_re = {"zh": _HAN_RE, "ja": _KANA_RE, "en": _LATIN_RE}.get(locale, _HAN_RE)
+    chosen = (
+        next((p for p in parts if detect_locale(p) == locale), None)
+        or next((p for p in parts if script_re.search(p)), None)
+    )
+    canonical = chosen or whole
+    aliases = [f for f in fragments if f != canonical]
+    return canonical, aliases
+
+
 def canonical_type(entity_type: str) -> str:
     return _TYPE_ALIASES.get((entity_type or "").strip().lower(), (entity_type or "").strip().lower())
 
