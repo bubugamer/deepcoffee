@@ -230,6 +230,8 @@ export async function getBeanSquare(filters: BeanFilters = {}, token?: string | 
   }
   return filterFallbackBeans(filters).map((bean) => ({
     ...bean,
+    owner_count: 1,
+    comments: [],
     public_comment: bean.public_comment ?? '这支豆子的风味信息可以作为冲煮参考。',
   }))
 }

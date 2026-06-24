@@ -277,3 +277,33 @@ def test_find_duplicate_groups_detects_form_dupes() -> None:
             await session.rollback()
 
     asyncio.run(_run())
+
+
+def test_resolve_roaster_product_is_roaster_scoped() -> None:
+    """产品实体解析必须带烘焙商作用域:同名产品挂在不同烘焙商下不能串味。"""
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            r1 = await entity_repository.upsert(session, entity_type="roaster", canonical_name="Roaster One")
+            r2 = await entity_repository.upsert(session, entity_type="roaster", canonical_name="Roaster Two")
+            await entity_repository.upsert(
+                session,
+                entity_type="roaster_product",
+                canonical_name="Milky Cake",
+                payload={"roaster_entity_id": r1.id, "roaster_name": "Roaster One", "product_name": "Milky Cake"},
+            )
+            # 同烘焙商 + 产品名 → 命中
+            hit = await entity_repository.resolve_roaster_product(
+                session, roaster_entity_id=r1.id, product_name="Milky Cake"
+            )
+            assert hit is not None and hit.canonical_name == "Milky Cake"
+            # 同名产品挂在别的烘焙商下 → 不串味
+            assert await entity_repository.resolve_roaster_product(
+                session, roaster_entity_id=r2.id, product_name="Milky Cake"
+            ) is None
+            # 烘焙商缺失 → None(不乱挂)
+            assert await entity_repository.resolve_roaster_product(
+                session, roaster_entity_id=None, product_name="Milky Cake"
+            ) is None
+            await session.rollback()
+
+    asyncio.run(_run())

@@ -161,9 +161,19 @@ class BeanListResponse(BaseModel):
     total: int
 
 
+class SquareComment(BaseModel):
+    """豆仓广场聚合条目下的一条匿名评论(来自某用户对该豆的公开评论)。"""
+
+    comment: str
+    overall_score: float | None = None
+    created_at: datetime
+
+
 class BeanSquareItem(BaseModel):
     bean_id: str
     name: str
+    owner_count: int = 1  # 有多少位用户独立录入了这支豆(人气)
+    comments: list[SquareComment] = Field(default_factory=list)  # 组内各家匿名评论(聚合)
     roaster: str | None = None
     roaster_canonical: str | None = None
     roaster_product: str | None = None

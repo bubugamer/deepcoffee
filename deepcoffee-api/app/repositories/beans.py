@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tables import BrewRecord as BrewRecordORM
 from app.models.tables import PublicEntity as PublicEntityORM
 from app.models.tables import UserBeanCard as UserBeanCardORM
-from app.repositories.entities import entity_repository
+from app.repositories.entities import entity_repository, normalize_name
 from app.schemas.bean import (
     Bean,
     BeanDraft,
@@ -18,6 +18,7 @@ from app.schemas.bean import (
     BeanSquareImportResponse,
     BeanSquareItem,
     BeanUpdateRequest,
+    SquareComment,
     default_flavor,
 )
 
@@ -47,6 +48,18 @@ def _overall_score(rating: dict | None) -> int | None:
         if isinstance(score, (int, float)):
             return int(score)
     return None
+
+
+def _same_bean_key(card: "UserBeanCardORM") -> tuple[str, str, str, str]:
+    """「同一支豆」分组键:烘焙商/产地/处理法优先用已连实体 id(天然归一不同写法),
+    取不到回退文字归一;含归一后的豆名做区分,避免把同烘焙商/同产地的不同豆并成一组。
+    （本次不含 roaster_product_entity_id —— 见 docs 计划:产品实体数据成熟前不作判据。）"""
+    return (
+        card.roaster_entity_id or normalize_name(card.roaster_name or ""),
+        normalize_name(card.name or ""),
+        card.origin_entity_id or normalize_name(card.origin_name or ""),
+        card.process_entity_id or normalize_name(card.process_name or ""),
+    )
 
 
 def _clean_text(value: str | None) -> str | None:
@@ -129,6 +142,19 @@ class BeanRepository:
             except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
                 ent = None
             setattr(card, attr, ent.id if (ent is not None and ent.status == "active") else None)
+
+        # 产品实体(roaster_product)按「烘焙商作用域」解析:只连已审核通过的 active 产品实体,
+        # 绝不自动建(新产品仍走候选审核)。多数用户产品现为候选 → 仍 None,数据靠审核慢慢积累。
+        card.roaster_product_entity_id = None
+        if card.roaster_product_name and card.roaster_entity_id:
+            try:
+                product = await entity_repository.resolve_roaster_product(
+                    session, roaster_entity_id=card.roaster_entity_id, product_name=card.roaster_product_name
+                )
+            except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
+                product = None
+            if product is not None and product.status == "active":
+                card.roaster_product_entity_id = product.id
 
     async def _roaster_canonicals(
         self, session: AsyncSession, cards: list[UserBeanCardORM]
@@ -304,6 +330,37 @@ class BeanRepository:
             beans.append(bean)
         return beans, len(beans)
 
+    def _build_square_group(self, members, stats, canon, rec) -> tuple[BeanSquareItem, object]:
+        """把「同豆」一组豆卡聚成一张广场条目:代表卡(组内最早)出结构化字段,
+        再覆盖人气/总冲煮数/均分/评论聚合。返回 (条目, 组内最新时间) 供排序。"""
+        members = sorted(members, key=lambda m: m.created_at)
+        rep = members[0]
+        item = self._to_square_item(rep, stats.get(rep.id, (None, 0)), rec, canon.get(rep.roaster_entity_id))
+        item.owner_count = len({m.user_id for m in members})
+        item.record_count = sum(stats.get(m.id, (None, 0))[1] for m in members)
+        scores = [s for m in members if (s := _overall_score(m.rating)) is not None]
+        item.avg_score = round(sum(scores) / len(scores), 1) if scores else None
+        item.comments = sorted(
+            (
+                SquareComment(
+                    comment=m.public_comment.strip(),
+                    overall_score=_overall_score(m.rating),
+                    created_at=m.created_at,
+                )
+                for m in members
+                if m.public_comment and m.public_comment.strip()
+            ),
+            key=lambda c: c.created_at,
+            reverse=True,
+        )[:20]
+        return item, max(m.created_at for m in members)
+
+    @staticmethod
+    def _square_text_match(item: BeanSquareItem, q: str) -> bool:
+        ql = q.strip().lower()
+        fields = [item.name, item.roaster, item.roaster_product, item.origin, item.process, item.public_comment]
+        return any(f and ql in f.lower() for f in fields)
+
     async def list_square(
         self,
         session: AsyncSession,
@@ -311,37 +368,37 @@ class BeanRepository:
         q: str | None = None,
         process: str | None = None,
     ) -> tuple[list[BeanSquareItem], int]:
-        # 广场只展示「原创」豆卡：排除「加入我的豆仓」产生的副本（source_bean_card_id 不为空），
-        # 否则同一支豆会随导入次数在广场重复出现。
-        conditions = [
-            UserBeanCardORM.status == "active",
-            UserBeanCardORM.source_bean_card_id.is_(None),
-        ]
-        if q:
-            like = f"%{q.strip()}%"
-            conditions.append(
-                or_(
-                    UserBeanCardORM.name.ilike(like),
-                    UserBeanCardORM.roaster_name.ilike(like),
-                    UserBeanCardORM.roaster_product_name.ilike(like),
-                    UserBeanCardORM.origin_name.ilike(like),
-                    UserBeanCardORM.process_name.ilike(like),
-                    UserBeanCardORM.public_comment.ilike(like),
-                )
-            )
-        if process:
-            conditions.append(UserBeanCardORM.process_name.ilike(f"%{process.strip()}%"))
-
+        # 广场只展示「原创」豆卡(排除导入副本),并按「同豆」分组:同款只出一张代表卡 + 聚合人气/评分/评论。
         result = await session.execute(
-            select(UserBeanCardORM).where(*conditions).order_by(UserBeanCardORM.created_at.desc())
+            select(UserBeanCardORM).where(
+                UserBeanCardORM.status == "active",
+                UserBeanCardORM.source_bean_card_id.is_(None),
+            )
         )
         cards = list(result.scalars().all())
         stats = await self._stats(session, [c.id for c in cards])
         canon = await self._roaster_canonicals(session, cards)
-        items: list[BeanSquareItem] = []
+
+        groups: dict[tuple, list[UserBeanCardORM]] = {}
         for card in cards:
-            rec = await self._recommended_params(session, card.recommended_record_id)
-            items.append(self._to_square_item(card, stats.get(card.id, (None, 0)), rec, canon.get(card.roaster_entity_id)))
+            groups.setdefault(_same_bean_key(card), []).append(card)
+
+        built: list[tuple[BeanSquareItem, object]] = []
+        for members in groups.values():
+            rep = min(members, key=lambda m: m.created_at)
+            rec = await self._recommended_params(session, rep.recommended_record_id)
+            built.append(self._build_square_group(members, stats, canon, rec))
+
+        # 搜索 / 筛选在聚合结果上做,保证 owner_count 计全组、不被搜索词截断。
+        if q:
+            built = [b for b in built if self._square_text_match(b[0], q)]
+        if process:
+            pl = process.strip().lower()
+            built = [b for b in built if b[0].process and pl in b[0].process.lower()]
+
+        # 人气高在前,其次按组内最新时间。
+        built.sort(key=lambda b: (b[0].owner_count, b[1]), reverse=True)
+        items = [b[0] for b in built]
         return items, len(items)
 
     async def get_square(self, session: AsyncSession, *, bean_id: str) -> BeanSquareItem | None:
@@ -349,10 +406,20 @@ class BeanRepository:
         # 副本（source_bean_card_id 不为空）不是广场条目：详情同样不暴露，保持与列表一致。
         if card is None or card.status != "active" or card.source_bean_card_id is not None:
             return None
-        stats = (await self._stats(session, [card.id]))[card.id]
-        rec = await self._recommended_params(session, card.recommended_record_id)
-        canon = await self._roaster_canonicals(session, [card])
-        return self._to_square_item(card, stats, rec, canon.get(card.roaster_entity_id))
+        key = _same_bean_key(card)
+        result = await session.execute(
+            select(UserBeanCardORM).where(
+                UserBeanCardORM.status == "active",
+                UserBeanCardORM.source_bean_card_id.is_(None),
+            )
+        )
+        members = [c for c in result.scalars().all() if _same_bean_key(c) == key] or [card]
+        stats = await self._stats(session, [m.id for m in members])
+        canon = await self._roaster_canonicals(session, members)
+        rep = min(members, key=lambda m: m.created_at)
+        rec = await self._recommended_params(session, rep.recommended_record_id)
+        item, _ = self._build_square_group(members, stats, canon, rec)
+        return item
 
     async def _existing_import(
         self, session: AsyncSession, *, user_id: str, source_bean_id: str
