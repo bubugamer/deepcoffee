@@ -53,7 +53,8 @@ function ScoreDot({ score }: { score: number }) {
   )
 }
 
-const ONBOARDING_KEY = 'dc_onboarding_dismissed'
+// 按用户命名空间存「不再显示」标记，避免共享浏览器 / 多账号互相影响（与 chat 的存储策略一致）。
+const onboardingKey = (userId: string) => `dc_onboarding_dismissed:${userId}`
 
 interface OnboardingStep {
   id: string
@@ -108,7 +109,7 @@ function OnboardingChecklist({
         { label: 'AI 对话', href: '/app/chat?new=1', icon: MessageSquare },
         { label: '表单记录', href: '/app/records/new', icon: FileText, note: '不耗额度' },
       ],
-      doneNote: `已记录 ${records.length} 次冲煮`,
+      doneNote: '已记录冲煮，可继续复盘和同豆对比',
       pendingNote: '记录参数和风味，方便复盘和同豆对比',
     },
     {
@@ -116,13 +117,8 @@ function OnboardingChecklist({
       label: '获取冲煮建议',
       done: hasRecord && hasBean,
       locked: !hasRecord || !hasBean,
-      cta: [
-        {
-          label: '去豆仓',
-          href: beans[0] ? `/app/beans/${beans[0].bean_id}` : '/app/beans',
-          icon: Coffee,
-        },
-      ],
+      // 第 4 步非「已完成」即「未解锁」，没有可操作的中间态，故无 CTA。
+      cta: [],
       doneNote: '可以在豆卡页让 Coffea 推荐参数',
       pendingNote: '完成前 3 步后，在豆卡页生成推荐冲煮方案',
     },
@@ -146,7 +142,7 @@ function OnboardingChecklist({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {steps.map((step) => {
-          const StatusIcon = step.done ? CheckCircle2 : step.locked ? Circle : Circle
+          const StatusIcon = step.done ? CheckCircle2 : Circle
           return (
             <div
               key={step.id}
@@ -227,9 +223,10 @@ export default function DashboardPage() {
   const [showOnboarding, setShowOnboarding] = useState(false)
 
   useEffect(() => {
-    const dismissed = typeof window !== 'undefined' && window.localStorage.getItem(ONBOARDING_KEY) === '1'
+    if (!profile?.id || typeof window === 'undefined') return
+    const dismissed = window.localStorage.getItem(onboardingKey(profile.id)) === '1'
     setShowOnboarding(!dismissed)
-  }, [])
+  }, [profile?.id])
 
   useEffect(() => {
     const token = getToken()
@@ -269,13 +266,14 @@ export default function DashboardPage() {
   }, [canViewKnowledge])
 
   const dismissOnboarding = () => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ONBOARDING_KEY, '1')
+    if (typeof window !== 'undefined' && profile?.id) {
+      window.localStorage.setItem(onboardingKey(profile.id), '1')
     }
     setShowOnboarding(false)
   }
 
-  const hasAnyData = beans.length > 0 || equipment.length > 0 || recentBrews.length > 0
+  // 四步全部完成（有豆卡 + 有器具 + 有冲煮记录）时，引导任务条自动隐藏，老用户无需手动关闭。
+  const allOnboardingDone = beans.length > 0 && equipment.length > 0 && recentBrews.length > 0
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -285,7 +283,7 @@ export default function DashboardPage() {
         <p className="text-sm text-dc-text-2">今天冲了什么？</p>
       </div>
 
-      {showOnboarding && (
+      {showOnboarding && !loading && !allOnboardingDone && (
         <OnboardingChecklist
           beans={beans}
           equipment={equipment}
