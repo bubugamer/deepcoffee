@@ -92,6 +92,56 @@ def test_resync_is_idempotent() -> None:
     asyncio.run(_run())
 
 
+def test_bilingual_seed_canonical_is_chinese_and_no_reseed_dup() -> None:
+    """双语标题「卡杜拉 / Caturra」→ 主名取中文;英文仍能匹配;删台账重导不造重复。"""
+    async def _run() -> None:
+        from sqlalchemy import delete as sqldelete
+        from app.models.tables import KnowledgeSyncRecord
+        from app.repositories.entities import entity_repository
+
+        sm = get_sessionmaker()
+        async with sm() as session:
+            imp = _importer()
+            await imp.run(session, dry_run=False)
+            await session.commit()
+
+            def _caturra_count_stmt():
+                return (
+                    select(func.count())
+                    .select_from(PublicEntity)
+                    .where(
+                        PublicEntity.entity_type == "varietal",
+                        PublicEntity.normalized_name == normalize_name("卡杜拉"),
+                    )
+                )
+
+            ent = (
+                await session.execute(
+                    select(PublicEntity).where(
+                        PublicEntity.entity_type == "varietal",
+                        PublicEntity.normalized_name == normalize_name("卡杜拉"),
+                    )
+                )
+            ).scalar_one()
+            # 主名是单一中文,不是双语串。
+            assert ent.canonical_name == "卡杜拉"
+            # 英文写法转成了别名,仍能解析回同一实体。
+            hit = await entity_repository.resolve_entity(session, "varietal", "Caturra")
+            assert hit is not None and hit.id == ent.id
+            assert (await session.execute(_caturra_count_stmt())).scalar_one() == 1
+
+            # 删台账逼重导走「按名匹配」分支:中文主名能命中既有实体 → 更新而非新建。
+            await session.execute(
+                sqldelete(KnowledgeSyncRecord).where(KnowledgeSyncRecord.entity_id == ent.id)
+            )
+            await session.commit()
+            await imp.run(session, dry_run=False)
+            await session.commit()
+            assert (await session.execute(_caturra_count_stmt())).scalar_one() == 1  # 没造重复
+
+    asyncio.run(_run())
+
+
 def test_resync_skips_alias_already_present_from_other_source() -> None:
     """frontmatter 别名已以其它来源（如 auto 回填）存在时，重导应跳过、不撞唯一约束。"""
     async def _run() -> None:

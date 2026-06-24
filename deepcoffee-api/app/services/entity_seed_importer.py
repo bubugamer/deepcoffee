@@ -34,7 +34,7 @@ from app.models.tables import (
     KnowledgeSyncRecord,
     PublicEntity as PublicEntityORM,
 )
-from app.repositories.entities import EntityRepository, canonical_type, detect_locale, normalize_name
+from app.repositories.entities import EntityRepository, canonical_type, normalize_name, prefer_canonical
 from app.services.knowledge_service import (
     _meta_date,
     _meta_list,
@@ -178,20 +178,27 @@ class EntitySeedImporter:
             product_type = _meta_str(meta.get("product_type")) or ""
             if _PRODUCT_LINE_RE.search(product_type):
                 return None
+        # 双语标题「中文 / English」取中文为主名,英文等转别名,杜绝双语主名 + 删台账重导造重复。
+        canonical_name, auto_aliases = prefer_canonical(title)
         summary = extract_summary(body) or None
         merchant_name = _meta_str(meta.get("merchant"))
         roaster_name = _meta_str(meta.get("roaster"))
+        aliases: list[str] = []
+        for alias in [*auto_aliases, *_meta_list(meta.get("aliases"))]:
+            cleaned = alias.strip() if isinstance(alias, str) else ""
+            if cleaned and cleaned not in aliases:
+                aliases.append(cleaned)
         return SeedPage(
             path=rel.as_posix(),
             entity_type=etype,
-            canonical_name=title,
-            normalized_name=normalize_name(title),
+            canonical_name=canonical_name,
+            normalized_name=normalize_name(canonical_name),
             status=_meta_str(meta.get("status")) or "active",
             scope=_meta_str(meta.get("scope")) or "public",
             summary=summary,
-            aliases=_meta_list(meta.get("aliases")),
+            aliases=aliases,
             sources=self._build_sources(meta.get("sources")),
-            payload=self._build_payload(etype, meta, title, merchant_name, roaster_name),
+            payload=self._build_payload(etype, meta, canonical_name, merchant_name, roaster_name),
             content_hash=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
             merchant_name=merchant_name,
             roaster_name=roaster_name,
@@ -216,7 +223,7 @@ class EntitySeedImporter:
         return out
 
     def _build_payload(
-        self, etype: str, meta: dict, title: str, merchant_name: str | None, roaster_name: str | None
+        self, etype: str, meta: dict, canonical_name: str, merchant_name: str | None, roaster_name: str | None
     ) -> dict:
         common_geo = {
             "country": _meta_str(meta.get("country")),
@@ -278,7 +285,7 @@ class EntitySeedImporter:
             return {
                 "roaster_name": roaster_name,
                 "product_type": _meta_str(meta.get("product_type")),
-                "product_name": title,
+                "product_name": canonical_name,
                 "product_url": _meta_str(meta.get("product_url")),
                 "official_flavor_notes": _meta_list(meta.get("official_flavor_notes")),
                 "official_brew_params": _as_dict(meta.get("official_brew_params")),
@@ -399,29 +406,12 @@ class EntitySeedImporter:
         typed = self.repo._create_typed_row(seed.entity_type, entity_id, seed.payload)
         if typed is not None:
             session.add(typed)
-        # 幂等：同一实体下 normalized_alias 已存在（可能来自 auto / admin 等其它来源）就跳过，
-        # 否则会撞唯一约束 (entity_id, normalized_alias)。删除上面只清了本来源(ALIAS_SOURCE)的别名。
-        existing_keys = set(
-            (
-                await session.execute(
-                    select(EntityAlias.normalized_alias).where(EntityAlias.entity_id == entity_id)
-                )
-            ).scalars().all()
+        # 登记匹配别名:复用 register_aliases（主名拆分片段 + 双语/英文别名,各按 normalize_name 与
+        # disambig_key 写入,与全局别名逻辑一致）。它幂等——同一实体下 normalized_alias 已存在
+        # （可能来自 auto / admin / 上面没清掉的其它来源）则跳过,不会撞唯一约束。
+        await self.repo.register_aliases(
+            session, entity_id, seed.canonical_name, extra=seed.aliases, source=ALIAS_SOURCE
         )
-        for alias in seed.aliases:
-            na = normalize_name(alias)
-            if not na or na in existing_keys:
-                continue
-            existing_keys.add(na)
-            session.add(
-                EntityAlias(
-                    entity_id=entity_id,
-                    alias=alias,
-                    normalized_alias=na,
-                    locale=detect_locale(alias),
-                    source=ALIAS_SOURCE,
-                )
-            )
         for src in seed.sources:
             session.add(EntitySource(entity_id=entity_id, **src))
         await self._upsert_sync_record(session, seed, entity_id)
