@@ -387,3 +387,47 @@ def test_bean_square_requires_pro_and_imports_private_copy_without_private_field
     assert payload["name"] == "广场测试豆 日晒"
     assert payload["private_notes"] is None
     assert payload["public_comment"] is None
+
+
+def test_bean_square_aggregates_same_bean_across_users() -> None:
+    client = TestClient(create_app())
+    a = _headers("sq-agg-a", "a@example.com")
+    b = _headers("sq-agg-b", "b@example.com")
+    viewer = _headers("sq-agg-v", "v@example.com")
+    # A、B 各自录入「同款」(默认 roaster 千峰 / origin 巴拿马 / process 日晒,名称一致)
+    bean_a = _confirm_bean(client, name="同款日晒豆", headers=a)
+    bean_b = _confirm_bean(client, name="同款日晒豆", headers=b)
+    client.patch(f"/v1/beans/{bean_a}", headers=a, json={"public_comment": "A 的匿名评论"})
+    client.patch(f"/v1/beans/{bean_b}", headers=b, json={"public_comment": "B 的匿名评论"})
+
+    assert client.get("/v1/me", headers=viewer).status_code == 200
+    _set_plan("sq-agg-v", "pro")
+    items = client.get("/v1/beans/square", headers=viewer).json()["items"]
+    same = [i for i in items if i["name"] == "同款日晒豆"]
+    assert len(same) == 1, "同款应聚合成一条"
+    item = same[0]
+    assert item["owner_count"] == 2
+    assert {c["comment"] for c in item["comments"]} == {"A 的匿名评论", "B 的匿名评论"}
+    # 代表卡 id 是组内之一,可正常导入
+    assert item["bean_id"] in (bean_a, bean_b)
+    imported = client.post("/v1/beans/square/import", headers=viewer, json={"bean_ids": [item["bean_id"]]})
+    assert imported.status_code == 200 and imported.json()["created_count"] == 1
+
+
+def test_bean_square_keeps_different_beans_separate() -> None:
+    client = TestClient(create_app())
+    a = _headers("sq-diff-a", "a@example.com")
+    b = _headers("sq-diff-b", "b@example.com")
+    viewer = _headers("sq-diff-v", "v@example.com")
+    # 同烘焙商/产地/处理法,但豆名不同 → 不应合并
+    _confirm_bean(client, name="豆甲", headers=a)
+    _confirm_bean(client, name="豆乙", headers=b)
+
+    assert client.get("/v1/me", headers=viewer).status_code == 200
+    _set_plan("sq-diff-v", "pro")
+    items = client.get("/v1/beans/square", headers=viewer).json()["items"]
+    names = {i["name"] for i in items}
+    assert {"豆甲", "豆乙"} <= names
+    for i in items:
+        if i["name"] in ("豆甲", "豆乙"):
+            assert i["owner_count"] == 1

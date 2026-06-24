@@ -11,7 +11,7 @@ import unicodedata
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import (
@@ -182,6 +182,37 @@ class EntityRepository:
                 PublicEntityORM.entity_type == etype,
                 PublicEntityORM.status != "merged",
                 EntityAlias.normalized_alias.in_(keys),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def resolve_roaster_product(
+        self, session: AsyncSession, *, roaster_entity_id: str | None, product_name: str | None
+    ) -> PublicEntityORM | None:
+        """按「烘焙商作用域」匹配 active 的 roaster_product 实体(产品名跨烘焙商会重名,必须带烘焙商约束)。
+
+        仅返回 active 实体;烘焙商或产品名缺失则返回 None(不乱挂)。产品名按 normalize_name /
+        disambig_key 两种键比对(canonical 或别名命中)。
+        """
+        if not roaster_entity_id or not product_name:
+            return None
+        keys = {k for k in (normalize_name(product_name), disambig_key(product_name)) if k}
+        if not keys:
+            return None
+        result = await session.execute(
+            select(PublicEntityORM)
+            .join(RoasterProduct, RoasterProduct.entity_id == PublicEntityORM.id)
+            .where(
+                PublicEntityORM.entity_type == "roaster_product",
+                PublicEntityORM.status == "active",
+                RoasterProduct.roaster_entity_id == roaster_entity_id,
+                or_(
+                    PublicEntityORM.normalized_name.in_(keys),
+                    PublicEntityORM.id.in_(
+                        select(EntityAlias.entity_id).where(EntityAlias.normalized_alias.in_(keys))
+                    ),
+                ),
             )
             .limit(1)
         )

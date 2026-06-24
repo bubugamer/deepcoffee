@@ -232,9 +232,17 @@ export interface Bean {
   updated_at: string
 }
 
+export interface SquareComment {
+  comment: string
+  overall_score?: number | null
+  created_at: string
+}
+
 export interface BeanSquareItem {
   bean_id: string
   name: string
+  owner_count: number
+  comments: SquareComment[]
   roaster?: string | null
   roaster_canonical?: string | null
   roaster_product?: string | null

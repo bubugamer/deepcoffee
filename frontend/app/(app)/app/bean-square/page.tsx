@@ -79,9 +79,16 @@ function SquareCard({
       style={{ background: theme.bg }}
     >
       <div className="flex items-start justify-between gap-3 mb-auto">
-        <span className="text-xs font-medium truncate" style={{ color: theme.textSub }}>
-          {bean.roaster ?? '匿名豆卡'}
-        </span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-medium truncate" style={{ color: theme.textSub }}>
+            {bean.roaster ?? '匿名豆卡'}
+          </span>
+          {bean.owner_count > 1 && (
+            <span className="text-[11px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: theme.tagBg, color: theme.textMain }}>
+              👥 {bean.owner_count}
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={onToggle}
@@ -169,7 +176,9 @@ function DetailModal({ bean, onClose }: { bean: BeanSquareItem; onClose: () => v
         <div className="flex items-start justify-between gap-3 mb-5">
           <div>
             <h2 className="text-lg font-bold text-dc-text-1">{bean.name}</h2>
-            <p className="text-xs text-dc-text-3 mt-1">匿名豆卡 · {formatDate(bean.updated_at)}</p>
+            <p className="text-xs text-dc-text-3 mt-1">
+              匿名豆卡 · 👥 {bean.owner_count} 人在喝{bean.record_count ? ` · ${bean.record_count} 次冲煮` : ''}
+            </p>
           </div>
           <button onClick={onClose} className="p-1 text-dc-text-3 hover:text-dc-text-1">
             <X size={18} />
@@ -225,10 +234,19 @@ function DetailModal({ bean, onClose }: { bean: BeanSquareItem; onClose: () => v
           </div>
         )}
 
-        {bean.public_comment && (
+        {bean.comments.length > 0 && (
           <div className="rounded-lg bg-dc-accent-light border border-dc-accent/20 p-4">
-            <div className="text-xs font-semibold text-dc-accent mb-1">匿名评论</div>
-            <p className="text-sm leading-relaxed text-dc-text-2">{bean.public_comment}</p>
+            <div className="text-xs font-semibold text-dc-accent mb-2">匿名评论 · {bean.comments.length} 条</div>
+            <div className="space-y-3">
+              {bean.comments.map((c, index) => (
+                <p key={index} className="text-sm leading-relaxed text-dc-text-2">
+                  {c.overall_score != null && (
+                    <span className="text-dc-accent font-semibold mr-1.5">{c.overall_score}/5</span>
+                  )}
+                  {c.comment}
+                </p>
+              ))}
+            </div>
           </div>
         )}
       </div>
