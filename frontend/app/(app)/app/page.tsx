@@ -1,13 +1,19 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useState, type ElementType } from 'react'
-import { ArrowRight, Plus, Search, Coffee, BookOpen, DropletIcon, Settings2 } from 'lucide-react'
+import {
+  ArrowRight, Plus, Search, Coffee, BookOpen, DropletIcon, Settings2,
+  CheckCircle2, Circle, Camera, MessageSquare, FileText, X,
+} from 'lucide-react'
+import { getBeans } from '@/lib/api/beans'
 import { getRecords } from '@/lib/api/records'
 import { getKbCategories } from '@/lib/api/knowledge'
+import { listEquipment } from '@/lib/api/equipment'
 import { getToken } from '@/lib/auth'
 import { useProfile } from '@/components/ProfileContext'
 import { canBrowseKnowledge } from '@/lib/entitlements'
-import type { BrewRecord, KBCategory } from '@/types'
+import type { Bean, BrewRecord, KBCategory } from '@/types'
+import type { EquipmentProfile } from '@/lib/api/equipment'
 
 // 按用户时区的当前小时取问候语；拿不到时区就退回浏览器本地时区。
 function greetingFor(timezone?: string | null): string {
@@ -47,15 +53,180 @@ function ScoreDot({ score }: { score: number }) {
   )
 }
 
+// 按用户命名空间存「不再显示」标记，避免共享浏览器 / 多账号互相影响（与 chat 的存储策略一致）。
+const onboardingKey = (userId: string) => `dc_onboarding_dismissed:${userId}`
+
+interface OnboardingStep {
+  id: string
+  label: string
+  done: boolean
+  locked?: boolean
+  cta: { label: string; href: string; icon: React.ElementType; note?: string }[]
+  doneNote: string
+  pendingNote: string
+}
+
+function OnboardingChecklist({
+  beans,
+  equipment,
+  records,
+  onDismiss,
+}: {
+  beans: Bean[]
+  equipment: EquipmentProfile[]
+  records: BrewRecord[]
+  onDismiss: () => void
+}) {
+  const hasBean = beans.length > 0
+  const hasEquipment = equipment.length > 0
+  const hasRecord = records.length > 0
+
+  const steps: OnboardingStep[] = [
+    {
+      id: 'bean',
+      label: '创建第一张豆卡',
+      done: hasBean,
+      cta: [
+        { label: '拍照建档', href: '/app/chat?new=1', icon: Camera },
+        { label: '手动填写', href: '/app/beans', icon: Plus },
+      ],
+      doneNote: `已创建 ${beans.length} 张豆卡`,
+      pendingNote: '先告诉 Coffea 你喝什么豆，后续建议才更准',
+    },
+    {
+      id: 'equipment',
+      label: '添加常用器具',
+      done: hasEquipment,
+      cta: [{ label: '添加器具', href: '/app/equipment', icon: Settings2 }],
+      doneNote: `已添加 ${equipment.length} 件器具`,
+      pendingNote: '磨豆机、滤杯等会用来生成更贴合的冲煮方案',
+    },
+    {
+      id: 'record',
+      label: '记录一次冲煮',
+      done: hasRecord,
+      cta: [
+        { label: 'AI 对话', href: '/app/chat?new=1', icon: MessageSquare },
+        { label: '表单记录', href: '/app/records/new', icon: FileText, note: '不耗额度' },
+      ],
+      doneNote: '已记录冲煮，可继续复盘和同豆对比',
+      pendingNote: '记录参数和风味，方便复盘和同豆对比',
+    },
+    {
+      id: 'recommend',
+      label: '获取冲煮建议',
+      done: hasRecord && hasBean,
+      locked: !hasRecord || !hasBean,
+      // 第 4 步非「已完成」即「未解锁」，没有可操作的中间态，故无 CTA。
+      cta: [],
+      doneNote: '可以在豆卡页让 Coffea 推荐参数',
+      pendingNote: '完成前 3 步后，在豆卡页生成推荐冲煮方案',
+    },
+  ]
+
+  return (
+    <div className="relative overflow-hidden dc-card p-5 mb-6 border-dc-accent/20 bg-gradient-to-r from-dc-accent-light/60 to-white">
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-dc-accent" aria-hidden="true" />
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-dc-text-1">开始使用 DeepCoffee</h2>
+          <p className="text-sm text-dc-text-2 mt-0.5">跟着做 4 步，把 AI 用到日常冲煮里</p>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-sm text-dc-text-3 hover:text-dc-text-1 px-2 py-1 rounded-md transition-colors"
+          aria-label="关闭新手引导"
+        >
+          不再显示
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {steps.map((step) => {
+          const StatusIcon = step.done ? CheckCircle2 : Circle
+          return (
+            <div
+              key={step.id}
+              className={`rounded-xl border p-3.5 ${
+                step.done
+                  ? 'border-dc-green/40 bg-dc-green-bg/60'
+                  : step.locked
+                  ? 'border-dc-border/80 bg-white/80 opacity-80'
+                  : 'border-dc-border bg-white'
+              }`}
+            >
+              <div className="flex items-start gap-2.5 mb-2">
+                <StatusIcon
+                  size={18}
+                  className={step.done ? 'text-dc-green mt-0.5' : 'text-dc-text-3 mt-0.5'}
+                />
+                <div className="flex-1 min-w-0">
+                  <span
+                    className={`text-sm font-medium block ${
+                      step.done ? 'text-dc-green' : 'text-dc-text-1'
+                    }`}
+                  >
+                    {step.label}
+                  </span>
+                  <p className="text-xs text-dc-text-3 mt-0.5 leading-relaxed">
+                    {step.done ? step.doneNote : step.pendingNote}
+                  </p>
+                </div>
+              </div>
+              {!step.done && !step.locked && (
+                <div className="flex flex-wrap gap-2 pl-7">
+                  {step.cta.map((btn) => {
+                    const Icon = btn.icon
+                    return (
+                      <Link
+                        key={btn.label}
+                        href={btn.href}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-dc-accent bg-dc-accent-light hover:bg-dc-accent/10 px-3 py-2 rounded-lg transition-colors min-h-[36px]"
+                      >
+                        <Icon size={13} />
+                        {btn.label}
+                        {btn.note && (
+                          <span className="text-[10px] opacity-70 ml-0.5">
+                            ({btn.note})
+                          </span>
+                        )}
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+              {step.locked && (
+                <div className="pl-7">
+                  <span className="inline-flex items-center text-xs text-dc-text-3 bg-dc-subtle px-3 py-2 rounded-lg min-h-[36px]">
+                    完成前置步骤后解锁
+                  </span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const { profile } = useProfile()
   const canViewKnowledge = canBrowseKnowledge(profile)
   const greeting = greetingFor(profile?.timezone)
   const [recentBrews, setRecentBrews] = useState<BrewRecord[]>([])
+  const [beans, setBeans] = useState<Bean[]>([])
+  const [equipment, setEquipment] = useState<EquipmentProfile[]>([])
   const [categories, setCategories] = useState<KBCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [recordsError, setRecordsError] = useState('')
   const [knowledgeError, setKnowledgeError] = useState('')
+  const [showOnboarding, setShowOnboarding] = useState(false)
+
+  useEffect(() => {
+    if (!profile?.id || typeof window === 'undefined') return
+    const dismissed = window.localStorage.getItem(onboardingKey(profile.id)) === '1'
+    setShowOnboarding(!dismissed)
+  }, [profile?.id])
 
   useEffect(() => {
     const token = getToken()
@@ -67,7 +238,9 @@ export default function DashboardPage() {
     Promise.allSettled([
       getRecords({ page_size: 3 }, token),
       canViewKnowledge ? getKbCategories() : Promise.resolve([]),
-    ]).then(([recordsResult, categoriesResult]) => {
+      getBeans({}, token),
+      listEquipment(),
+    ]).then(([recordsResult, categoriesResult, beansResult, equipmentResult]) => {
       if (cancelled) return
       if (recordsResult.status === 'fulfilled') {
         setRecentBrews(recordsResult.value.slice(0, 3))
@@ -79,12 +252,28 @@ export default function DashboardPage() {
       } else {
         setKnowledgeError(categoriesResult.reason instanceof Error ? categoriesResult.reason.message : '知识库加载失败')
       }
+      if (beansResult.status === 'fulfilled') {
+        setBeans(beansResult.value)
+      }
+      if (equipmentResult.status === 'fulfilled') {
+        setEquipment(equipmentResult.value)
+      }
     }).finally(() => {
       if (!cancelled) setLoading(false)
     })
 
     return () => { cancelled = true }
   }, [canViewKnowledge])
+
+  const dismissOnboarding = () => {
+    if (typeof window !== 'undefined' && profile?.id) {
+      window.localStorage.setItem(onboardingKey(profile.id), '1')
+    }
+    setShowOnboarding(false)
+  }
+
+  // 四步全部完成（有豆卡 + 有器具 + 有冲煮记录）时，引导任务条自动隐藏，老用户无需手动关闭。
+  const allOnboardingDone = beans.length > 0 && equipment.length > 0 && recentBrews.length > 0
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -93,6 +282,15 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-dc-text-1 mb-1">{greeting}</h1>
         <p className="text-sm text-dc-text-2">今天冲了什么？</p>
       </div>
+
+      {showOnboarding && !loading && !allOnboardingDone && (
+        <OnboardingChecklist
+          beans={beans}
+          equipment={equipment}
+          records={recentBrews}
+          onDismiss={dismissOnboarding}
+        />
+      )}
 
       {/* Quick input */}
       <Link
