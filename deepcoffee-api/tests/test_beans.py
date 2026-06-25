@@ -267,10 +267,17 @@ def test_user_record_links_to_bean_and_can_be_set_as_recommended() -> None:
 def test_brew_records_full_field_search() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:bean-search-user:bean@example.com"}
+    # 豆名/产地从关联豆卡派生，故把「耶加雪菲 科契尔 / 埃塞俄比亚」放到豆卡上。
+    bean_id = client.post(
+        "/v1/beans/confirm",
+        headers=headers,
+        json={"draft": {"name": "耶加雪菲 科契尔", "roaster_name": "测试烘焙", "origin_name": "埃塞俄比亚", "process_name": "水洗"}},
+    ).json()["bean_id"]
     client.post(
         "/v1/brew/confirm",
         headers=headers,
         json={
+            "bean_card_id": bean_id,
             "draft": {
                 "bean_name": "耶加雪菲 科契尔",
                 "origin": "埃塞俄比亚",
@@ -285,7 +292,7 @@ def test_brew_records_full_field_search() -> None:
             }
         },
     )
-    # q 命中 notes / origin 等非豆名字段。
+    # q 命中 notes（记录字段）/ origin（派生自豆卡）等非豆名字段。
     by_notes = client.get("/v1/brew/records", headers=headers, params={"q": "柑橘"})
     assert by_notes.json()["total"] == 1
     by_origin = client.get("/v1/brew/records", headers=headers, params={"q": "埃塞俄比亚"})

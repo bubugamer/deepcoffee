@@ -93,8 +93,8 @@ class BrewConfirmRequest(BaseModel):
     draft: BrewDraft
     source_type: str = "text"
     raw_input: str | None = Field(default=None, max_length=4000)
-    # 可选：从豆仓某张豆卡发起冲煮时带上，记录会挂到该豆子（同豆聚合 / 反向更新建议参数）。
-    bean_card_id: str | None = Field(default=None, max_length=64)
+    # 必填：每条冲煮记录都必须关联一张豆卡（豆名/产地等从豆卡现取）。前端在确认前若无卡会自动建一张最简卡。
+    bean_card_id: str = Field(min_length=1, max_length=64)
 
 
 class BrewConfirmResponse(BaseModel):

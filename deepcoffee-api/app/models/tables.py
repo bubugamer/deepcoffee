@@ -334,19 +334,16 @@ class BrewRecord(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
-    bean_card_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("user_bean_cards.id", ondelete="SET NULL"), index=True
+    # 冲煮记录必须关联一张豆卡：豆名/产地/烘焙商/处理法/品种均从豆卡现取，不再各存快照。
+    # 豆卡为逻辑删除（status='deleted'，行仍在），故外键用 RESTRICT 防硬删孤儿。
+    bean_card_id: Mapped[str] = mapped_column(
+        String, ForeignKey("user_bean_cards.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     record_type: Mapped[str] = mapped_column(String, default="user", server_default="user", nullable=False, index=True)
     is_user_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     source_type: Mapped[str] = mapped_column(String, default="text", server_default="text", nullable=False)
     raw_input: Mapped[str | None] = mapped_column(Text)
 
-    bean_name: Mapped[str | None] = mapped_column(String)
-    origin: Mapped[str | None] = mapped_column(String)
-    roaster: Mapped[str | None] = mapped_column(String)
-    process: Mapped[str | None] = mapped_column(String)
-    varietal: Mapped[str | None] = mapped_column(String)
     brew_method: Mapped[str | None] = mapped_column(String)
     device: Mapped[str | None] = mapped_column(String)
     grinder: Mapped[str | None] = mapped_column(String)

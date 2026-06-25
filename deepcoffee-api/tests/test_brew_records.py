@@ -40,6 +40,7 @@ def _confirm_test_bean(client: TestClient, headers: dict[str, str], name: str = 
 def test_brew_record_lifecycle_and_unified_ai_quota() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:brew-user-1:brew@example.com"}
+    bean_id = _confirm_test_bean(client, headers, name="千峰庄园 帕卡马拉 CM 日晒")
 
     parsed = client.post(
         "/v1/brew/parse",
@@ -54,6 +55,7 @@ def test_brew_record_lifecycle_and_unified_ai_quota() -> None:
         "/v1/brew/confirm",
         headers=headers,
         json={
+            "bean_card_id": bean_id,
             "draft": {
                 "bean_name": "千峰庄园 帕卡马拉 CM 日晒",
                 "origin": "巴拿马",
@@ -88,6 +90,7 @@ def test_brew_record_lifecycle_and_unified_ai_quota() -> None:
         "/v1/brew/confirm",
         headers=headers,
         json={
+            "bean_card_id": bean_id,
             "draft": {
                 "bean_name": "千峰庄园 帕卡马拉 CM 日晒",
                 "device": "V60",
@@ -152,8 +155,9 @@ def test_brew_record_lifecycle_and_unified_ai_quota() -> None:
 def test_brew_confirm_rejects_incomplete_draft_without_charging_quota() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:brew-user-missing:brew@example.com"}
+    bean_id = _confirm_test_bean(client, headers)
 
-    response = client.post("/v1/brew/confirm", headers=headers, json={"draft": {}})
+    response = client.post("/v1/brew/confirm", headers=headers, json={"bean_card_id": bean_id, "draft": {}})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "brew_ratio_fields_incomplete"
 
@@ -165,11 +169,13 @@ def test_brew_confirm_rejects_incomplete_draft_without_charging_quota() -> None:
 def test_brew_confirm_rejects_legacy_top_level_score() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:brew-user-legacy-score:brew@example.com"}
+    bean_id = _confirm_test_bean(client, headers)
 
     response = client.post(
         "/v1/brew/confirm",
         headers=headers,
         json={
+            "bean_card_id": bean_id,
             "draft": {
                 "bean_name": "翡翠庄园 瑰夏 水洗",
                 "device": "V60",
@@ -290,11 +296,13 @@ def test_manual_brew_record_requires_linked_bean_card() -> None:
 def test_brew_confirm_completes_ratio_fields_from_any_two_values() -> None:
     client = TestClient(create_app())
     headers = {"Authorization": "Bearer dev:brew-user-ratio:brew@example.com"}
+    bean_id = _confirm_test_bean(client, headers, name="翡翠庄园 瑰夏 水洗")
 
     dose_and_ratio = client.post(
         "/v1/brew/confirm",
         headers=headers,
         json={
+            "bean_card_id": bean_id,
             "draft": {
                 "bean_name": "翡翠庄园 瑰夏 水洗",
                 "device": "V60",
@@ -318,6 +326,7 @@ def test_brew_confirm_completes_ratio_fields_from_any_two_values() -> None:
         "/v1/brew/confirm",
         headers=headers,
         json={
+            "bean_card_id": bean_id,
             "draft": {
                 "bean_name": "翡翠庄园 瑰夏 水洗",
                 "device": "V60",

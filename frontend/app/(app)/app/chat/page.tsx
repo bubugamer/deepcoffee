@@ -367,7 +367,6 @@ function ChatBrewDraft({
   const [equipment, setEquipment] = useState<EquipmentProfile[] | null>(null)
   const [beanChoice, setBeanChoice] = useState(parsedBeanName ? CUSTOM : '')
   const [beanCustom, setBeanCustom] = useState(parsedBeanName)
-  const [createBeanCard, setCreateBeanCard] = useState(true)
   const [brewMethod, setBrewMethod] = useState(parsedBrewMethod)
   const [device, setDevice] = useState({ choice: parsedDevice ? CUSTOM : '', custom: parsedDevice })
   const [grinder, setGrinder] = useState({ choice: parsedGrinder ? CUSTOM : '', custom: parsedGrinder })
@@ -492,28 +491,27 @@ function ChatBrewDraft({
       const token = getToken()
       const rawInput = typeof output.raw_input === 'string' ? output.raw_input : undefined
 
-      // 1) 解析豆子选择 → bean_card_id（下拉直选 / 同名匹配 / 勾选建档）
+      // 1) 确保一张豆卡（每条冲煮记录必须关联豆卡）：选现有 → 同名匹配 → 否则自动建一张最简卡。
       let beanCardId: string | undefined
       let beanName: string | undefined
       let createdBeanId: string | undefined
       if (beanChoice && beanChoice !== CUSTOM) {
         beanCardId = beanChoice
         beanName = (beans ?? []).find(b => b.bean_id === beanChoice)?.name
-      } else if (customBeanName) {
-        beanName = customBeanName
-        const match = (beans ?? []).find(b => b.name.trim() === customBeanName)
+      } else {
+        const typedName = customBeanName || (typeof baseDraft.bean_name === 'string' ? baseDraft.bean_name.trim() : '')
+        beanName = typedName || undefined
+        const match = typedName ? (beans ?? []).find(b => b.name.trim() === typedName) : undefined
         if (match) {
           beanCardId = match.bean_id
-        } else if (createBeanCard) {
+        } else {
+          // 无匹配豆卡 → 用已知字段自动建一张最简卡（缺烘焙商/产地/处理法也建，豆名缺失由后端兜底命名）。
           const draftBean = {
-            name: customBeanName,
+            name: typedName || undefined,
             roaster_name: typeof baseDraft.roaster === 'string' ? baseDraft.roaster : undefined,
             origin_name: typeof baseDraft.origin === 'string' ? baseDraft.origin : undefined,
             process_name: typeof baseDraft.process === 'string' ? baseDraft.process : undefined,
             varietal_names: typeof baseDraft.varietal === 'string' ? [baseDraft.varietal] : [],
-          }
-          if (!draftBean.roaster_name || !draftBean.origin_name || !draftBean.process_name) {
-            throw new Error('这张豆卡还缺烘焙商、产地或处理法。可以取消「同时建豆卡」先保存冲煮记录，或到豆仓补齐后再建档。')
           }
           const created = await confirmBean(draftBean, rawInput, token)
           beanCardId = created.bean_id
@@ -579,15 +577,7 @@ function ChatBrewDraft({
             onCustom={setBeanCustom}
           />
           {customUnmatched && (
-            <label className="flex items-center gap-1.5 mt-1.5 text-xs text-dc-text-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={createBeanCard}
-                onChange={e => setCreateBeanCard(e.target.checked)}
-                className="accent-dc-accent"
-              />
-              同时为这支豆建一张豆卡
-            </label>
+            <p className="mt-1.5 text-xs text-dc-text-3">豆仓里还没有这支豆，保存时会自动为它建一张豆卡。</p>
           )}
         </div>
         <label className="block">
