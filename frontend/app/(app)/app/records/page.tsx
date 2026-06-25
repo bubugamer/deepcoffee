@@ -138,11 +138,18 @@ export default function RecordsPage() {
 
   const records = useMemo(() => {
     return allRecords.filter((record) => {
-      if (bean && record.bean_name !== bean) return false
+      // 从豆卡点进来的「系统级关联」优先用 bean_card_id（外键），豆卡改名也不会断；
+      // 仅当记录没有外键（早期/未关联豆卡的记录）时才回退按豆名匹配。
+      if (beanId) {
+        const linked = record.bean_card_id ? record.bean_card_id === beanId : record.bean_name === bean
+        if (!linked) return false
+      } else if (bean && record.bean_name !== bean) {
+        return false
+      }
       if (range === 'month' && !isThisMonth(record.created_at)) return false
       return matchesQuery(record, query)
     })
-  }, [allRecords, bean, query, range])
+  }, [allRecords, bean, beanId, query, range])
 
   const total = allRecords.length
   const monthly = allRecords.filter((record) => isThisMonth(record.created_at)).length
