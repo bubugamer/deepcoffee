@@ -1,12 +1,10 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
-import { ClipboardList, ExternalLink, Plus, Search, Settings2, X } from 'lucide-react'
+import { ClipboardList, ExternalLink, Plus, Search, X } from 'lucide-react'
 import { getBeans } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
 import { recommendedParamRows } from '@/lib/beans'
-import { RecommendParamsChat } from '@/components/RecommendParamsChat'
 import type { Bean } from '@/types'
 
 interface CardTheme {
@@ -107,51 +105,21 @@ function BrewRecordsBtn({ bean, textColor, bgColor }: { bean: Bean; textColor: s
   )
 }
 
-function ParamsBtn({
-  bean,
-  textColor,
-  bgColor,
-  onNoParams,
-}: {
-  bean: Bean
-  textColor: string
-  bgColor: string
-  onNoParams: () => void
-}) {
-  const shared = {
-    className: 'flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity hover:opacity-70',
-    style: { background: bgColor, color: textColor } as CSSProperties,
-  }
-
-  const recordId = bean.recommended_params?.record_id ?? bean.recommended_record_id
-  if (recordId) {
-    return (
-      <Link
-        href={`/app/records/${recordId}`}
-        onClick={(event) => event.stopPropagation()}
-        {...shared}
-      >
-        <Settings2 size={11} />
-        参数详情
-      </Link>
-    )
-  }
-
+function BeanDetailBtn({ bean, textColor, bgColor }: { bean: Bean; textColor: string; bgColor: string }) {
   return (
-    <button
-      onClick={(event) => {
-        event.stopPropagation()
-        onNoParams()
-      }}
-      {...shared}
+    <Link
+      href={`/app/beans/${bean.bean_id}`}
+      onClick={(event) => event.stopPropagation()}
+      className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity hover:opacity-70"
+      style={{ background: bgColor, color: textColor }}
     >
-      <Settings2 size={11} />
-      生成参数
-    </button>
+      <ExternalLink size={11} />
+      豆卡详情
+    </Link>
   )
 }
 
-function BeanCard({ bean, onNoParams }: { bean: Bean; onNoParams: () => void }) {
+function BeanCard({ bean }: { bean: Bean }) {
   const [flipped, setFlipped] = useState(false)
   const theme = getTheme(bean.process)
   const flavor = bean.flavor
@@ -183,7 +151,7 @@ function BeanCard({ bean, onNoParams }: { bean: Bean; onNoParams: () => void }) 
             <span className="text-xs font-medium" style={{ color: theme.textSub }}>
               {bean.roaster ?? '未填写烘焙商'}
             </span>
-            <BrewRecordsBtn bean={bean} textColor={theme.textMain} bgColor={theme.tagBg} />
+            <BeanDetailBtn bean={bean} textColor={theme.textMain} bgColor={theme.tagBg} />
           </div>
 
           <div className="flex-1 flex items-center py-3">
@@ -242,7 +210,7 @@ function BeanCard({ bean, onNoParams }: { bean: Bean; onNoParams: () => void }) 
             <p className="text-xs font-semibold truncate flex-1" style={{ color: theme.textMain }}>
               {bean.name}
             </p>
-            <ParamsBtn bean={bean} textColor={theme.textMain} bgColor={theme.tagBg} onNoParams={onNoParams} />
+            <BrewRecordsBtn bean={bean} textColor={theme.textMain} bgColor={theme.tagBg} />
           </div>
 
           <div style={{ height: 1, background: theme.tagBg, flexShrink: 0 }} />
@@ -289,16 +257,6 @@ function BeanCard({ bean, onNoParams }: { bean: Bean; onNoParams: () => void }) 
               </p>
             )}
           </div>
-
-          <Link
-            href={`/app/beans/${bean.bean_id}`}
-            onClick={(event) => event.stopPropagation()}
-            className="mt-auto flex items-center justify-center gap-1 text-xs font-medium py-1.5 rounded-full transition-opacity hover:opacity-70"
-            style={{ background: theme.tagBg, color: theme.textMain }}
-          >
-            <ExternalLink size={11} />
-            豆卡详情
-          </Link>
         </div>
       </div>
     </div>
@@ -317,7 +275,6 @@ export default function BeansPage() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [minScore, setMinScore] = useState(0)
-  const [selectedBean, setSelectedBean] = useState<Bean | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -356,8 +313,6 @@ export default function BeansPage() {
       return haystack.includes(q)
     })
   }, [allBeans, query, minScore])
-
-  const selectedRows = recommendedParamRows(selectedBean?.recommended_params)
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -424,75 +379,8 @@ export default function BeansPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-3xl">
           {beans.map((bean) => (
-            <BeanCard
-              key={bean.bean_id}
-              bean={bean}
-              onNoParams={() => setSelectedBean(bean)}
-            />
+            <BeanCard key={bean.bean_id} bean={bean} />
           ))}
-        </div>
-      )}
-
-      {selectedBean && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
-          onClick={() => setSelectedBean(null)}
-        >
-          <div
-            className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 className="text-base font-semibold text-dc-text-1 mb-1">建议冲煮参数</h3>
-            <p className="text-sm text-dc-text-3 mb-5 leading-relaxed">
-              {selectedBean.name}
-            </p>
-
-            {selectedRows.length > 0 && (
-              <div className="rounded-xl bg-dc-subtle border border-dc-border p-4 mb-4 grid grid-cols-2 gap-x-4 gap-y-2">
-                {selectedRows.map(([key, value]) => (
-                  <div key={key}>
-                    <div className="text-xs text-dc-text-3 mb-0.5">{key}</div>
-                    <div className="text-sm font-medium text-dc-text-1">{value}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <RecommendParamsChat
-                beanId={selectedBean.bean_id}
-                hasParams={selectedRows.length > 0}
-                onCompleted={(params, recordId) => {
-                  const patch = { recommended_params: params, recommended_record_id: recordId, updated_at: new Date().toISOString() }
-                  setAllBeans((current) =>
-                    current.map((bean) => (bean.bean_id === selectedBean.bean_id ? { ...bean, ...patch } : bean)),
-                  )
-                  setSelectedBean((bean) => (bean ? { ...bean, ...patch } : bean))
-                }}
-              />
-              <Link
-                href={`/app/chat?new=1&bean_id=${encodeURIComponent(selectedBean.bean_id)}`}
-                onClick={() => setSelectedBean(null)}
-                className="dc-card p-4 flex items-center gap-3 hover:border-dc-accent-hi transition-colors block group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-dc-accent-light flex items-center justify-center flex-shrink-0">
-                  <ClipboardList size={14} className="text-dc-accent" strokeWidth={1.8} />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-dc-text-1 group-hover:text-dc-accent transition-colors">
-                    新增冲煮记录
-                  </div>
-                  <div className="text-xs text-dc-text-3 mt-0.5">记录会关联到当前豆卡</div>
-                </div>
-              </Link>
-            </div>
-            <button
-              onClick={() => setSelectedBean(null)}
-              className="mt-4 w-full text-sm text-dc-text-3 hover:text-dc-text-2 py-2 transition-colors"
-            >
-              关闭
-            </button>
-          </div>
         </div>
       )}
     </div>
