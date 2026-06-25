@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import uuid4
 
-from sqlalchemy import Date, cast, func, or_, select
+from sqlalchemy import Date, Text, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import BrewRecord as BrewRecordORM
@@ -13,13 +13,11 @@ from app.services.brew_validation import format_ratio
 
 
 def _draft_columns(draft: BrewDraft) -> dict:
-    """Draft 的字段映射成 ORM 列值（嵌套模型转成 JSON 友好的 dict/list）。"""
+    """Draft 的字段映射成 ORM 列值（嵌套模型转成 JSON 友好的 dict/list）。
+
+    豆名/产地/烘焙商/处理法/品种不再落库——它们随读取从关联豆卡现取（见 `_apply_card_fields`）。
+    """
     return {
-        "bean_name": draft.bean_name,
-        "origin": draft.origin,
-        "roaster": draft.roaster,
-        "process": draft.process,
-        "varietal": draft.varietal,
         "brew_method": draft.brew_method,
         "device": draft.device,
         "grinder": draft.grinder,
@@ -45,20 +43,32 @@ def _rating_model(value: dict | None) -> BrewEvaluation | None:
     return BrewEvaluation.model_validate(value)
 
 
-def _to_record(row: BrewRecordORM, bean_rating: dict | None = None) -> BrewRecord:
+def _apply_card_fields(record: BrewRecord, card: UserBeanCardORM | None) -> None:
+    """豆名/产地/烘焙商/处理法/品种统一从关联豆卡现取（单一真相＝豆卡，豆卡改名即时生效）。"""
+    if card is None:
+        return
+    record.bean_name = card.name
+    record.origin = card.origin_name
+    record.roaster = card.roaster_name
+    record.process = card.process_name
+    record.varietal = "、".join(card.varietal_names or []) or None
+
+
+def _to_record(row: BrewRecordORM, card: UserBeanCardORM | None = None) -> BrewRecord:
     record = BrewRecord.model_validate(row)
-    record.bean_rating = _rating_model(bean_rating)
+    _apply_card_fields(record, card)
+    record.bean_rating = _rating_model(card.rating if card is not None else None)
     return record
 
 
-def _to_anonymous_record(row: BrewRecordORM) -> AnonymousBrewRecord:
+def _to_anonymous_record(row: BrewRecordORM, card: UserBeanCardORM | None = None) -> AnonymousBrewRecord:
     return AnonymousBrewRecord(
         id=row.id,
-        bean_name=row.bean_name,
-        origin=row.origin,
-        roaster=row.roaster,
-        process=row.process,
-        varietal=row.varietal,
+        bean_name=card.name if card is not None else None,
+        origin=card.origin_name if card is not None else None,
+        roaster=card.roaster_name if card is not None else None,
+        process=card.process_name if card is not None else None,
+        varietal=("、".join(card.varietal_names or []) or None) if card is not None else None,
         brew_method=row.brew_method,
         device=row.device,
         grinder=row.grinder,
@@ -77,6 +87,15 @@ def _to_anonymous_record(row: BrewRecordORM) -> AnonymousBrewRecord:
         brew_score=row.brew_score,
         created_at=row.created_at,
     )
+
+
+async def _load_cards(session: AsyncSession, bean_ids: set[str]) -> dict[str, UserBeanCardORM]:
+    """一次性把这批记录关联的豆卡捞出，按 id 索引（供 `_to_record` 派生豆名等字段）。"""
+    ids = {bid for bid in bean_ids if bid}
+    if not ids:
+        return {}
+    result = await session.execute(select(UserBeanCardORM).where(UserBeanCardORM.id.in_(ids)))
+    return {card.id: card for card in result.scalars().all()}
 
 
 def _apply_ratio_from_amounts(updates: dict, row: BrewRecordORM) -> None:
@@ -125,11 +144,8 @@ class BrewRecordRepository:
         session.add(record)
         await session.flush()
         await session.refresh(record)
-        rating = None
-        if record.bean_card_id:
-            card = await session.get(UserBeanCardORM, record.bean_card_id)
-            rating = card.rating if card else None
-        return _to_record(record, rating)
+        card = await session.get(UserBeanCardORM, record.bean_card_id) if record.bean_card_id else None
+        return _to_record(record, card)
 
     async def list(
         self,
@@ -145,15 +161,16 @@ class BrewRecordRepository:
         date_to: str | None = None,
     ) -> tuple[list[BrewRecord], int]:
         # 只列用户可见记录：official_suggestion / ai_suggestion（建议参数载体）不进列表。
+        # 每条记录都关联一张豆卡（bean_card_id NOT NULL），故内连豆卡表，豆名等按豆卡字段搜索/筛选。
         conditions = [BrewRecordORM.user_id == user_id, BrewRecordORM.is_user_visible.is_(True)]
         if q:
             like = f"%{q.strip()}%"
             conditions.append(
                 or_(
-                    BrewRecordORM.bean_name.ilike(like),
-                    BrewRecordORM.origin.ilike(like),
-                    BrewRecordORM.roaster.ilike(like),
-                    BrewRecordORM.varietal.ilike(like),
+                    UserBeanCardORM.name.ilike(like),
+                    UserBeanCardORM.origin_name.ilike(like),
+                    UserBeanCardORM.roaster_name.ilike(like),
+                    cast(UserBeanCardORM.varietal_names, Text).ilike(like),
                     BrewRecordORM.brew_method.ilike(like),
                     BrewRecordORM.device.ilike(like),
                     BrewRecordORM.grinder.ilike(like),
@@ -164,7 +181,7 @@ class BrewRecordRepository:
                 )
             )
         if bean:
-            conditions.append(BrewRecordORM.bean_name.ilike(f"%{bean}%"))
+            conditions.append(UserBeanCardORM.name.ilike(f"%{bean}%"))
         if device:
             conditions.append(BrewRecordORM.device.ilike(f"%{device}%"))
         if date_from:
@@ -172,34 +189,33 @@ class BrewRecordRepository:
         if date_to:
             conditions.append(cast(BrewRecordORM.created_at, Date) <= date.fromisoformat(date_to))
 
+        join = (UserBeanCardORM, UserBeanCardORM.id == BrewRecordORM.bean_card_id)
         total = int(
-            (await session.execute(select(func.count()).select_from(BrewRecordORM).where(*conditions))).scalar_one()
+            (
+                await session.execute(
+                    select(func.count()).select_from(BrewRecordORM).join(*join).where(*conditions)
+                )
+            ).scalar_one()
         )
         result = await session.execute(
             select(BrewRecordORM)
+            .join(*join)
             .where(*conditions)
             .order_by(BrewRecordORM.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
         rows = list(result.scalars().all())
-        ratings: dict[str, dict | None] = {}
-        bean_ids = {row.bean_card_id for row in rows if row.bean_card_id}
-        if bean_ids:
-            cards = await session.execute(select(UserBeanCardORM.id, UserBeanCardORM.rating).where(UserBeanCardORM.id.in_(bean_ids)))
-            ratings = {bean_id: rating for bean_id, rating in cards.all()}
-        items = [_to_record(row, ratings.get(row.bean_card_id) if row.bean_card_id else None) for row in rows]
+        cards = await _load_cards(session, {row.bean_card_id for row in rows})
+        items = [_to_record(row, cards.get(row.bean_card_id)) for row in rows]
         return items, total
 
     async def get(self, session: AsyncSession, *, user_id: str, record_id: str) -> BrewRecord | None:
         row = await session.get(BrewRecordORM, record_id)
         if row is None or row.user_id != user_id:
             return None
-        rating = None
-        if row.bean_card_id:
-            card = await session.get(UserBeanCardORM, row.bean_card_id)
-            rating = card.rating if card else None
-        return _to_record(row, rating)
+        card = await session.get(UserBeanCardORM, row.bean_card_id) if row.bean_card_id else None
+        return _to_record(row, card)
 
     async def list_peer_for_bean(
         self,
@@ -242,13 +258,13 @@ class BrewRecordRepository:
                 conditions.append(func.lower(getattr(UserBeanCardORM, field)) == value)
 
         result = await session.execute(
-            select(BrewRecordORM)
+            select(BrewRecordORM, UserBeanCardORM)
             .join(UserBeanCardORM, UserBeanCardORM.id == BrewRecordORM.bean_card_id)
             .where(*conditions)
             .order_by(BrewRecordORM.created_at.desc())
             .limit(limit)
         )
-        return [_to_anonymous_record(row) for row in result.scalars().all()]
+        return [_to_anonymous_record(row, card) for row, card in result.all()]
 
     async def update(
         self, session: AsyncSession, *, user_id: str, record_id: str, payload: BrewRecordUpdateRequest
@@ -260,16 +276,8 @@ class BrewRecordRepository:
         has_bean_rating_update = "bean_rating" in payload.model_fields_set
         updates = payload.model_dump(exclude_unset=True)
         bean_rating = updates.pop("bean_rating", None)
-        next_bean_card_id = updates.pop("bean_card_id", None)
-        if next_bean_card_id is not None and row.bean_card_id is None:
-            card = await session.get(UserBeanCardORM, next_bean_card_id)
-            if card is not None and card.user_id == user_id and card.status == "active":
-                row.bean_card_id = card.id
-                row.bean_name = card.name
-                row.origin = card.origin_name
-                row.roaster = card.roaster_name
-                row.process = card.process_name
-                row.varietal = "、".join(card.varietal_names or []) or None
+        # 记录必关联豆卡（bean_card_id NOT NULL），不支持经 update 改挂豆卡：剥离该字段避免误改。
+        updates.pop("bean_card_id", None)
         if "brew_steps" in updates:
             updates["brew_steps"] = [step.model_dump() for step in (payload.brew_steps or [])]
         if "evaluation" in updates:
@@ -286,11 +294,8 @@ class BrewRecordRepository:
             setattr(row, key, value)
         await session.flush()
         await session.refresh(row)
-        rating = None
-        if row.bean_card_id:
-            card = await session.get(UserBeanCardORM, row.bean_card_id)
-            rating = card.rating if card else None
-        return _to_record(row, rating)
+        card = await session.get(UserBeanCardORM, row.bean_card_id) if row.bean_card_id else None
+        return _to_record(row, card)
 
     async def delete(self, session: AsyncSession, *, user_id: str, record_id: str) -> bool:
         row = await session.get(BrewRecordORM, record_id)
@@ -303,26 +308,23 @@ class BrewRecordRepository:
     async def compare(
         self, session: AsyncSession, *, user_id: str, record_ids: list[str] | None, bean_name: str | None
     ) -> list[BrewRecord]:
+        join = (UserBeanCardORM, UserBeanCardORM.id == BrewRecordORM.bean_card_id)
         if record_ids:
             conditions = [BrewRecordORM.user_id == user_id, BrewRecordORM.id.in_(record_ids)]
         elif bean_name:
             conditions = [
                 BrewRecordORM.user_id == user_id,
                 BrewRecordORM.is_user_visible.is_(True),
-                BrewRecordORM.bean_name.ilike(f"%{bean_name}%"),
+                UserBeanCardORM.name.ilike(f"%{bean_name}%"),
             ]
         else:
             return []
         result = await session.execute(
-            select(BrewRecordORM).where(*conditions).order_by(BrewRecordORM.created_at.desc())
+            select(BrewRecordORM).join(*join).where(*conditions).order_by(BrewRecordORM.created_at.desc())
         )
         rows = list(result.scalars().all())
-        ratings: dict[str, dict | None] = {}
-        bean_ids = {row.bean_card_id for row in rows if row.bean_card_id}
-        if bean_ids:
-            cards = await session.execute(select(UserBeanCardORM.id, UserBeanCardORM.rating).where(UserBeanCardORM.id.in_(bean_ids)))
-            ratings = {bean_id: rating for bean_id, rating in cards.all()}
-        return [_to_record(row, ratings.get(row.bean_card_id) if row.bean_card_id else None) for row in rows]
+        cards = await _load_cards(session, {row.bean_card_id for row in rows})
+        return [_to_record(row, cards.get(row.bean_card_id)) for row in rows]
 
 
 brew_record_repository = BrewRecordRepository()

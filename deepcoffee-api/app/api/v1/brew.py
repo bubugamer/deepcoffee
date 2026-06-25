@@ -124,6 +124,10 @@ async def confirm_brew(
     settings: Settings = Depends(get_settings),
 ) -> BrewConfirmResponse:
     draft = validate_confirm_draft(payload.draft)
+    # 冲煮记录必须关联一张属于该用户的豆卡（前端无卡时会先自动建卡再确认）。
+    bean = await bean_repository.get(session, user_id=user.id, bean_id=payload.bean_card_id)
+    if bean is None:
+        raise AppError(404, "bean_not_found", "Bean not found.")
     trace_id = f"brew_confirm_{uuid4().hex[:12]}"
     # 有模型用模型复盘，失败即回退本地模板。
     model_recap = await recap_with_model(draft, model=settings.model_default_model)
