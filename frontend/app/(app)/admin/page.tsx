@@ -18,9 +18,11 @@ export default function AdminDashboardPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     Promise.all([getAdminStats(), listAdminUsers(1, 5)])
-      .then(([s, users]) => { setStats(s); setRecent(users) })
-      .catch(err => setError(err instanceof Error ? err.message : '加载失败'))
+      .then(([s, users]) => { if (!cancelled) { setStats(s); setRecent(users) } })
+      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : '加载失败') })
+    return () => { cancelled = true }
   }, [])
 
   if (error) return <div className="text-sm text-dc-red">{error}</div>

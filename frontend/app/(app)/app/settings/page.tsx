@@ -39,18 +39,22 @@ function SettingsContent() {
     let cancelled = false
     setLoading(true)
     setLoadError('')
-    Promise.all([getUserProfile(token), getUserQuota(token)])
-      .then(([nextProfile, nextQuota]) => {
+    // profile/quota 解耦：用 allSettled，用量失败不连累设置主体（个人资料照常加载）。
+    Promise.allSettled([getUserProfile(token), getUserQuota(token)])
+      .then(([profileRes, quotaRes]) => {
         if (cancelled) return
-        setProfile(nextProfile)
-        setQuota(nextQuota)
-        setDisplayName(nextProfile.display_name ?? '')
-        setTimezone(nextProfile.timezone || 'Asia/Shanghai')
-        setUnitSystem(nextProfile.unit_system === 'imperial' ? 'imperial' : 'metric')
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setLoadError(error instanceof Error ? error.message : '设置加载失败，请稍后重试。')
+        if (profileRes.status === 'fulfilled') {
+          const nextProfile = profileRes.value
+          setProfile(nextProfile)
+          setDisplayName(nextProfile.display_name ?? '')
+          setTimezone(nextProfile.timezone || 'Asia/Shanghai')
+          setUnitSystem(nextProfile.unit_system === 'imperial' ? 'imperial' : 'metric')
+        } else {
+          const error = profileRes.reason
+          setLoadError(error instanceof Error ? error.message : '设置加载失败，请稍后重试。')
+        }
+        // 用量失败不阻断：保持 quota=null
+        if (quotaRes.status === 'fulfilled') setQuota(quotaRes.value)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
