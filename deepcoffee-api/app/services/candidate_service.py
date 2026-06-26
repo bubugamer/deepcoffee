@@ -33,20 +33,11 @@ class CandidateService:
         if card is None:
             return []
 
-        # (entity_type, 名称, 额外 payload) 的候选清单。
+        # (entity_type, 名称, 额外 payload) 的候选清单。顶层只剩产品级(roaster/roaster_product);
+        # 豆子相关实体名(产地/处理法/庄园/生豆商/生豆商产品/品种)都在「豆源」里,逐条产候选。
         facts: list[tuple[str, str, dict]] = []
         if card.roaster_name:
             facts.append(("roaster", card.roaster_name, {"name": card.roaster_name}))
-        if card.origin_name:
-            facts.append(("origin", card.origin_name, {"name": card.origin_name}))
-        if card.process_name:
-            facts.append(("process_method", card.process_name, {"name": card.process_name}))
-        if card.coffee_source_name:
-            facts.append(("coffee_source", card.coffee_source_name, {"name": card.coffee_source_name}))
-        if card.green_bean_merchant_name:
-            facts.append(
-                ("green_bean_merchant", card.green_bean_merchant_name, {"name": card.green_bean_merchant_name})
-            )
         if card.roaster_product_name:
             facts.append(
                 (
@@ -56,14 +47,6 @@ class CandidateService:
                      "roaster": card.roaster_name},
                 )
             )
-        if card.green_bean_product_name:
-            facts.append(
-                ("green_bean_product", card.green_bean_product_name,
-                 {"name": card.green_bean_product_name, "lot_name": card.green_bean_product_name})
-            )
-        for varietal in card.varietal_names or []:
-            if varietal:
-                facts.append(("varietal", varietal, {"name": varietal}))
         for component in card.bean_components or []:
             if not isinstance(component, dict):
                 continue
@@ -76,6 +59,15 @@ class CandidateService:
             source = component.get("coffee_source_name")
             if isinstance(source, str) and source.strip():
                 facts.append(("coffee_source", source.strip(), {"name": source.strip()}))
+            merchant = component.get("green_bean_merchant_name")
+            if isinstance(merchant, str) and merchant.strip():
+                facts.append(("green_bean_merchant", merchant.strip(), {"name": merchant.strip()}))
+            gb_product = component.get("green_bean_product_name")
+            if isinstance(gb_product, str) and gb_product.strip():
+                facts.append(
+                    ("green_bean_product", gb_product.strip(),
+                     {"name": gb_product.strip(), "lot_name": gb_product.strip()})
+                )
             varietals = component.get("varietal_names")
             if isinstance(varietals, list):
                 for varietal in varietals:

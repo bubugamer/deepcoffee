@@ -29,7 +29,7 @@ import { useProfile } from '@/components/ProfileContext'
 import { getToken } from '@/lib/auth'
 import { isExternalSourceHref, sourceHref } from '@/lib/knowledge-source-links'
 import type {
-  Bean, BeanDraft, ActionResult, ActionStatus, CoffeaAttachment, WebVerifySource,
+  Bean, BeanDraft, BeanComponent, ActionResult, ActionStatus, CoffeaAttachment, WebVerifySource,
 } from '@/types'
 
 const BREW_HINTS = [
@@ -1348,15 +1348,54 @@ function BeanDraftCard({
   const setField = <K extends keyof BeanDraft>(key: K, value: BeanDraft[K]) => {
     onChange({ ...draft, [key]: value })
   }
-  const components = draft.bean_components ?? []
-  const setComponent = (index: number, patch: Partial<NonNullable<BeanDraft['bean_components']>[number]>) => {
-    setField('bean_components', components.map((component, i) => i === index ? { ...component, ...patch } : component))
+  // 豆子信息统一在「豆源」里。AI 解析单豆时填在顶层 → 这里折成 1 条豆源用于编辑；编辑时写回豆源并清空顶层。
+  const seedFromTop: BeanComponent[] = (() => {
+    const c: BeanComponent = {
+      origin_name: draft.origin_name,
+      coffee_source_name: draft.coffee_source_name,
+      green_bean_merchant_name: draft.green_bean_merchant_name,
+      green_bean_product_name: draft.green_bean_product_name,
+      process_name: draft.process_name,
+      varietal_names: draft.varietal_names ?? [],
+      altitude_text: draft.altitude_text,
+      harvest_date_text: draft.harvest_date_text,
+    }
+    const has = Boolean(
+      c.origin_name || c.coffee_source_name || c.green_bean_merchant_name || c.green_bean_product_name
+      || c.process_name || c.altitude_text || c.harvest_date_text || (c.varietal_names?.length ?? 0),
+    )
+    return has ? [c] : []
+  })()
+  const components = draft.bean_components?.length ? draft.bean_components : seedFromTop
+  const writeComponents = (next: BeanComponent[]) => onChange({
+    ...draft,
+    bean_components: next,
+    origin_name: undefined,
+    coffee_source_name: undefined,
+    green_bean_merchant_name: undefined,
+    green_bean_product_name: undefined,
+    process_name: undefined,
+    varietal_names: undefined,
+    altitude_text: undefined,
+    harvest_date_text: undefined,
+  })
+  const setComponent = (index: number, patch: Partial<BeanComponent>) => {
+    writeComponents(components.map((component, i) => i === index ? { ...component, ...patch } : component))
   }
+  const addComponent = () => writeComponents([
+    ...components,
+    {
+      origin_name: '', coffee_source_name: '', green_bean_merchant_name: '', green_bean_product_name: '',
+      process_name: '', varietal_names: [], altitude_text: '', harvest_date_text: '', share_text: '',
+    },
+  ])
+  const removeComponent = (index: number) => writeComponents(components.filter((_, i) => i !== index))
+  const firstComp = components[0]
   const canSave = Boolean(
     (draft.name?.trim() || draft.roaster_product_name?.trim())
     && draft.roaster_name?.trim()
-    && draft.origin_name?.trim()
-    && draft.process_name?.trim(),
+    && firstComp?.origin_name?.trim()
+    && firstComp?.process_name?.trim(),
   )
 
   return (
@@ -1381,69 +1420,49 @@ function BeanDraftCard({
         <div className="grid sm:grid-cols-2 gap-3">
           <DraftInput label="烘焙商" value={draft.roaster_name ?? ''} lowConf={isLow('roaster_name')} onChange={(value) => setField('roaster_name', value)} />
           <DraftInput label="烘焙商产品 / 批次名" value={draft.roaster_product_name ?? ''} lowConf={isLow('roaster_product_name')} onChange={(value) => setField('roaster_product_name', value)} />
-          <DraftInput label="生产者/庄园/处理站" value={draft.coffee_source_name ?? ''} lowConf={isLow('coffee_source_name')} onChange={(value) => setField('coffee_source_name', value)} />
-          <DraftInput label="生豆商/进口商" value={draft.green_bean_merchant_name ?? ''} lowConf={isLow('green_bean_merchant_name')} onChange={(value) => setField('green_bean_merchant_name', value)} />
-          <DraftInput label="生豆商产品" value={draft.green_bean_product_name ?? ''} lowConf={isLow('green_bean_product_name')} onChange={(value) => setField('green_bean_product_name', value)} />
-          <DraftInput label="产地" value={draft.origin_name ?? ''} lowConf={isLow('origin_name')} onChange={(value) => setField('origin_name', value)} />
-          <DraftInput label="处理法" value={draft.process_name ?? ''} lowConf={isLow('process_name')} onChange={(value) => setField('process_name', value)} />
-          <DraftInput label="海拔" value={draft.altitude_text ?? ''} lowConf={isLow('altitude_text')} onChange={(value) => setField('altitude_text', value)} />
-          <DraftInput label="采收期" value={draft.harvest_date_text ?? ''} lowConf={isLow('harvest_date_text')} onChange={(value) => setField('harvest_date_text', value)} />
           <DraftInput label="烘焙日期" value={draft.roast_date_text ?? ''} lowConf={isLow('roast_date_text')} onChange={(value) => setField('roast_date_text', value)} />
           <DraftInput label="净含量" value={draft.net_weight_text ?? ''} lowConf={isLow('net_weight_text')} onChange={(value) => setField('net_weight_text', value)} />
-          <DraftInput
-            label="品种"
-            value={(draft.varietal_names ?? []).join('，')}
-            lowConf={isLow('varietal_names')}
-            onChange={(value) => setField('varietal_names', value.split(/[，,]/).map((item) => item.trim()).filter(Boolean))}
-          />
         </div>
         <div className="border-t border-dc-border pt-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-dc-text-2">豆源组成</span>
-            <button
-              type="button"
-              onClick={() => setField('bean_components', [...components, {
-                origin_name: '',
-                coffee_source_name: '',
-                process_name: '',
-                varietal_names: [],
-                altitude_text: '',
-                share_text: '',
-                notes: '',
-              }])}
-              className="text-xs text-dc-accent inline-flex items-center gap-1"
-            >
+            <span className="text-xs font-medium text-dc-text-2">豆源（单豆填 1 条，拼配可加多条）</span>
+            <button type="button" onClick={addComponent} className="text-xs text-dc-accent inline-flex items-center gap-1">
               <Plus size={12} />
-              添加
+              添加豆源
             </button>
           </div>
           {components.length === 0 ? (
-            <p className="text-xs text-dc-text-3">拼配或多产地产品可以补充豆源组成。</p>
+            <p className="text-xs text-dc-text-3">点「添加豆源」填写产地、处理法、品种等信息。</p>
           ) : (
             <div className="space-y-3">
               {components.map((component, index) => (
                 <div key={index} className="border border-dc-border rounded-lg p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-medium text-dc-text-1">豆源 {index + 1}</span>
-                    <button
-                      type="button"
-                      onClick={() => setField('bean_components', components.filter((_, i) => i !== index))}
-                      className="text-dc-red hover:bg-dc-red/5 rounded-md p-1"
-                      aria-label="删除豆源"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {components.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeComponent(index)}
+                        className="text-dc-red hover:bg-dc-red/5 rounded-md p-1"
+                        aria-label="删除豆源"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
                   <div className="grid sm:grid-cols-2 gap-2">
                     <DraftInput label="产地" value={component.origin_name ?? ''} onChange={(value) => setComponent(index, { origin_name: value })} />
-                    <DraftInput label="庄园/处理站" value={component.coffee_source_name ?? ''} onChange={(value) => setComponent(index, { coffee_source_name: value })} />
+                    <DraftInput label="生产者/庄园/处理站" value={component.coffee_source_name ?? ''} onChange={(value) => setComponent(index, { coffee_source_name: value })} />
                     <DraftInput label="处理法" value={component.process_name ?? ''} onChange={(value) => setComponent(index, { process_name: value })} />
                     <DraftInput
                       label="品种"
                       value={(component.varietal_names ?? []).join('，')}
                       onChange={(value) => setComponent(index, { varietal_names: value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })}
                     />
+                    <DraftInput label="生豆商/进口商" value={component.green_bean_merchant_name ?? ''} onChange={(value) => setComponent(index, { green_bean_merchant_name: value })} />
+                    <DraftInput label="生豆商产品" value={component.green_bean_product_name ?? ''} onChange={(value) => setComponent(index, { green_bean_product_name: value })} />
                     <DraftInput label="海拔" value={component.altitude_text ?? ''} onChange={(value) => setComponent(index, { altitude_text: value })} />
+                    <DraftInput label="采收期" value={component.harvest_date_text ?? ''} onChange={(value) => setComponent(index, { harvest_date_text: value })} />
                     <DraftInput label="占比/说明" value={component.share_text ?? ''} onChange={(value) => setComponent(index, { share_text: value })} />
                   </div>
                 </div>

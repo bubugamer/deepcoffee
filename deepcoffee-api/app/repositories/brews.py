@@ -43,15 +43,46 @@ def _rating_model(value: dict | None) -> BrewEvaluation | None:
     return BrewEvaluation.model_validate(value)
 
 
+def _card_bean_fields(card: UserBeanCardORM | None) -> dict[str, str | None]:
+    """从关联豆卡派生 bean_name/roaster/origin/process/varietal（产地/处理法/品种来自「豆源」
+    bean_components：单豆取该条、拼配给汇总、无豆源留空）。单一真相＝豆卡，改名即时生效。"""
+    if card is None:
+        return {"bean_name": None, "roaster": None, "origin": None, "process": None, "varietal": None}
+    comps = [c for c in (card.bean_components or []) if isinstance(c, dict)]
+    if len(comps) == 1:
+        c = comps[0]
+        origin = c.get("origin_name")
+        process = c.get("process_name")
+        varietal = "、".join(c.get("varietal_names") or []) or None
+    elif len(comps) >= 2:
+        origin = "拼配 · 多产地"
+        process = "多处理法"
+        vs: list[str] = []
+        for c in comps:
+            for v in c.get("varietal_names") or []:
+                if v and v not in vs:
+                    vs.append(v)
+        varietal = "、".join(vs) or None
+    else:
+        origin = process = varietal = None
+    return {
+        "bean_name": card.name,
+        "roaster": card.roaster_name,
+        "origin": origin,
+        "process": process,
+        "varietal": varietal,
+    }
+
+
 def _apply_card_fields(record: BrewRecord, card: UserBeanCardORM | None) -> None:
-    """豆名/产地/烘焙商/处理法/品种统一从关联豆卡现取（单一真相＝豆卡，豆卡改名即时生效）。"""
     if card is None:
         return
-    record.bean_name = card.name
-    record.origin = card.origin_name
-    record.roaster = card.roaster_name
-    record.process = card.process_name
-    record.varietal = "、".join(card.varietal_names or []) or None
+    fields = _card_bean_fields(card)
+    record.bean_name = fields["bean_name"]
+    record.roaster = fields["roaster"]
+    record.origin = fields["origin"]
+    record.process = fields["process"]
+    record.varietal = fields["varietal"]
 
 
 def _to_record(row: BrewRecordORM, card: UserBeanCardORM | None = None) -> BrewRecord:
@@ -62,13 +93,14 @@ def _to_record(row: BrewRecordORM, card: UserBeanCardORM | None = None) -> BrewR
 
 
 def _to_anonymous_record(row: BrewRecordORM, card: UserBeanCardORM | None = None) -> AnonymousBrewRecord:
+    fields = _card_bean_fields(card)
     return AnonymousBrewRecord(
         id=row.id,
-        bean_name=card.name if card is not None else None,
-        origin=card.origin_name if card is not None else None,
-        roaster=card.roaster_name if card is not None else None,
-        process=card.process_name if card is not None else None,
-        varietal=("、".join(card.varietal_names or []) or None) if card is not None else None,
+        bean_name=fields["bean_name"],
+        origin=fields["origin"],
+        roaster=fields["roaster"],
+        process=fields["process"],
+        varietal=fields["varietal"],
         brew_method=row.brew_method,
         device=row.device,
         grinder=row.grinder,
@@ -168,9 +200,8 @@ class BrewRecordRepository:
             conditions.append(
                 or_(
                     UserBeanCardORM.name.ilike(like),
-                    UserBeanCardORM.origin_name.ilike(like),
                     UserBeanCardORM.roaster_name.ilike(like),
-                    cast(UserBeanCardORM.varietal_names, Text).ilike(like),
+                    cast(UserBeanCardORM.bean_components, Text).ilike(like),
                     BrewRecordORM.brew_method.ilike(like),
                     BrewRecordORM.device.ilike(like),
                     BrewRecordORM.grinder.ilike(like),
@@ -225,46 +256,41 @@ class BrewRecordRepository:
         bean_card_id: str,
         limit: int = 50,
     ) -> list[AnonymousBrewRecord] | None:
+        from app.repositories.beans import _same_bean_key  # 复用同豆键，避免模块级循环依赖
+
         source_card = await session.get(UserBeanCardORM, bean_card_id)
         if source_card is None or source_card.user_id != user_id or source_card.status != "active":
             return None
 
-        conditions = [
-            BrewRecordORM.user_id != user_id,
-            BrewRecordORM.record_type == "user",
-            BrewRecordORM.is_user_visible.is_(True),
-            BrewRecordORM.bean_card_id.is_not(None),
-            UserBeanCardORM.status == "active",
-        ]
+        # 身份过弱（无烘焙商，或没有任何带产地的豆源）不做同豆匹配，避免过度聚合。
+        has_roaster = bool(source_card.roaster_entity_id or (source_card.roaster_name or "").strip())
+        has_origin = any(
+            isinstance(c, dict) and (c.get("origin_entity_id") or (c.get("origin_name") or "").strip())
+            for c in (source_card.bean_components or [])
+        )
+        if not (has_roaster and has_origin):
+            return []
+        source_key = _same_bean_key(source_card)
 
-        entity_conditions = []
-        for attr in ("roaster_product_entity_id", "green_bean_product_entity_id"):
-            value = getattr(source_card, attr)
-            if value:
-                entity_conditions.append(getattr(UserBeanCardORM, attr) == value)
-        if entity_conditions:
-            conditions.append(or_(*entity_conditions))
-        else:
-            exact_fields = [
-                ("name", source_card.name),
-                ("roaster_name", source_card.roaster_name),
-                ("origin_name", source_card.origin_name),
-                ("process_name", source_card.process_name),
-            ]
-            available = [(field, value.strip().lower()) for field, value in exact_fields if isinstance(value, str) and value.strip()]
-            if len(available) < 3:
-                return []
-            for field, value in available:
-                conditions.append(func.lower(getattr(UserBeanCardORM, field)) == value)
-
+        # 同豆判定与广场聚合同口径（_same_bean_key：烘焙商 + 豆名 + 豆源集合），在应用层比对。
         result = await session.execute(
             select(BrewRecordORM, UserBeanCardORM)
             .join(UserBeanCardORM, UserBeanCardORM.id == BrewRecordORM.bean_card_id)
-            .where(*conditions)
+            .where(
+                BrewRecordORM.user_id != user_id,
+                BrewRecordORM.record_type == "user",
+                BrewRecordORM.is_user_visible.is_(True),
+                UserBeanCardORM.status == "active",
+            )
             .order_by(BrewRecordORM.created_at.desc())
-            .limit(limit)
         )
-        return [_to_anonymous_record(row, card) for row, card in result.all()]
+        out: list[AnonymousBrewRecord] = []
+        for row, card in result.all():
+            if _same_bean_key(card) == source_key:
+                out.append(_to_anonymous_record(row, card))
+                if len(out) >= limit:
+                    break
+        return out
 
     async def update(
         self, session: AsyncSession, *, user_id: str, record_id: str, payload: BrewRecordUpdateRequest

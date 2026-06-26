@@ -160,14 +160,25 @@ export interface BeanFlavor {
   axes: FlavorAxis[]
 }
 
+export type BeanProductType = 'single' | 'blend'
+
 export interface BeanComponent {
   origin_name?: string | null
   coffee_source_name?: string | null
+  green_bean_merchant_name?: string | null
+  green_bean_product_name?: string | null
   process_name?: string | null
   varietal_names: string[]
   altitude_text?: string | null
+  harvest_date_text?: string | null
   share_text?: string | null
   notes?: string | null
+  // 后端回填的实体 id（只读）
+  origin_entity_id?: string | null
+  process_entity_id?: string | null
+  coffee_source_entity_id?: string | null
+  green_bean_merchant_entity_id?: string | null
+  varietal_entity_ids?: string[]
 }
 
 export interface BeanDraft {
@@ -220,6 +231,7 @@ export interface Bean {
   roast_date_text?: string | null
   net_weight_text?: string | null
   bean_components: BeanComponent[]
+  bean_product_type: BeanProductType
   flavor: BeanFlavor
   rating?: BrewEvaluation | null
   private_notes?: string | null
@@ -257,6 +269,7 @@ export interface BeanSquareItem {
   roast_date_text?: string | null
   net_weight_text?: string | null
   bean_components: BeanComponent[]
+  bean_product_type: BeanProductType
   flavor: BeanFlavor
   rating?: BrewEvaluation | null
   public_comment?: string | null
