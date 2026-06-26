@@ -11,7 +11,7 @@ import unicodedata
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import Text, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import (
@@ -538,16 +538,10 @@ class EntityRepository:
     # 合并时把「指向 source 的外键」整体改指 target 的普通列（无唯一约束，直接 UPDATE）。
     _MERGE_REF_COLUMNS: list[tuple[type, list[str]]] = [
         (
+            # 豆卡顶层只剩产品级实体 id；豆源级（产地/处理法/庄园/生豆商）id 在 bean_components JSONB 内，
+            # 由 _merge_component_entities 单独重映射。
             UserBeanCardORM,
-            [
-                "roaster_entity_id",
-                "roaster_product_entity_id",
-                "coffee_source_entity_id",
-                "green_bean_merchant_entity_id",
-                "green_bean_product_entity_id",
-                "origin_entity_id",
-                "process_entity_id",
-            ],
+            ["roaster_entity_id", "roaster_product_entity_id"],
         ),
         (
             RoasterProduct,
@@ -605,6 +599,36 @@ class EntityRepository:
                     link.varietal_entity_id = target_id
             await session.flush()
 
+    async def _merge_component_entities(self, session: AsyncSession, source_id: str, target_id: str) -> None:
+        """豆源（bean_components JSONB）里缓存的实体 id 指 source → 改 target（含品种 id 列表）。"""
+        id_fields = (
+            "origin_entity_id",
+            "process_entity_id",
+            "coffee_source_entity_id",
+            "green_bean_merchant_entity_id",
+        )
+        rows = await session.execute(
+            select(UserBeanCardORM).where(cast(UserBeanCardORM.bean_components, Text).contains(source_id))
+        )
+        for card in rows.scalars().all():
+            changed = False
+            new_comps: list = []
+            for comp in card.bean_components or []:
+                if isinstance(comp, dict):
+                    comp = dict(comp)
+                    for field in id_fields:
+                        if comp.get(field) == source_id:
+                            comp[field] = target_id
+                            changed = True
+                    vids = comp.get("varietal_entity_ids")
+                    if isinstance(vids, list) and source_id in vids:
+                        comp["varietal_entity_ids"] = [target_id if v == source_id else v for v in vids]
+                        changed = True
+                new_comps.append(comp)
+            if changed:
+                card.bean_components = new_comps
+        await session.flush()
+
     async def merge_entities(
         self,
         session: AsyncSession,
@@ -630,6 +654,7 @@ class EntityRepository:
                     update(orm).where(getattr(orm, col) == source_id).values(**{col: target_id})
                 )
         await self._merge_varietal_links(session, source_id, target_id)
+        await self._merge_component_entities(session, source_id, target_id)
         await self._merge_aliases(session, source_id, target_id)
         # source 主名（及其拆分片段）登记为 target 别名，今后该写法直接命中 target。
         await self.register_aliases(session, target_id, source.canonical_name, source="merge")

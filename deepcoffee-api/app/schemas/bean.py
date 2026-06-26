@@ -29,16 +29,29 @@ def default_flavor() -> BeanFlavor:
     return BeanFlavor(notes=[], source="default", scale_max=5, axes=[])
 
 
+# 豆卡产品类型：单一豆源 / 拼配多豆源。系统按豆源条数自动写（1→single、≥2→blend），UI 不暴露。
+BeanProductType = Literal["single", "blend"]
+
+
 class BeanComponent(BaseModel):
-    """拼配 / 多豆源组成。单品可为空，拼配可有多条。"""
+    """一条「豆源」。单豆卡 1 条、拼配卡多条；豆子相关信息（产地/庄园/生豆商/处理法/品种/海拔/采收期）都在这里。"""
 
     origin_name: str | None = Field(default=None, max_length=160)
     coffee_source_name: str | None = Field(default=None, max_length=160)
+    green_bean_merchant_name: str | None = Field(default=None, max_length=120)
+    green_bean_product_name: str | None = Field(default=None, max_length=160)
     process_name: str | None = Field(default=None, max_length=120)
     varietal_names: list[str] = Field(default_factory=list)
     altitude_text: str | None = Field(default=None, max_length=120)
+    harvest_date_text: str | None = Field(default=None, max_length=120)
     share_text: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=500)
+    # 后端解析回填的公共实体 id（输入时忽略，由 beans._link_entities 写入）。
+    origin_entity_id: str | None = None
+    process_entity_id: str | None = None
+    coffee_source_entity_id: str | None = None
+    green_bean_merchant_entity_id: str | None = None
+    varietal_entity_ids: list[str] = Field(default_factory=list)
 
 
 class BeanDraft(BaseModel):
@@ -144,6 +157,7 @@ class Bean(BaseModel):
     roast_date_text: str | None = None
     net_weight_text: str | None = None
     bean_components: list[BeanComponent] = Field(default_factory=list)
+    bean_product_type: BeanProductType = "single"
     flavor: BeanFlavor
     rating: BrewEvaluation | None = None
     private_notes: str | None = None
@@ -188,6 +202,7 @@ class BeanSquareItem(BaseModel):
     roast_date_text: str | None = None
     net_weight_text: str | None = None
     bean_components: list[BeanComponent] = Field(default_factory=list)
+    bean_product_type: BeanProductType = "single"
     flavor: BeanFlavor
     rating: BrewEvaluation | None = None
     public_comment: str | None = None

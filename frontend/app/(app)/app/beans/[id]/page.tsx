@@ -10,16 +10,10 @@ import { formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
 import { RecommendParamsChat } from '@/components/RecommendParamsChat'
 import type { Bean, BeanComponent, BeanDraft, BrewEvaluation, BrewEvaluationItem, FlavorAxis } from '@/types'
 
+// 产品级字段（顶层）。豆子相关信息（产地/庄园/生豆商/处理法/品种/海拔/采收期）在「豆源」里逐条编辑。
 const FIELD_DEFS: { draftKey: keyof BeanDraft & string; beanKey: keyof Bean & string; label: string; required?: boolean }[] = [
   { draftKey: 'roaster_name', beanKey: 'roaster', label: '烘焙商', required: true },
   { draftKey: 'roaster_product_name', beanKey: 'roaster_product', label: '烘焙商产品 / 批次名' },
-  { draftKey: 'coffee_source_name', beanKey: 'coffee_source', label: '生产者 / 庄园 / 处理站' },
-  { draftKey: 'green_bean_merchant_name', beanKey: 'green_bean_merchant', label: '生豆商 / 进口商' },
-  { draftKey: 'green_bean_product_name', beanKey: 'green_bean_product', label: '生豆商产品' },
-  { draftKey: 'origin_name', beanKey: 'origin', label: '产地', required: true },
-  { draftKey: 'process_name', beanKey: 'process', label: '处理法', required: true },
-  { draftKey: 'altitude_text', beanKey: 'altitude_text', label: '海拔' },
-  { draftKey: 'harvest_date_text', beanKey: 'harvest_date_text', label: '采收期' },
   { draftKey: 'roast_date_text', beanKey: 'roast_date_text', label: '烘焙日期' },
   { draftKey: 'net_weight_text', beanKey: 'net_weight_text', label: '净含量' },
 ]
@@ -48,9 +42,12 @@ const PARAM_FIELDS: { key: string; label: string; placeholder: string }[] = [
 interface ComponentDraft {
   origin_name: string
   coffee_source_name: string
+  green_bean_merchant_name: string
+  green_bean_product_name: string
   process_name: string
   varietalsText: string
   altitude_text: string
+  harvest_date_text: string
   share_text: string
   notes: string
 }
@@ -71,9 +68,12 @@ function componentToDraft(component: BeanComponent): ComponentDraft {
   return {
     origin_name: component.origin_name ?? '',
     coffee_source_name: component.coffee_source_name ?? '',
+    green_bean_merchant_name: component.green_bean_merchant_name ?? '',
+    green_bean_product_name: component.green_bean_product_name ?? '',
     process_name: component.process_name ?? '',
     varietalsText: (component.varietal_names ?? []).join('，'),
     altitude_text: component.altitude_text ?? '',
+    harvest_date_text: component.harvest_date_text ?? '',
     share_text: component.share_text ?? '',
     notes: component.notes ?? '',
   }
@@ -83,12 +83,20 @@ function draftToComponent(component: ComponentDraft): BeanComponent {
   return {
     origin_name: optionalText(component.origin_name),
     coffee_source_name: optionalText(component.coffee_source_name),
+    green_bean_merchant_name: optionalText(component.green_bean_merchant_name),
+    green_bean_product_name: optionalText(component.green_bean_product_name),
     process_name: optionalText(component.process_name),
     varietal_names: splitList(component.varietalsText),
     altitude_text: optionalText(component.altitude_text),
+    harvest_date_text: optionalText(component.harvest_date_text),
     share_text: optionalText(component.share_text),
     notes: optionalText(component.notes),
   }
+}
+
+const EMPTY_COMPONENT_DRAFT: ComponentDraft = {
+  origin_name: '', coffee_source_name: '', green_bean_merchant_name: '', green_bean_product_name: '',
+  process_name: '', varietalsText: '', altitude_text: '', harvest_date_text: '', share_text: '', notes: '',
 }
 
 function beanToEdit(bean: Bean): EditState {
@@ -103,7 +111,9 @@ function beanToEdit(bean: Bean): EditState {
     rating: bean.rating ?? null,
     privateNotes: bean.private_notes ?? '',
     publicComment: bean.public_comment ?? '',
-    components: (bean.bean_components ?? []).map(componentToDraft),
+    components: bean.bean_components?.length
+      ? bean.bean_components.map(componentToDraft)
+      : [{ ...EMPTY_COMPONENT_DRAFT }],
     params: {
       device: p?.device ?? '',
       grinder: p?.grinder ?? '',
@@ -274,6 +284,12 @@ export default function BeanDetailPage() {
       setSaveError(`请填写：${requiredMissing.join('、')}`)
       return
     }
+    // 至少要有一条带产地 + 处理法的豆源（单豆 1 条、拼配多条）。
+    const firstSource = edit.components[0]
+    if (!firstSource?.origin_name.trim() || !firstSource?.process_name.trim()) {
+      setSaveError('请在「豆源」里至少填写产地与处理法。')
+      return
+    }
 
     setSaving(true)
     setSaveError('')
@@ -287,7 +303,6 @@ export default function BeanDetailPage() {
           patch[draftKey] = edit.fields[draftKey].trim() || null
         }
       }
-      if (edit.varietalsText !== initial.varietalsText) patch.varietal_names = splitList(edit.varietalsText)
       if (edit.privateNotes !== initial.privateNotes) patch.private_notes = edit.privateNotes.trim() || null
       if (edit.publicComment !== initial.publicComment) patch.public_comment = edit.publicComment.trim() || null
       if (JSON.stringify(edit.components) !== JSON.stringify(initial.components)) {
@@ -370,8 +385,9 @@ export default function BeanDetailPage() {
 
   const paramRows = recommendedParamRows(bean.recommended_params)
   const beanScore = bean.rating?.overall?.score ?? bean.avg_score
-  const summaryOrigin = (bean.bean_components?.length ?? 0) > 1 ? '多产地 / 拼配' : bean.origin
-  const summaryProcess = (bean.bean_components?.length ?? 0) > 1 ? '多处理法' : bean.process
+  const isBlend = bean.bean_product_type === 'blend'
+  const summaryOrigin = isBlend ? '多产地 / 拼配' : bean.origin
+  const summaryProcess = isBlend ? '多处理法' : bean.process
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -431,39 +447,38 @@ export default function BeanDetailPage() {
                   onChange={value => setField(draftKey, value)}
                 />
               ))}
-              <FieldInput
-                label="品种"
-                value={edit.varietalsText}
-                onChange={value => setEdit({ ...edit, varietalsText: value })}
-                placeholder="例如：瑰夏，SL9"
-              />
             </div>
           </Section>
 
-          <Section title="豆源组成">
+          <Section title="豆源（单豆 1 条，拼配可加多条）">
             {edit.components.length === 0 ? (
-              <p className="text-sm text-dc-text-3 mb-3">单一豆源可以不填；拼配或多产地产品建议逐条记录。</p>
+              <p className="text-sm text-dc-text-3 mb-3">点「添加豆源」填写产地、处理法、品种等信息。</p>
             ) : (
               <div className="space-y-4 mb-4">
                 {edit.components.map((component, index) => (
                   <div key={index} className="border border-dc-border rounded-lg p-3">
                     <div className="flex items-center justify-between mb-3">
                       <div className="text-sm font-medium text-dc-text-1">豆源 {index + 1}</div>
-                      <button
-                        type="button"
-                        onClick={() => setEdit({ ...edit, components: edit.components.filter((_, i) => i !== index) })}
-                        className="text-dc-red hover:bg-dc-red/5 rounded-md p-1"
-                        aria-label="删除豆源"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {edit.components.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setEdit({ ...edit, components: edit.components.filter((_, i) => i !== index) })}
+                          className="text-dc-red hover:bg-dc-red/5 rounded-md p-1"
+                          aria-label="删除豆源"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                     <div className="grid sm:grid-cols-2 gap-3">
                       <FieldInput label="产地" value={component.origin_name} onChange={value => setComponent(index, { origin_name: value })} />
                       <FieldInput label="生产者 / 庄园 / 处理站" value={component.coffee_source_name} onChange={value => setComponent(index, { coffee_source_name: value })} />
                       <FieldInput label="处理法" value={component.process_name} onChange={value => setComponent(index, { process_name: value })} />
                       <FieldInput label="品种" value={component.varietalsText} onChange={value => setComponent(index, { varietalsText: value })} />
+                      <FieldInput label="生豆商 / 进口商" value={component.green_bean_merchant_name} onChange={value => setComponent(index, { green_bean_merchant_name: value })} />
+                      <FieldInput label="生豆商产品" value={component.green_bean_product_name} onChange={value => setComponent(index, { green_bean_product_name: value })} />
                       <FieldInput label="海拔" value={component.altitude_text} onChange={value => setComponent(index, { altitude_text: value })} />
+                      <FieldInput label="采收期" value={component.harvest_date_text} onChange={value => setComponent(index, { harvest_date_text: value })} />
                       <FieldInput label="占比 / 说明" value={component.share_text} onChange={value => setComponent(index, { share_text: value })} />
                     </div>
                     <label className="block mt-3">
@@ -480,18 +495,7 @@ export default function BeanDetailPage() {
             )}
             <button
               type="button"
-              onClick={() => setEdit({
-                ...edit,
-                components: [...edit.components, {
-                  origin_name: '',
-                  coffee_source_name: '',
-                  process_name: '',
-                  varietalsText: '',
-                  altitude_text: '',
-                  share_text: '',
-                  notes: '',
-                }],
-              })}
+              onClick={() => setEdit({ ...edit, components: [...edit.components, { ...EMPTY_COMPONENT_DRAFT }] })}
               className="btn-secondary text-sm px-3 py-2 inline-flex items-center gap-1.5"
             >
               <Plus size={14} />
@@ -603,20 +607,22 @@ export default function BeanDetailPage() {
                 {FIELD_DEFS.map(({ draftKey, beanKey, label }) => (
                   <FieldView key={draftKey} label={label} value={bean[beanKey] as string | null | undefined} />
                 ))}
-                <FieldView label="品种" value={bean.varietal.join(' / ')} />
               </div>
             </Section>
 
             {(bean.bean_components?.length ?? 0) > 0 && (
-              <Section title="豆源组成">
+              <Section title={isBlend ? '豆源（拼配）' : '豆源'}>
                 <div className="space-y-3">
                   {bean.bean_components.map((component, index) => {
                     const details = [
                       component.origin_name,
                       component.coffee_source_name,
+                      component.green_bean_merchant_name,
+                      component.green_bean_product_name,
                       component.process_name,
                       component.varietal_names?.join(' / '),
                       component.altitude_text,
+                      component.harvest_date_text,
                       component.share_text,
                     ].filter(Boolean).join(' · ')
                     return (

@@ -134,6 +134,7 @@ function fallbackBeans(): Bean[] {
       roast_date_text: null,
       net_weight_text: null,
       bean_components: [],
+      bean_product_type: 'single',
       flavor: FALLBACK_FLAVORS[name] ?? DEFAULT_FLAVOR,
       rating: DEFAULT_RATING,
       private_notes: null,

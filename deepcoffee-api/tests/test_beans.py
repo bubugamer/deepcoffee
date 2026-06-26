@@ -177,10 +177,12 @@ def test_bean_confirm_uses_roaster_product_as_stable_name_and_saves_components()
     assert resp.status_code == 200, resp.text
     bean = client.get(f"/v1/beans/{resp.json()['bean_id']}", headers=HEADERS).json()
     assert bean["name"] == "Bong Bong"
-    assert bean["altitude_text"] == "1700-2300m"
-    assert bean["net_weight_text"] == "100g"
+    assert bean["bean_product_type"] == "blend"
+    assert bean["altitude_text"] is None  # 拼配顶层标量留空：海拔等在各豆源里
+    assert bean["net_weight_text"] == "100g"  # 产品级字段仍在顶层
     assert len(bean["bean_components"]) == 2
     assert bean["bean_components"][0]["coffee_source_name"] == "Santamaria Estate"
+    assert bean["bean_components"][0]["altitude_text"] == "1800m"
 
 
 def test_recommend_params_needs_equipment_then_completes() -> None:
@@ -438,3 +440,56 @@ def test_bean_square_keeps_different_beans_separate() -> None:
     for i in items:
         if i["name"] in ("豆甲", "豆乙"):
             assert i["owner_count"] == 1
+
+
+def test_single_normalizes_to_one_source_and_blend_derivation_and_aggregation() -> None:
+    client = TestClient(create_app())
+    h1 = {"Authorization": "Bearer dev:blend-u1:b1@example.com"}
+
+    # 单豆：顶层字段折成 1 条豆源，type=single，派生 origin = 该豆源产地。
+    single_id = client.post(
+        "/v1/beans/confirm",
+        headers=h1,
+        json={"draft": {
+            "name": "云南单豆", "roaster_name": "测试烘焙",
+            "origin_name": "云南", "process_name": "水洗", "varietal_names": ["卡蒂姆"],
+        }},
+    ).json()["bean_id"]
+    single = client.get(f"/v1/beans/{single_id}", headers=h1).json()
+    assert single["bean_product_type"] == "single"
+    assert len(single["bean_components"]) == 1
+    assert single["origin"] == "云南"
+    assert single["bean_components"][0]["process_name"] == "水洗"
+
+    # 拼配：多条豆源，type=blend，派生顶层 origin/process 留空。
+    blend_payload = {"draft": {
+        "name": "拼配 X", "roaster_name": "测试烘焙",
+        "bean_components": [
+            {"origin_name": "巴西", "process_name": "日晒", "varietal_names": ["黄波旁"]},
+            {"origin_name": "埃塞俄比亚", "process_name": "水洗", "varietal_names": ["原生种"]},
+        ],
+    }}
+    blend_id = client.post("/v1/beans/confirm", headers=h1, json=blend_payload).json()["bean_id"]
+    blend = client.get(f"/v1/beans/{blend_id}", headers=h1).json()
+    assert blend["bean_product_type"] == "blend"
+    assert blend["origin"] is None
+    assert blend["process"] is None
+    assert len(blend["bean_components"]) == 2
+
+    # 拼配卡的冲煮记录派生：豆名=卡名、产地=「拼配 · 多产地」。
+    brew = client.post(
+        "/v1/brew/records",
+        headers=h1,
+        json={"bean_card_id": blend_id, "device": "V60", "dose_g": 15, "water_ml": 240},
+    ).json()
+    assert brew["bean_name"] == "拼配 X"
+    assert brew["origin"] == "拼配 · 多产地"
+
+    # 另一用户录入同款拼配 → 广场同豆聚合成一张、人气计 2。
+    h2 = {"Authorization": "Bearer dev:blend-u2:b2@example.com"}
+    client.post("/v1/beans/confirm", headers=h2, json=blend_payload)
+    _set_plan("blend-u2", "pro")  # 广场列表需 Pro
+    square = client.get("/v1/beans/square", headers=h2).json()["items"]
+    matches = [it for it in square if it["name"] == "拼配 X"]
+    assert len(matches) == 1
+    assert matches[0]["owner_count"] == 2

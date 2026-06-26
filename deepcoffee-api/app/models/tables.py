@@ -267,39 +267,21 @@ class UserBeanCard(Base):
     raw_input: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str] = mapped_column(String, nullable=False)
 
+    # 产品级字段（留顶层）。豆子相关信息（产地/庄园/生豆商/处理法/品种/海拔/采收期）一律入 bean_components。
     roaster_name: Mapped[str | None] = mapped_column(String)
     roaster_product_name: Mapped[str | None] = mapped_column(String)
-    coffee_source_name: Mapped[str | None] = mapped_column(String)
-    green_bean_merchant_name: Mapped[str | None] = mapped_column(String)
-    green_bean_product_name: Mapped[str | None] = mapped_column(String)
-    origin_name: Mapped[str | None] = mapped_column(String)
-    process_name: Mapped[str | None] = mapped_column(String)
-    varietal_names: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
-    altitude_text: Mapped[str | None] = mapped_column(String)
-    harvest_date_text: Mapped[str | None] = mapped_column(String)
     roast_date_text: Mapped[str | None] = mapped_column(String)
     net_weight_text: Mapped[str | None] = mapped_column(String)
+    # 单一真相＝豆源：单豆卡 1 条、拼配卡多条；每条 component 含豆子信息 + 回填的实体 id。
     bean_components: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # 系统按豆源条数自动写：1→single、≥2→blend（UI 不暴露）。
+    bean_product_type: Mapped[str] = mapped_column(String, default="single", server_default="single", nullable=False)
 
+    # 产品级实体关联（留顶层）。豆源级实体 id（产地/处理法/庄园/生豆商/品种）存在各 bean_components 条目内。
     roaster_entity_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
     )
     roaster_product_entity_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
-    )
-    coffee_source_entity_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
-    )
-    green_bean_merchant_entity_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
-    )
-    green_bean_product_entity_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
-    )
-    origin_entity_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
-    )
-    process_entity_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("public_entities.id", ondelete="SET NULL"), index=True
     )
 

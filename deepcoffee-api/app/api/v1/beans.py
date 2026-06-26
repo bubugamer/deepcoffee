@@ -50,16 +50,27 @@ router = APIRouter(prefix="/beans", tags=["beans"], dependencies=[Depends(requir
 
 def _validate_required_bean_fields(draft: BeanConfirmRequest | BeanUpdateRequest) -> None:
     data = draft.draft if isinstance(draft, BeanConfirmRequest) else draft
+    is_confirm = isinstance(draft, BeanConfirmRequest)
+    components = data.bean_components or []
     missing: list[str] = []
-    if isinstance(draft, BeanConfirmRequest) and not (
+    if is_confirm and not (
         (data.name and data.name.strip())
         or (data.roaster_product_name and data.roaster_product_name.strip())
     ):
         missing.append("draft.name")
-    for field in ("roaster_name", "origin_name", "process_name"):
-        value = getattr(data, field, None)
-        if not (isinstance(value, str) and value.strip()):
-            missing.append(f"draft.{field}" if isinstance(draft, BeanConfirmRequest) else field)
+    if not (isinstance(data.roaster_name, str) and data.roaster_name.strip()):
+        missing.append("draft.roaster_name" if is_confirm else "roaster_name")
+
+    # 产地 / 处理法可填在顶层（单豆 / AI 折叠）或任一豆源里（拼配）——二者有其一即可。
+    def _has(field: str) -> bool:
+        top = getattr(data, field, None)
+        if isinstance(top, str) and top.strip():
+            return True
+        return any(isinstance(getattr(c, field, None), str) and getattr(c, field).strip() for c in components)
+
+    for field in ("origin_name", "process_name"):
+        if not _has(field):
+            missing.append(f"draft.{field}" if is_confirm else field)
     if missing:
         raise AppError(
             422,

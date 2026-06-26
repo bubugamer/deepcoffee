@@ -22,6 +22,18 @@ from app.schemas.bean import (
     default_flavor,
 )
 
+# 豆子相关信息（产地/庄园/生豆商/生豆商产品/处理法/品种/海拔/采收期）一律入「豆源」bean_components：
+# 单豆卡 1 条、拼配卡多条。顶层只留产品级（烘焙商/产品名/烘焙日期/净含量）。
+_COMPONENT_TEXT_FIELDS = (
+    "origin_name",
+    "coffee_source_name",
+    "green_bean_merchant_name",
+    "green_bean_product_name",
+    "process_name",
+    "altitude_text",
+    "harvest_date_text",
+)
+
 
 def _record_to_params(row: BrewRecordORM) -> BeanRecommendedParams:
     return BeanRecommendedParams(
@@ -50,31 +62,94 @@ def _overall_score(rating: dict | None) -> int | None:
     return None
 
 
-def _same_bean_key(card: "UserBeanCardORM") -> tuple[str, str, str, str]:
-    """「同一支豆」分组键:烘焙商/产地/处理法优先用已连实体 id(天然归一不同写法),
-    取不到回退文字归一;含归一后的豆名做区分,避免把同烘焙商/同产地的不同豆并成一组。
-    （本次不含 roaster_product_entity_id —— 见 docs 计划:产品实体数据成熟前不作判据。）"""
-    return (
-        card.roaster_entity_id or normalize_name(card.roaster_name or ""),
-        normalize_name(card.name or ""),
-        card.origin_entity_id or normalize_name(card.origin_name or ""),
-        card.process_entity_id or normalize_name(card.process_name or ""),
-    )
-
-
 def _clean_text(value: str | None) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
 
 
+def _draft_components(draft: BeanDraft) -> list[dict]:
+    """归一豆源：优先用 draft.bean_components；否则把顶层 per-bean 字段折成 1 条；都空则 []。"""
+    if draft.bean_components:
+        return [c.model_dump(exclude_none=True) for c in draft.bean_components]
+    top = {
+        "origin_name": _clean_text(draft.origin_name),
+        "coffee_source_name": _clean_text(draft.coffee_source_name),
+        "green_bean_merchant_name": _clean_text(draft.green_bean_merchant_name),
+        "green_bean_product_name": _clean_text(draft.green_bean_product_name),
+        "process_name": _clean_text(draft.process_name),
+        "varietal_names": list(draft.varietal_names or []),
+        "altitude_text": _clean_text(draft.altitude_text),
+        "harvest_date_text": _clean_text(draft.harvest_date_text),
+    }
+    if not any(top.values()):
+        return []
+    return [{k: v for k, v in top.items() if v}]
+
+
+def _product_type(components: list) -> str:
+    return "blend" if len(components) >= 2 else "single"
+
+
+def _component_key(comp: dict) -> tuple[str, str]:
+    origin = comp.get("origin_entity_id") or normalize_name(comp.get("origin_name") or "")
+    process = comp.get("process_entity_id") or normalize_name(comp.get("process_name") or "")
+    return (origin, process)
+
+
+def _same_bean_key(card: "UserBeanCardORM") -> tuple:
+    """「同一支豆」分组键:烘焙商 + 归一豆名 + 豆源集合(各豆源的产地/处理法,实体 id 优先)。
+    单豆=1 条豆源键、拼配=按豆源键排序的复合键 → 同款拼配自然归一,不同豆源不会误并。"""
+    sources = tuple(sorted(_component_key(c) for c in (card.bean_components or [])))
+    return (
+        card.roaster_entity_id or normalize_name(card.roaster_name or ""),
+        normalize_name(card.name or ""),
+        sources,
+    )
+
+
+def _derive_top(card: "UserBeanCardORM") -> dict:
+    """从豆源派生顶层展示字段:单豆取该条豆源、拼配标量留空(前端读 components/类型展示)、品种取并集便于搜索。"""
+    comps = card.bean_components or []
+    if len(comps) == 1:
+        c = comps[0]
+        return {
+            "origin": c.get("origin_name"),
+            "coffee_source": c.get("coffee_source_name"),
+            "green_bean_merchant": c.get("green_bean_merchant_name"),
+            "green_bean_product": c.get("green_bean_product_name"),
+            "process": c.get("process_name"),
+            "varietal": list(c.get("varietal_names") or []),
+            "altitude_text": c.get("altitude_text"),
+            "harvest_date_text": c.get("harvest_date_text"),
+        }
+    varietals: list[str] = []
+    for c in comps:
+        for v in c.get("varietal_names") or []:
+            if v and v not in varietals:
+                varietals.append(v)
+    return {
+        "origin": None,
+        "coffee_source": None,
+        "green_bean_merchant": None,
+        "green_bean_product": None,
+        "process": None,
+        "varietal": varietals,
+        "altitude_text": None,
+        "harvest_date_text": None,
+    }
+
+
 def _card_name(draft: BeanDraft) -> str:
     """豆卡主名称创建后保持稳定，优先使用豆袋正面 / 烘焙商产品名。"""
 
+    first_source = (draft.bean_components[0] if draft.bean_components else None)
+    source_origin = _clean_text(first_source.coffee_source_name) if first_source else None
     return (
         _clean_text(draft.name)
         or _clean_text(draft.roaster_product_name)
         or _clean_text(draft.coffee_source_name)
+        or source_origin
         or "未命名豆子"
     )
 
@@ -99,17 +174,9 @@ class BeanRepository:
             name=_card_name(draft),
             roaster_name=draft.roaster_name,
             roaster_product_name=draft.roaster_product_name,
-            coffee_source_name=draft.coffee_source_name,
-            green_bean_merchant_name=draft.green_bean_merchant_name,
-            green_bean_product_name=draft.green_bean_product_name,
-            origin_name=draft.origin_name,
-            process_name=draft.process_name,
-            varietal_names=list(draft.varietal_names or []),
-            altitude_text=draft.altitude_text,
-            harvest_date_text=draft.harvest_date_text,
             roast_date_text=draft.roast_date_text,
             net_weight_text=draft.net_weight_text,
-            bean_components=[component.model_dump(exclude_none=True) for component in draft.bean_components],
+            bean_components=_draft_components(draft),
             flavor=flavor.model_dump(),
             private_notes=draft.private_notes,
             public_comment=draft.public_comment,
@@ -117,44 +184,55 @@ class BeanRepository:
         )
         session.add(card)
         await session.flush()
-        await self._link_entities(session, card)
+        await self._link_entities(session, card)  # 逐豆源回填实体 id + 按条数写 bean_product_type
         await session.flush()
         return card.id
 
+    async def _resolve_id(self, session: AsyncSession, etype: str, name: str | None) -> str | None:
+        if not name or not str(name).strip():
+            return None
+        try:
+            ent = await entity_repository.resolve_entity(session, etype, str(name).strip())
+        except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
+            return None
+        return ent.id if (ent is not None and ent.status == "active") else None
+
     async def _link_entities(self, session: AsyncSession, card: UserBeanCardORM) -> None:
-        """把豆卡里的名称解析到公共实体，回填各 *_entity_id（命中 active 才填，否则清空）。
-
-        消歧匹配（别名 / 形态）让「同一烘焙商不同写法」聚合到同一实体；解析失败不阻断建档。
-        """
-        mapping = [
-            ("roaster", card.roaster_name, "roaster_entity_id"),
-            ("origin", card.origin_name, "origin_entity_id"),
-            ("process_method", card.process_name, "process_entity_id"),
-            ("coffee_source", card.coffee_source_name, "coffee_source_entity_id"),
-            ("green_bean_merchant", card.green_bean_merchant_name, "green_bean_merchant_entity_id"),
-        ]
-        for etype, name, attr in mapping:
-            if not name:
-                setattr(card, attr, None)
-                continue
-            try:
-                ent = await entity_repository.resolve_entity(session, etype, name)
-            except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
-                ent = None
-            setattr(card, attr, ent.id if (ent is not None and ent.status == "active") else None)
-
-        # 产品实体(roaster_product)按「烘焙商作用域」解析:只连已审核通过的 active 产品实体,
-        # 绝不自动建(新产品仍走候选审核)。多数用户产品现为候选 → 仍 None,数据靠审核慢慢积累。
+        """把豆卡名称解析到公共实体并回填:顶层 roaster/roaster_product,每条豆源 origin/process/coffee_source/
+        green_bean_merchant/varietal。同时按豆源条数写 bean_product_type。解析失败不阻断建档/编辑。"""
+        card.roaster_entity_id = await self._resolve_id(session, "roaster", card.roaster_name)
+        # 产品实体(roaster_product)按「烘焙商作用域」解析:只连已审核通过的 active,绝不自动建。
         card.roaster_product_entity_id = None
         if card.roaster_product_name and card.roaster_entity_id:
             try:
                 product = await entity_repository.resolve_roaster_product(
                     session, roaster_entity_id=card.roaster_entity_id, product_name=card.roaster_product_name
                 )
-            except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
+            except Exception:  # noqa: BLE001
                 product = None
             if product is not None and product.status == "active":
                 card.roaster_product_entity_id = product.id
+
+        new_components: list[dict] = []
+        for comp in card.bean_components or []:
+            if not isinstance(comp, dict):
+                continue
+            comp = dict(comp)
+            comp["origin_entity_id"] = await self._resolve_id(session, "origin", comp.get("origin_name"))
+            comp["process_entity_id"] = await self._resolve_id(session, "process_method", comp.get("process_name"))
+            comp["coffee_source_entity_id"] = await self._resolve_id(session, "coffee_source", comp.get("coffee_source_name"))
+            comp["green_bean_merchant_entity_id"] = await self._resolve_id(
+                session, "green_bean_merchant", comp.get("green_bean_merchant_name")
+            )
+            vids: list[str] = []
+            for v in comp.get("varietal_names") or []:
+                vid = await self._resolve_id(session, "varietal", v)
+                if vid:
+                    vids.append(vid)
+            comp["varietal_entity_ids"] = vids
+            new_components.append(comp)
+        card.bean_components = new_components  # 重新赋值以触发 JSONB 变更跟踪
+        card.bean_product_type = _product_type(new_components)
 
     async def _roaster_canonicals(
         self, session: AsyncSession, cards: list[UserBeanCardORM]
@@ -207,6 +285,7 @@ class BeanRepository:
         _, record_count = stats
         rating = card.rating
         score = _overall_score(rating)
+        top = _derive_top(card)
         return Bean(
             bean_id=card.id,
             name=card.name,
@@ -214,17 +293,18 @@ class BeanRepository:
             roaster_entity_id=card.roaster_entity_id,
             roaster_canonical=roaster_canonical,
             roaster_product=card.roaster_product_name,
-            coffee_source=card.coffee_source_name,
-            green_bean_merchant=card.green_bean_merchant_name,
-            green_bean_product=card.green_bean_product_name,
-            origin=card.origin_name,
-            process=card.process_name,
-            varietal=list(card.varietal_names or []),
-            altitude_text=card.altitude_text,
-            harvest_date_text=card.harvest_date_text,
+            coffee_source=top["coffee_source"],
+            green_bean_merchant=top["green_bean_merchant"],
+            green_bean_product=top["green_bean_product"],
+            origin=top["origin"],
+            process=top["process"],
+            varietal=top["varietal"],
+            altitude_text=top["altitude_text"],
+            harvest_date_text=top["harvest_date_text"],
             roast_date_text=card.roast_date_text,
             net_weight_text=card.net_weight_text,
             bean_components=list(card.bean_components or []),
+            bean_product_type=card.bean_product_type or "single",
             flavor=BeanFlavor.model_validate(card.flavor or default_flavor().model_dump()),
             rating=rating,
             private_notes=card.private_notes,
@@ -246,23 +326,25 @@ class BeanRepository:
     ) -> BeanSquareItem:
         _, record_count = stats
         rating = card.rating
+        top = _derive_top(card)
         return BeanSquareItem(
             bean_id=card.id,
             name=card.name,
             roaster=card.roaster_name,
             roaster_canonical=roaster_canonical,
             roaster_product=card.roaster_product_name,
-            coffee_source=card.coffee_source_name,
-            green_bean_merchant=card.green_bean_merchant_name,
-            green_bean_product=card.green_bean_product_name,
-            origin=card.origin_name,
-            process=card.process_name,
-            varietal=list(card.varietal_names or []),
-            altitude_text=card.altitude_text,
-            harvest_date_text=card.harvest_date_text,
+            coffee_source=top["coffee_source"],
+            green_bean_merchant=top["green_bean_merchant"],
+            green_bean_product=top["green_bean_product"],
+            origin=top["origin"],
+            process=top["process"],
+            varietal=top["varietal"],
+            altitude_text=top["altitude_text"],
+            harvest_date_text=top["harvest_date_text"],
             roast_date_text=card.roast_date_text,
             net_weight_text=card.net_weight_text,
             bean_components=list(card.bean_components or []),
+            bean_product_type=card.bean_product_type or "single",
             flavor=BeanFlavor.model_validate(card.flavor or default_flavor().model_dump()),
             rating=rating,
             public_comment=card.public_comment,
@@ -288,6 +370,30 @@ class BeanRepository:
         canon = await self._roaster_canonicals(session, [card])
         return self._to_bean(card, stats, rec, canon.get(card.roaster_entity_id))
 
+    @staticmethod
+    def _card_haystack(card: UserBeanCardORM) -> list[str]:
+        hay = [card.name, card.roaster_name, card.roaster_product_name]
+        for c in card.bean_components or []:
+            if not isinstance(c, dict):
+                continue
+            hay += [
+                c.get("origin_name"),
+                c.get("coffee_source_name"),
+                c.get("green_bean_merchant_name"),
+                c.get("green_bean_product_name"),
+                c.get("process_name"),
+            ]
+            hay += list(c.get("varietal_names") or [])
+        return [h for h in hay if h]
+
+    @staticmethod
+    def _card_has_process(card: UserBeanCardORM, process: str) -> bool:
+        pl = process.strip().lower()
+        return any(
+            isinstance(c, dict) and (c.get("process_name") or "").lower().find(pl) >= 0
+            for c in card.bean_components or []
+        )
+
     async def list(
         self,
         session: AsyncSession,
@@ -297,28 +403,31 @@ class BeanRepository:
         process: str | None = None,
         min_score: float | None = None,
     ) -> tuple[list[Bean], int]:
-        conditions = [UserBeanCardORM.user_id == user_id, UserBeanCardORM.status == "active"]
-        if q:
-            like = f"%{q.strip()}%"
-            name_conditions = [
-                UserBeanCardORM.name.ilike(like),
-                UserBeanCardORM.roaster_name.ilike(like),
-                UserBeanCardORM.origin_name.ilike(like),
-                UserBeanCardORM.process_name.ilike(like),
-            ]
-            # 消歧聚合：搜索词若能解析到某烘焙商实体，则把「回填了该实体」的豆卡一并纳入，
-            # 让同一烘焙商的不同写法（coffee buff / Coffeebuff）一起被搜出。
-            roaster_ent = await entity_repository.resolve_entity(session, "roaster", q.strip())
-            if roaster_ent is not None:
-                name_conditions.append(UserBeanCardORM.roaster_entity_id == roaster_ent.id)
-            conditions.append(or_(*name_conditions))
-        if process:
-            conditions.append(UserBeanCardORM.process_name.ilike(f"%{process.strip()}%"))
-
+        # 豆名/产地等已归一到豆源(JSONB)：先按 user+status 取全量(单用户豆卡量小)，q/process 在 Python 侧匹配豆源。
         result = await session.execute(
-            select(UserBeanCardORM).where(*conditions).order_by(UserBeanCardORM.created_at.desc())
+            select(UserBeanCardORM)
+            .where(UserBeanCardORM.user_id == user_id, UserBeanCardORM.status == "active")
+            .order_by(UserBeanCardORM.created_at.desc())
         )
         cards = list(result.scalars().all())
+
+        roaster_ent_id: str | None = None
+        if q:
+            ent = await entity_repository.resolve_entity(session, "roaster", q.strip())
+            roaster_ent_id = ent.id if ent is not None else None
+
+        def matches(card: UserBeanCardORM) -> bool:
+            if q:
+                ql = q.strip().lower()
+                hit = any(ql in h.lower() for h in self._card_haystack(card))
+                # 消歧聚合：搜索词解析到某烘焙商实体时，把回填了该实体的豆卡一并纳入。
+                if not hit and not (roaster_ent_id and card.roaster_entity_id == roaster_ent_id):
+                    return False
+            if process and not self._card_has_process(card, process):
+                return False
+            return True
+
+        cards = [c for c in cards if matches(c)]
         stats = await self._stats(session, [c.id for c in cards])
         canon = await self._roaster_canonicals(session, cards)
         beans: list[Bean] = []
@@ -359,7 +468,22 @@ class BeanRepository:
     def _square_text_match(item: BeanSquareItem, q: str) -> bool:
         ql = q.strip().lower()
         fields = [item.name, item.roaster, item.roaster_product, item.origin, item.process, item.public_comment]
+        for c in item.bean_components or []:
+            fields += [
+                c.origin_name,
+                c.coffee_source_name,
+                c.green_bean_merchant_name,
+                c.process_name,
+            ]
+            fields += list(c.varietal_names or [])
         return any(f and ql in f.lower() for f in fields)
+
+    @staticmethod
+    def _square_process_match(item: BeanSquareItem, process: str) -> bool:
+        pl = process.strip().lower()
+        if item.process and pl in item.process.lower():
+            return True
+        return any(c.process_name and pl in c.process_name.lower() for c in item.bean_components or [])
 
     async def list_square(
         self,
@@ -393,8 +517,7 @@ class BeanRepository:
         if q:
             built = [b for b in built if self._square_text_match(b[0], q)]
         if process:
-            pl = process.strip().lower()
-            built = [b for b in built if b[0].process and pl in b[0].process.lower()]
+            built = [b for b in built if self._square_process_match(b[0], process)]
 
         # 人气高在前,其次按组内最新时间。
         built.sort(key=lambda b: (b[0].owner_count, b[1]), reverse=True)
@@ -509,24 +632,12 @@ class BeanRepository:
                 name=source.name,
                 roaster_name=source.roaster_name,
                 roaster_product_name=source.roaster_product_name,
-                coffee_source_name=source.coffee_source_name,
-                green_bean_merchant_name=source.green_bean_merchant_name,
-                green_bean_product_name=source.green_bean_product_name,
-                origin_name=source.origin_name,
-                process_name=source.process_name,
-                varietal_names=list(source.varietal_names or []),
-                altitude_text=source.altitude_text,
-                harvest_date_text=source.harvest_date_text,
                 roast_date_text=source.roast_date_text,
                 net_weight_text=source.net_weight_text,
                 bean_components=list(source.bean_components or []),
+                bean_product_type=source.bean_product_type or "single",
                 roaster_entity_id=source.roaster_entity_id,
                 roaster_product_entity_id=source.roaster_product_entity_id,
-                coffee_source_entity_id=source.coffee_source_entity_id,
-                green_bean_merchant_entity_id=source.green_bean_merchant_entity_id,
-                green_bean_product_entity_id=source.green_bean_product_entity_id,
-                origin_entity_id=source.origin_entity_id,
-                process_entity_id=source.process_entity_id,
                 flavor=dict(source.flavor or default_flavor().model_dump()),
                 rating=source.rating,
                 private_notes=None,
@@ -563,16 +674,40 @@ class BeanRepository:
             updates["flavor"] = payload.flavor.model_dump()
         if "rating" in updates and payload.rating is not None:
             updates["rating"] = payload.rating.model_dump()
-        if "varietal_names" in updates and payload.varietal_names is not None:
-            updates["varietal_names"] = list(payload.varietal_names)
-        if "bean_components" in updates and payload.bean_components is not None:
+
+        # 豆子相关字段已归一到豆源:优先用 bean_components;否则把顶层 per-bean 字段(老客户端)折成 1 条。
+        legacy_keys = (
+            "origin_name",
+            "process_name",
+            "varietal_names",
+            "coffee_source_name",
+            "green_bean_merchant_name",
+            "green_bean_product_name",
+            "altitude_text",
+            "harvest_date_text",
+        )
+        legacy = {k: updates.pop(k, None) for k in legacy_keys if k in updates}
+        if "bean_components" in updates:
             updates["bean_components"] = [
-                component.model_dump(exclude_none=True) for component in payload.bean_components
+                c.model_dump(exclude_none=True) for c in (payload.bean_components or [])
             ]
+        elif legacy:
+            folded = {
+                "origin_name": _clean_text(legacy.get("origin_name")),
+                "coffee_source_name": _clean_text(legacy.get("coffee_source_name")),
+                "green_bean_merchant_name": _clean_text(legacy.get("green_bean_merchant_name")),
+                "green_bean_product_name": _clean_text(legacy.get("green_bean_product_name")),
+                "process_name": _clean_text(legacy.get("process_name")),
+                "varietal_names": list(legacy.get("varietal_names") or []),
+                "altitude_text": _clean_text(legacy.get("altitude_text")),
+                "harvest_date_text": _clean_text(legacy.get("harvest_date_text")),
+            }
+            updates["bean_components"] = [{k: v for k, v in folded.items() if v}] if any(folded.values()) else []
+
         for key, value in updates.items():
             setattr(card, key, value)
         await session.flush()
-        await self._link_entities(session, card)
+        await self._link_entities(session, card)  # 重新逐豆源回填 + 刷新 bean_product_type
         await session.flush()
         await session.refresh(card)
         return await self.get(session, user_id=user_id, bean_id=bean_id)
