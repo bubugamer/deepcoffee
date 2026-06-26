@@ -49,6 +49,27 @@ def test_bean_parse_maps_fields_and_flavor() -> None:
     assert "茉莉花香" in draft.flavor.notes
 
 
+def test_bean_parse_captures_flavor_note_emojis() -> None:
+    payload = json.dumps(
+        {
+            "name": "测试豆",
+            "flavor_notes": ["荔枝", "柑橘"],
+            # 含一个不在 notes 里的词，应被过滤掉
+            "flavor_note_emojis": {"荔枝": "🥭", "柑橘": "🍊", "幽灵词": "❌"},
+        }
+    )
+    draft = asyncio.run(parse_bean_with_model("...", model="m", gateway=_FakeGateway(payload)))
+    assert draft is not None
+    assert draft.flavor.note_emojis == {"荔枝": "🥭", "柑橘": "🍊"}
+
+
+def test_bean_parse_without_emojis_defaults_empty() -> None:
+    payload = json.dumps({"name": "测试豆", "flavor_notes": ["柑橘"]})
+    draft = asyncio.run(parse_bean_with_model("...", model="m", gateway=_FakeGateway(payload)))
+    assert draft is not None
+    assert draft.flavor.note_emojis == {}
+
+
 def test_bean_parse_invalid_json_returns_none() -> None:
     assert asyncio.run(parse_bean_with_model("x", model="m", gateway=_FakeGateway("nope"))) is None
 

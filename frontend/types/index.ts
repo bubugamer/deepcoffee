@@ -158,6 +158,8 @@ export interface BeanFlavor {
   source: 'roaster' | 'default' | 'user'
   scale_max: number
   axes: FlavorAxis[]
+  // AI 解析时为每个风味词配的 emoji（note→emoji）。前端取图优先用它，再退回内置词库。
+  note_emojis?: Record<string, string>
 }
 
 export type BeanProductType = 'single' | 'blend'

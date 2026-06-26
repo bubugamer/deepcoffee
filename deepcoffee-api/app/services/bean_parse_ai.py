@@ -19,12 +19,19 @@ logger = logging.getLogger(__name__)
 _BEAN_KEYS = [
     "name", "roaster_name", "roaster_product_name", "origin_name", "process_name",
     "varietal_names", "green_bean_merchant_name", "coffee_source_name", "flavor_notes",
+    "flavor_note_emojis",
     "altitude_text", "harvest_date_text", "roast_date_text", "net_weight_text", "bean_components",
 ]
 
 
 def _str_list(value: object) -> list[str]:
     return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def _str_dict(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str) and v}
 
 
 def _str(value: object) -> str | None:
@@ -81,7 +88,7 @@ async def parse_bean_with_model(
             roast_date_text=_str(data.get("roast_date_text")),
             net_weight_text=_str(data.get("net_weight_text")),
             bean_components=_components(data.get("bean_components")),
-            flavor=build_flavor(_str_list(data.get("flavor_notes"))),
+            flavor=build_flavor(_str_list(data.get("flavor_notes")), _str_dict(data.get("flavor_note_emojis"))),
             private_notes=None,
         )
     except Exception as exc:  # noqa: BLE001 — 抽取失败即回退本地，不影响建档

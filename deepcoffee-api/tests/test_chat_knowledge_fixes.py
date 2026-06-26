@@ -41,6 +41,36 @@ def test_strip_internal_source_lines_only_inside_sources_section() -> None:
     assert "resources/bar.md" not in out  # 来源段内的删除
 
 
+def test_strip_internal_source_lines_drops_empty_sources_heading() -> None:
+    # 「来源」段唯一一条就是内部素材，剔除后整段为空 → 标题也不该残留。
+    md = (
+        "# 标题\n\n"
+        "正文段落。\n\n"
+        "## 来源\n\n"
+        "- DeepCoffee notes: `resources/107 磨豆机 [refined].md`\n"
+    )
+    out = strip_internal_source_lines(md)
+    assert "## 来源" not in out  # 空标题被一并去掉
+    assert "正文段落。" in out  # 正文保留
+    assert "resources/107" not in out
+
+
+def test_strip_internal_source_lines_keeps_sources_heading_when_public_remains() -> None:
+    # 来源段还有公开链接时，标题与公开条目都要保留。
+    md = (
+        "## 来源\n\n"
+        "- [SCA](https://sca.coffee/)\n"
+        "- notes: `resources/x.md`\n\n"
+        "## 关联页面\n\n"
+        "- [[别的文章]]\n"
+    )
+    out = strip_internal_source_lines(md)
+    assert "## 来源" in out  # 标题保留
+    assert "https://sca.coffee/" in out  # 公开来源保留
+    assert "resources/x.md" not in out  # 内部条目删除
+    assert "## 关联页面" in out  # 后续小节不受影响
+
+
 # ---------- #12 知识库回答 max_tokens 足够大，不再截断 ----------
 
 

@@ -23,6 +23,8 @@ class BeanFlavor(BaseModel):
     source: Literal["roaster", "default", "user"] = "default"
     scale_max: float = Field(default=5, gt=0)
     axes: list[FlavorAxis] = Field(default_factory=list)
+    # AI 解析时为每个风味词配的 emoji（note→emoji）；前端展示风味标签时取用，缺失则前端走内置词库。
+    note_emojis: dict[str, str] = Field(default_factory=dict)
 
 
 def default_flavor() -> BeanFlavor:
