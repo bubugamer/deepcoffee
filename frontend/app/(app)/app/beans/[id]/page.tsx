@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation'
 import { ArrowLeft, ClipboardList, Loader2, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
 import { getBean, updateBean, setManualRecommendParams, type BeanUpdateInput, type ManualRecommendParams } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
-import { formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
+import { flavorEmoji, formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
 import { RecommendParamsChat } from '@/components/RecommendParamsChat'
 import type { Bean, BeanComponent, BeanDraft, BrewEvaluation, BrewEvaluationItem, FlavorAxis } from '@/types'
 
@@ -626,8 +626,7 @@ export default function BeanDetailPage() {
                       component.share_text,
                     ].filter(Boolean).join(' · ')
                     return (
-                      <div key={index} className="border border-dc-border rounded-lg p-3">
-                        <div className="text-sm font-medium text-dc-text-1 mb-1">豆源 {index + 1}</div>
+                      <div key={index}>
                         {details && <div className="text-sm text-dc-text-2 leading-relaxed">{details}</div>}
                         {component.notes && <div className="text-sm text-dc-text-3 leading-relaxed mt-1">{component.notes}</div>}
                       </div>
@@ -641,7 +640,10 @@ export default function BeanDetailPage() {
               <Section title="风味信息">
                 {bean.flavor.notes.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {bean.flavor.notes.map((note) => <span key={note} className="dc-tag">{note}</span>)}
+                    {bean.flavor.notes.map((note) => {
+                      const emoji = flavorEmoji(note, bean.flavor.note_emojis)
+                      return <span key={note} className="dc-tag">{emoji ? `${emoji} ${note}` : note}</span>
+                    })}
                   </div>
                 )}
                 {bean.flavor.axes.length > 0 && (

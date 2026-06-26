@@ -57,6 +57,13 @@ def _str_list(value: Any) -> list[str]:
     return [v.strip() for v in value if isinstance(v, str) and v.strip()] if isinstance(value, list) else []
 
 
+def _note_emojis(value: Any, notes: list[str]) -> dict[str, str]:
+    """AI 给的 note→emoji 映射，只保留确实在 notes 里的词。"""
+    if not isinstance(value, dict):
+        return {}
+    return {n: value[n] for n in notes if isinstance(value.get(n), str) and value[n]}
+
+
 def _flavor_axes(value: Any) -> list[FlavorAxis]:
     if not isinstance(value, list):
         return []
@@ -103,7 +110,12 @@ def draft_from_bean_fields(data: dict[str, Any]) -> BeanDraft:
     flavor_notes = _str_list(fields.get("flavor_notes"))
     axes = _flavor_axes(fields.get("flavor_axes"))
     if flavor_notes or axes:
-        kwargs["flavor"] = BeanFlavor(notes=flavor_notes, source="roaster", axes=axes)
+        kwargs["flavor"] = BeanFlavor(
+            notes=flavor_notes,
+            source="roaster",
+            axes=axes,
+            note_emojis=_note_emojis(fields.get("flavor_note_emojis"), flavor_notes),
+        )
     extra_lines = [f"{label}：{_clean(fields.get(key))}" for key, label in _NOTE_FIELDS if _clean(fields.get(key))]
     if extra_lines:
         kwargs["private_notes"] = "\n".join(extra_lines)

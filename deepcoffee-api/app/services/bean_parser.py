@@ -147,14 +147,20 @@ def _extract_name(text: str, roaster: str | None, origin: str | None, varietals:
     return head[:60] or None
 
 
-def build_flavor(notes: list[str]) -> BeanFlavor:
+def build_flavor(notes: list[str], note_emojis: dict[str, str] | None = None) -> BeanFlavor:
     """风味：有明确写出的关键词就保存标签；无官方维度时不自动生成默认维度。
 
     本地解析和模型解析（bean_parse_ai）共用，保证两条路径产出的豆卡风味结构一致。
+    note_emojis 是 AI 给每个风味词配的 emoji（note→emoji），只保留确实在 notes 里的词。
     """
     if not notes:
         return default_flavor()
-    return BeanFlavor(notes=notes, source="user", scale_max=5, axes=[])
+    emojis = (
+        {n: note_emojis[n] for n in notes if isinstance(note_emojis.get(n), str) and note_emojis[n]}
+        if note_emojis
+        else {}
+    )
+    return BeanFlavor(notes=notes, source="user", scale_max=5, axes=[], note_emojis=emojis)
 
 
 def assess_bean_draft(draft: BeanDraft) -> tuple[float, list[str], str | None]:

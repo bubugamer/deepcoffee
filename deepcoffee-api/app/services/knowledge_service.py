@@ -79,19 +79,40 @@ def strip_internal_source_lines(markdown: str) -> str:
 
     用户可见的来源里不该出现内部文件路径；公开链接与站内文章来源原样保留。
     只在「## 来源」段内生效，遇到下一个 ## 标题即退出该段。
+    若整段「来源」剔除内部条目后已无任何实质内容，则连标题一并去掉，
+    避免页面/目录/章节里残留一个下面空空的「来源」标题。
     """
     lines = markdown.splitlines()
     kept: list[str] = []
-    in_sources = False
+    sources_heading: str | None = None  # 「来源」标题行，待该段结束再决定是否保留
+    sources_body: list[str] = []  # 「来源」段去掉内部条目后剩下的行
+
+    def flush_sources() -> None:
+        nonlocal sources_heading, sources_body
+        if sources_heading is None:
+            return
+        if any(line.strip() for line in sources_body):
+            kept.append(sources_heading)
+            kept.extend(sources_body)
+        sources_heading = None
+        sources_body = []
+
     for line in lines:
         h2 = re.match(r"^##\s+(.+?)\s*$", line)
         if h2:
-            in_sources = h2.group(1).strip() == "来源"
+            flush_sources()
+            if h2.group(1).strip() == "来源":
+                sources_heading = line
+                continue
             kept.append(line)
             continue
-        if in_sources and "resources/" in line:
+        if sources_heading is not None:
+            if "resources/" in line:
+                continue
+            sources_body.append(line)
             continue
         kept.append(line)
+    flush_sources()
     return "\n".join(kept).strip("\n") + ("\n" if kept else "")
 
 

@@ -6,33 +6,8 @@ import { Check, Eye, Loader2, Plus, Search, X } from 'lucide-react'
 import { ApiError } from '@/lib/api/client'
 import { getBeanSquare, importBeanSquare } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
-import { recommendedParamRows } from '@/lib/beans'
+import { flavorEmoji, getCardTheme, recommendedParamRows } from '@/lib/beans'
 import type { BeanSquareImportResponse, BeanSquareItem } from '@/types'
-
-interface CardTheme {
-  bg: string
-  textMain: string
-  textSub: string
-  accent: string
-  tagBg: string
-}
-
-function getTheme(process?: string | null): CardTheme {
-  const p = process ?? ''
-  if (p.includes('CM') || p.includes('厌氧')) {
-    return { bg: 'linear-gradient(145deg, #EAF5EE 0%, #D6EDD9 100%)', textMain: '#1A3D28', textSub: '#4A7258', accent: '#2D6B42', tagBg: '#B8DEC0' }
-  }
-  if (p.includes('水洗')) {
-    return { bg: 'linear-gradient(145deg, #EBF3FA 0%, #D5E8F5 100%)', textMain: '#12304A', textSub: '#3A6280', accent: '#2054A0', tagBg: '#B8D4EA' }
-  }
-  if (p.includes('日晒')) {
-    return { bg: 'linear-gradient(145deg, #FEF4EC 0%, #FAE4CC 100%)', textMain: '#4A1A00', textSub: '#8A4820', accent: '#9B5E1A', tagBg: '#F2C89A' }
-  }
-  if (p.includes('蜜')) {
-    return { bg: 'linear-gradient(145deg, #FFFAEC 0%, #FDF0C8 100%)', textMain: '#4A3000', textSub: '#8A6820', accent: '#8B6A14', tagBg: '#F5DA80' }
-  }
-  return { bg: 'linear-gradient(145deg, #FBF5EF 0%, #F2E6D8 100%)', textMain: '#3A1E0A', textSub: '#7A5038', accent: '#9B5E1A', tagBg: '#E5C8A8' }
-}
 
 function beanSearchText(bean: BeanSquareItem) {
   return [
@@ -66,7 +41,8 @@ function SquareCard({
   onToggle: () => void
   onInspect: () => void
 }) {
-  const theme = getTheme(bean.process)
+  const t = getCardTheme(bean.process, { blend: (bean.bean_components?.length ?? 0) > 1 })
+  const theme = { bg: t.frontBg, textMain: t.textMain, textSub: t.textSub, accent: t.accent, tagBg: t.tagBg }
   const varietal = bean.varietal.length ? bean.varietal.join(' / ') : undefined
   const notes = bean.flavor.notes.slice(0, 4)
   const score = bean.rating?.overall?.score ?? bean.avg_score
@@ -112,11 +88,14 @@ function SquareCard({
 
       {notes.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {notes.map((note) => (
-            <span key={note} className="text-xs px-2 py-0.5 rounded-full" style={{ background: theme.tagBg, color: theme.textMain }}>
-              {note}
-            </span>
-          ))}
+          {notes.map((note) => {
+            const emoji = flavorEmoji(note, bean.flavor.note_emojis)
+            return (
+              <span key={note} className="text-xs px-2 py-0.5 rounded-full" style={{ background: theme.tagBg, color: theme.textMain }}>
+                {emoji ? `${emoji} ${note}` : note}
+              </span>
+            )
+          })}
         </div>
       )}
 
@@ -198,9 +177,10 @@ function DetailModal({ bean, onClose }: { bean: BeanSquareItem; onClose: () => v
           <div className="mb-5">
             <div className="text-xs font-semibold text-dc-text-2 mb-2">风味信息</div>
             <div className="flex flex-wrap gap-1.5">
-              {bean.flavor.notes.map((note) => (
-                <span key={note} className="dc-tag-accent">{note}</span>
-              ))}
+              {bean.flavor.notes.map((note) => {
+                const emoji = flavorEmoji(note, bean.flavor.note_emojis)
+                return <span key={note} className="dc-tag-accent">{emoji ? `${emoji} ${note}` : note}</span>
+              })}
             </div>
           </div>
         )}

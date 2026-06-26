@@ -95,8 +95,9 @@ IMAGE_UNDERSTANDING_SYSTEM = """你是 DeepCoffee 的图片理解助手。任务
 - suggested_next_actions: 字符串数组
 
 bean_fields 仅 bean_card 时填写，可包含：
-- name / roaster_name / roaster_product_name / origin_name / process_name / varietal_names / coffee_source_name / green_bean_merchant_name / flavor_notes / flavor_axes / roast_date_text / harvest_date_text / altitude_text / net_weight_text / bean_components / official_recipe
+- name / roaster_name / roaster_product_name / origin_name / process_name / varietal_names / coffee_source_name / green_bean_merchant_name / flavor_notes / flavor_note_emojis / flavor_axes / roast_date_text / harvest_date_text / altitude_text / net_weight_text / bean_components / official_recipe
 - bean_components 是数组，用于拼配 / 多豆源；每项可包含 origin_name / coffee_source_name / process_name / varietal_names / altitude_text / share_text / notes。
+- flavor_note_emojis 是对象 {风味词: emoji}，给 flavor_notes 里每个词各配一个最贴切的 emoji（如 {"柑橘":"🍊","蓝莓":"🫐"}）；没有就 {}。
 
 brew_photo_assessment 仅 brew_photo 时填写，可包含：
 - bed_evenness / fines_migration / clogging_risk / channeling_risk / filter_staining / center_collapse / observed_facts / inferred_risks / suggested_adjustments
@@ -156,6 +157,7 @@ BEAN_PARSE_SYSTEM = """你是 DeepCoffee 的咖啡豆信息抽取器。任务：
 - net_weight_text: 字符串或 null。净含量原文。
 - bean_components: 数组。拼配 / 多豆源时填写；每项可包含 origin_name / coffee_source_name / process_name / varietal_names / altitude_text / share_text / notes。单一豆源或抽不到就 []。
 - flavor_notes: 字符串数组。只放用户明确写出的风味描述词，如 ["茉莉花香","柑橘"]；没有就 []。
+- flavor_note_emojis: 对象或 {}。给 flavor_notes 里每个风味词各配一个最贴切的 emoji，键是风味词原文、值是单个 emoji，如 {"茉莉花香":"🌸","柑橘":"🍊","蓝莓":"🫐","巧克力":"🍫"}；flavor_notes 为空就 {}。每个词只给一个 emoji，挑最能代表该风味的水果/花/食物图标。
 
 规则：
 1. 只抽取用户明确写出的信息；不要根据常识、产地、品种、处理法补全字段。

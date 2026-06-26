@@ -4,69 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { ClipboardList, ExternalLink, Plus, Search, X } from 'lucide-react'
 import { getBeans } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
-import { recommendedParamRows } from '@/lib/beans'
+import { getCardTheme, flavorEmoji, recommendedParamRows, RATING_LABELS } from '@/lib/beans'
 import type { Bean } from '@/types'
-
-interface CardTheme {
-  frontBg: string
-  backBg: string
-  textMain: string
-  textSub: string
-  accent: string
-  tagBg: string
-}
-
-function getTheme(process?: string | null): CardTheme {
-  const p = process ?? ''
-  if (p.includes('CM') || p.includes('厌氧')) {
-    return {
-      frontBg: 'linear-gradient(145deg, #EAF5EE 0%, #D6EDD9 100%)',
-      backBg: 'linear-gradient(145deg, #D6EDD9 0%, #C4E2C8 100%)',
-      textMain: '#1A3D28',
-      textSub: '#4A7258',
-      accent: '#2D6B42',
-      tagBg: '#B8DEC0',
-    }
-  }
-  if (p.includes('水洗')) {
-    return {
-      frontBg: 'linear-gradient(145deg, #EBF3FA 0%, #D5E8F5 100%)',
-      backBg: 'linear-gradient(145deg, #D5E8F5 0%, #C0DAEA 100%)',
-      textMain: '#12304A',
-      textSub: '#3A6280',
-      accent: '#2054A0',
-      tagBg: '#B8D4EA',
-    }
-  }
-  if (p.includes('日晒')) {
-    return {
-      frontBg: 'linear-gradient(145deg, #FEF4EC 0%, #FAE4CC 100%)',
-      backBg: 'linear-gradient(145deg, #FAE4CC 0%, #F5D2B0 100%)',
-      textMain: '#4A1A00',
-      textSub: '#8A4820',
-      accent: '#9B5E1A',
-      tagBg: '#F2C89A',
-    }
-  }
-  if (p.includes('蜜')) {
-    return {
-      frontBg: 'linear-gradient(145deg, #FFFAEC 0%, #FDF0C8 100%)',
-      backBg: 'linear-gradient(145deg, #FDF0C8 0%, #FAE5A0 100%)',
-      textMain: '#4A3000',
-      textSub: '#8A6820',
-      accent: '#8B6A14',
-      tagBg: '#F5DA80',
-    }
-  }
-  return {
-    frontBg: 'linear-gradient(145deg, #FBF5EF 0%, #F2E6D8 100%)',
-    backBg: 'linear-gradient(145deg, #F2E6D8 0%, #E8D4C0 100%)',
-    textMain: '#3A1E0A',
-    textSub: '#7A5038',
-    accent: '#9B5E1A',
-    tagBg: '#E5C8A8',
-  }
-}
 
 function Dots({ value, max = 5, color }: { value?: number | null; max?: number; color: string }) {
   const safeMax = Math.max(1, Math.round(max))
@@ -121,13 +60,30 @@ function BeanDetailBtn({ bean, textColor, bgColor }: { bean: Bean; textColor: st
 
 function BeanCard({ bean }: { bean: Bean }) {
   const [flipped, setFlipped] = useState(false)
-  const theme = getTheme(bean.process)
+  const isBlend = bean.bean_product_type === 'blend'
+  const theme = getCardTheme(bean.process || bean.bean_components?.[0]?.process_name, { blend: isBlend })
   const flavor = bean.flavor
   const notes = flavor?.notes ?? []
   const axes = flavor?.axes ?? []
   const paramRows = recommendedParamRows(bean.recommended_params)
-  const varietal = bean.varietal.length ? bean.varietal.join(' / ') : undefined
   const beanScore = bean.rating?.overall?.score ?? bean.avg_score
+  // 正面三属性（产地/品种/处理法）按豆源出列：拼配多列、单豆 1 列；样式统一为纯文字。
+  const sourceColumns = (bean.bean_components?.length
+    ? bean.bean_components.map((c) => ({
+        origin: c.origin_name ?? undefined,
+        varietal: c.varietal_names?.length ? c.varietal_names.join(' / ') : undefined,
+        process: c.process_name ?? undefined,
+      }))
+    : [{
+        origin: bean.origin ?? undefined,
+        varietal: bean.varietal.length ? bean.varietal.join(' / ') : undefined,
+        process: bean.process ?? undefined,
+      }]
+  ).filter((col) => col.origin || col.varietal || col.process)
+  // 风味强度为空时，用评分维度作「用户评价」展示。
+  const ratingRows = RATING_LABELS
+    .map(([key, label]) => ({ label, score: bean.rating?.[key]?.score }))
+    .filter((r) => r.score !== undefined && r.score !== null)
 
   return (
     <div
@@ -162,34 +118,30 @@ function BeanCard({ bean }: { bean: Bean }) {
 
           {notes.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-3">
-              {notes.map((note) => (
-                <span
-                  key={note}
-                  className="text-xs px-2 py-0.5 rounded-full"
-                  style={{ background: theme.tagBg, color: theme.textMain }}
-                >
-                  {note}
-                </span>
-              ))}
+              {notes.map((note) => {
+                const emoji = flavorEmoji(note, flavor?.note_emojis)
+                return (
+                  <span
+                    key={note}
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: theme.tagBg, color: theme.textMain }}
+                  >
+                    {emoji ? `${emoji} ${note}` : note}
+                  </span>
+                )
+              })}
             </div>
           )}
 
           <div className="flex items-end justify-between gap-3">
-            <div className="flex flex-col gap-1.5 min-w-0">
-              {bean.origin && (
-                <span className="text-xs truncate" style={{ color: theme.textSub }}>{bean.origin}</span>
-              )}
-              {varietal && (
-                <span className="text-xs truncate" style={{ color: theme.textSub }}>{varietal}</span>
-              )}
-              {bean.process && (
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full font-medium w-fit"
-                  style={{ background: theme.tagBg, color: theme.accent }}
-                >
-                  {bean.process}
-                </span>
-              )}
+            <div className="flex gap-4 min-w-0 overflow-hidden">
+              {sourceColumns.slice(0, 3).map((col, index) => (
+                <div key={index} className="flex flex-col gap-1.5 min-w-0">
+                  {col.origin && <span className="text-xs truncate" style={{ color: theme.textSub }}>{col.origin}</span>}
+                  {col.varietal && <span className="text-xs truncate" style={{ color: theme.textSub }}>{col.varietal}</span>}
+                  {col.process && <span className="text-xs truncate" style={{ color: theme.textSub }}>{col.process}</span>}
+                </div>
+              ))}
             </div>
             {beanScore !== null && beanScore !== undefined && (
               <div className="text-right flex-shrink-0">
@@ -216,12 +168,9 @@ function BeanCard({ bean }: { bean: Bean }) {
           <div style={{ height: 1, background: theme.tagBg, flexShrink: 0 }} />
 
           <div className="flex-1 overflow-hidden">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold" style={{ color: theme.accent }}>风味强度</p>
-              <span className="text-[10px]" style={{ color: theme.textSub }}>
-                {flavor?.source === 'roaster' ? '烘焙商维度' : '默认维度'}
-              </span>
-            </div>
+            <p className="text-xs font-semibold mb-2" style={{ color: theme.accent }}>
+              {axes.length > 0 ? '风味强度' : ratingRows.length > 0 ? '用户评价' : '风味强度'}
+            </p>
             {axes.length > 0 ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                 {axes.map(({ label, value }) => (
@@ -233,8 +182,19 @@ function BeanCard({ bean }: { bean: Bean }) {
                   </div>
                 ))}
               </div>
+            ) : ratingRows.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {ratingRows.map(({ label, score }) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <span className="text-xs flex-shrink-0 truncate" style={{ color: theme.textSub, width: '3.5em' }}>
+                      {label}
+                    </span>
+                    <Dots value={score} max={5} color={theme.accent} />
+                  </div>
+                ))}
+              </div>
             ) : (
-              <p className="text-xs leading-relaxed" style={{ color: theme.textSub }}>暂未记录风味维度</p>
+              <p className="text-xs leading-relaxed" style={{ color: theme.textSub }}>暂无评价</p>
             )}
           </div>
 
