@@ -6,7 +6,14 @@ from types import SimpleNamespace
 
 from app.schemas.coffea import ActionResult, DispatchPlan
 from app.schemas.knowledge import GroundingDoc
-from app.services.coffea_executor import assemble_reply, ensure_equipment_capture_for_brew, execute_plan
+from app.services.coffea_executor import (
+    _draft_substance_count,
+    _mentions_brew_quantity,
+    assemble_reply,
+    ensure_brew_draft_result,
+    ensure_equipment_capture_for_brew,
+    execute_plan,
+)
 
 _IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
 _VALID_IMAGE_JSON = json.dumps({"image_type": "bean_card", "bean_fields": {"name": "巴拿马 瑰夏"}})
@@ -466,3 +473,46 @@ def test_brew_record_parse_without_params_keeps_guidance() -> None:
     assert r.status == "pending"
     assert "把冲煮参数发我" in r.message
     assert r.output is None
+
+
+# ── 端点兜底 ensure_brew_draft_result：按「冲煮记录必要字段」判定，刻度换算问句不附草稿 ──
+
+def _ensure_draft(message: str, **overrides) -> list[ActionResult]:
+    results: list[ActionResult] = overrides.pop("results", [])
+    asyncio.run(
+        ensure_brew_draft_result(results, message=message, model="m", gateway=None, **overrides)
+    )
+    return results
+
+
+def test_grinder_conversion_question_does_not_attach_brew_draft() -> None:
+    # 纯刻度换算问句：含磨豆机名 + 数字 + 「刻度」，但不是一条冲煮记录，不应附草稿卡。
+    results = _ensure_draft("C40刻度的22，对应ZP6s是多少")
+    assert results == []
+
+
+def test_full_brew_details_attach_brew_draft() -> None:
+    # 真报了冲煮详情（粉/水/温/时多项核心字段）→ 主动给草稿卡。
+    results = _ensure_draft("今天 V60，15g 粉，225ml 水，93°C，2:40")
+    brew = [r for r in results if r.type == "brew_record_parse"]
+    assert brew and isinstance(brew[0].output, dict) and brew[0].output.get("draft")
+
+
+def test_explicit_record_intent_attaches_even_when_sparse() -> None:
+    # 明确说「记录」即便信息少也给草稿卡，引导补全。
+    results = _ensure_draft("帮我记录这次冲煮")
+    assert any(r.type == "brew_record_parse" for r in results)
+
+
+def test_mentions_brew_quantity_excludes_grind_scale() -> None:
+    assert not _mentions_brew_quantity("C40刻度的22，对应ZP6s是多少")
+    assert not _mentions_brew_quantity("ZP6s 用几号刻度合适")
+    assert _mentions_brew_quantity("15g 粉，225ml 水，93°C")
+    assert _mentions_brew_quantity("粉水比 1:15")
+    assert _mentions_brew_quantity("水温 92度")
+
+
+def test_draft_substance_count_ignores_equipment_only() -> None:
+    assert _draft_substance_count({"grinder": "ZP6S", "grind_setting": "22"}) == 0
+    assert _draft_substance_count({"dose_g": 15, "water_ml": 225}) == 2
+    assert _draft_substance_count({"ratio": "1:15", "brew_steps": [{"time_seconds": 0, "action": "注水"}]}) == 2

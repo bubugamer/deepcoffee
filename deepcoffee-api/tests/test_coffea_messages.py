@@ -405,6 +405,20 @@ def test_brew_description_returns_brew_and_equipment_drafts() -> None:
     assert {"category": "grinder", "name": "ZP6S"} in equipment[0]["output"]["items"]
 
 
+def test_grinder_conversion_question_has_no_brew_draft() -> None:
+    # 刻度换算问句不该被端点兜底硬塞一张冲煮草稿卡（回归：「刻度」+磨豆机名+数字误触发）。
+    headers = {"Authorization": "Bearer dev:grind-q-1:grind-q-1@example.com"}
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/coffea/messages",
+        headers=headers,
+        json={"message": "C40刻度的22，对应ZP6s是多少"},
+    )
+    assert resp.status_code == 200, resp.text
+    drafts = [r for r in _result(resp.json(), "brew_record_parse") if (r.get("output") or {}).get("draft")]
+    assert drafts == []
+
+
 def test_record_this_brew_uses_recent_dialog_context() -> None:
     headers = {"Authorization": "Bearer dev:brew-context-1:brew-context-1@example.com"}
     client = TestClient(create_app())
