@@ -563,14 +563,45 @@ async def _run_brew_parse(
 
 
 def _contains_brew_record_hint(message: str) -> bool:
-    return any(hint in message for hint in ("记录这杯", "记录这次", "记录冲煮", "帮我记录", "保存这杯", "存这杯"))
+    """用户是否明确表达「想记录这杯冲煮」。覆盖自然说法（我要记录一次冲煮 / 想记录下来 等）。"""
+    return any(
+        hint in message
+        for hint in (
+            "记录这杯", "记录这次", "记录冲煮", "记录一杯", "记录一次", "记录今天",
+            "帮我记录", "想记录", "记录一下", "记一下", "保存这杯", "存这杯",
+        )
+    )
 
 
-def _looks_like_brew_params(text: str) -> bool:
-    has_number = bool(re.search(r"\d", text))
-    brew_unit = bool(re.search(r"(?:\d+\s*(?:g|克|ml|毫升|°c|℃|度|秒|分钟)|粉水比|1\s*[:：]\s*\d+|#\s*\d+|刻度)", text, re.I))
-    equipment_name = any(re.search(pattern, text, flags=re.IGNORECASE) for pattern, _ in (*_BREWER_PATTERNS, *_GRINDER_PATTERNS))
-    return brew_unit or (has_number and equipment_name)
+# 「冲煮量」信号：粉量/水量/水温/时间/粉水比/分段——这些只有真在描述一杯冲煮时才会出现。
+# 故意不含「刻度」与「磨豆机名+数字」：那是研磨刻度换算（grinder_conversion）的问句，不是冲煮记录。
+# 水温「92度」需数字紧贴「度」，从而排除「刻度」（刻+度，度前无数字）。
+_BREW_QUANTITY_RE = re.compile(
+    r"\d+\s*(?:g|克|ml|毫升|°c|℃|秒|分钟)"
+    r"|\d+\s*度"
+    r"|粉水比|水粉比"
+    r"|1\s*[:：]\s*\d+"
+    r"|闷蒸|分段注水",
+    re.IGNORECASE,
+)
+# 冲煮记录的「核心量化字段」：判定一段话算不算冲煮详情，看这些凑没凑够（≥2）。
+# 磨豆机/刻度/器具不在其列——只报器具或刻度不构成一条冲煮记录。
+_CORE_BREW_FIELDS = ("dose_g", "water_ml", "water_temp_c", "brew_time_seconds")
+
+
+def _mentions_brew_quantity(text: str) -> bool:
+    """便宜的前置过滤：文本里有没有真正的冲煮量（粉/水/温/时/比/分段）。无则不必调模型解析。"""
+    return bool(_BREW_QUANTITY_RE.search(text or ""))
+
+
+def _draft_substance_count(draft: dict[str, Any]) -> int:
+    """草稿里凑齐了几个冲煮记录核心字段（粉量/水量/水温/时间/粉水比/分段）。"""
+    count = sum(1 for field in _CORE_BREW_FIELDS if draft.get(field) is not None)
+    if draft.get("ratio_value") is not None or draft.get("ratio"):
+        count += 1
+    if draft.get("brew_steps"):
+        count += 1
+    return count
 
 
 async def ensure_brew_draft_result(
@@ -582,13 +613,22 @@ async def ensure_brew_draft_result(
     history: list[dict[str, str]] | None = None,
     active_recipe: dict[str, Any] | None = None,
 ) -> None:
-    """端点级兜底：调度没附 brew_record_parse 时，仍可主动补冲煮草稿。"""
+    """端点级兜底：调度没附 brew_record_parse 时，仍可主动补冲煮草稿。
+
+    判定依据 = 冲煮记录的「必要元素」，而不是宽泛的「像有参数」：
+      ① 用户明确说要记录（记录这杯 / 想记录…）；或
+      ② 用户确实报了冲煮详情——解析出的草稿凑齐「足量核心字段」（粉量/水量/水温/时间/
+         粉水比/分段 中 ≥2 项）。仅出现磨豆机+刻度（如「C40 刻度 22 对应 ZP6s」）不算。
+    """
     has_brew_result = any(r.type == "brew_record_parse" for r in results)
     if any(r.type == "brew_record_parse" and isinstance(r.output, dict) and r.output.get("draft") for r in results):
         return
-    parse_text = _contextual_brew_text(message, history=history, active_recipe=active_recipe)
-    if not (_contains_brew_record_hint(message) or _looks_like_brew_params(parse_text)):
-        return
+    explicit = _contains_brew_record_hint(message)
+    if not explicit:
+        # 没说要记录：先看这句话里有没有真正的冲煮量，没有就连模型都不必调。
+        parse_text = _contextual_brew_text(message, history=history, active_recipe=active_recipe)
+        if not _mentions_brew_quantity(parse_text):
+            return
     candidate = await _run_brew_parse(
         message,
         model=model,
@@ -596,7 +636,16 @@ async def ensure_brew_draft_result(
         history=history,
         active_recipe=active_recipe,
     )
-    if candidate.status == "done" or (_contains_brew_record_hint(message) and not has_brew_result):
+    if explicit:
+        # 明确要记录：即便信息少也给草稿卡，引导补全。
+        if candidate.status == "done" or not has_brew_result:
+            results.append(candidate)
+        return
+    # 没明确说记录：只有解析出「足量核心字段」才主动展示草稿，避免给刻度换算/器具问句硬塞草稿。
+    if candidate.status != "done" or not isinstance(candidate.output, dict):
+        return
+    draft = candidate.output.get("draft") or {}
+    if _draft_substance_count(draft) >= 2:
         results.append(candidate)
 
 
