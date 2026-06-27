@@ -43,6 +43,11 @@ function SettingsContent() {
   const [passwordMessage, setPasswordMessage] = useState('')
 
   useEffect(() => {
+    const nextTab = searchParams.get('tab') as Tab | null
+    if (nextTab && TABS.includes(nextTab)) setTab(nextTab)
+  }, [searchParams])
+
+  useEffect(() => {
     const token = getToken()
     if (!token) {
       setLoading(false)

@@ -11,7 +11,7 @@ import { ProfileContext } from '@/components/ProfileContext'
 import { getUserProfile, getUserQuota } from '@/lib/api/user'
 import { ApiError, isApiEnabled } from '@/lib/api/client'
 import { getToken, removeToken, setToken } from '@/lib/auth'
-import { canBrowseKnowledge, canUseBeanSquare, planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from '@/lib/entitlements'
+import { canBrowseKnowledge, canUseBeanSquare, normalizedPlan, planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from '@/lib/entitlements'
 import { supabase } from '@/lib/supabase'
 import type { UserProfile, UserQuota } from '@/types'
 
@@ -137,6 +137,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const displayName = profile?.display_name ?? profile?.email ?? '账户'
   const initial = displayName.charAt(0) || '?'
   const planLabel = displayPlanLabel(profile)
+  const showUpgradeLink = profile ? normalizedPlan(profile) !== 'max' : false
   const quotaPercent = calcQuotaPercent(quota)
   const quotaUsageLabel = quota ? `${quotaPercent}%` : '暂不可用'
   const visibleNav: NavItem[] = [
@@ -206,9 +207,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               />
             </div>
           )}
-          <Link href="/app/settings?tab=plan" className="text-xs text-dc-accent mt-1.5 block hover:underline">
-            升级会员 →
-          </Link>
+          {showUpgradeLink && (
+            <Link href="/app/settings?tab=plan" className="text-xs text-dc-accent mt-1.5 block hover:underline">
+              升级会员 →
+            </Link>
+          )}
         </div>
         <div>
           <Link href="/app/settings" className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-dc-subtle min-w-0">
