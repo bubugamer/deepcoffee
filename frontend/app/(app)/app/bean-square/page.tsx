@@ -6,7 +6,7 @@ import { Check, Eye, Loader2, Plus, Search, X } from 'lucide-react'
 import { ApiError } from '@/lib/api/client'
 import { getBeanSquare, importBeanSquare } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
-import { flavorEmoji, getCardTheme, recommendedParamRows } from '@/lib/beans'
+import { flavorEmoji, getCardTheme, recommendedParamRows, RATING_LABELS } from '@/lib/beans'
 import type { BeanSquareImportResponse, BeanSquareItem } from '@/types'
 
 function beanSearchText(bean: BeanSquareItem) {
@@ -30,6 +30,30 @@ function formatDate(value?: string | null) {
   return value.slice(0, 10)
 }
 
+function Dots({ value, max = 5, color }: { value?: number | null; max?: number; color: string }) {
+  const safeMax = Math.max(1, Math.round(max))
+  const safeValue = Math.max(0, Math.min(safeMax, Math.round(value ?? 0)))
+  return (
+    <div className="flex gap-1 items-center">
+      {Array.from({ length: safeMax }, (_, i) => (
+        <div
+          key={i}
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            backgroundColor: i < safeValue ? color : 'transparent',
+            border: `1.5px solid ${color}`,
+            opacity: i < safeValue ? 1 : 0.3,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// 广场卡 = 和「我的豆仓」一致的翻转卡：正面名称/emoji/属性/评分，背面风味强度/用户评价 + 建议参数。
+// 角落是「选择」勾选（导入用），背面有「查看详情」（打开弹窗）。点卡身翻面，按钮 stopPropagation。
 function SquareCard({
   bean,
   selected,
@@ -41,98 +65,186 @@ function SquareCard({
   onToggle: () => void
   onInspect: () => void
 }) {
-  const t = getCardTheme(bean.process, { blend: (bean.bean_components?.length ?? 0) > 1 })
-  const theme = { bg: t.frontBg, textMain: t.textMain, textSub: t.textSub, accent: t.accent, tagBg: t.tagBg }
-  const varietal = bean.varietal.length ? bean.varietal.join(' / ') : undefined
-  const notes = bean.flavor.notes.slice(0, 4)
+  const [flipped, setFlipped] = useState(false)
+  const isBlend = (bean.bean_components?.length ?? 0) > 1
+  const theme = getCardTheme(bean.process, { blend: isBlend })
+  const flavor = bean.flavor
+  const notes = flavor?.notes ?? []
+  const axes = flavor?.axes ?? []
+  const paramRows = recommendedParamRows(bean.recommended_params)
   const score = bean.rating?.overall?.score ?? bean.avg_score
+  // 正面三属性按豆源出列：拼配多列、单豆 1 列；统一为纯文字。
+  const sourceColumns = (bean.bean_components?.length
+    ? bean.bean_components.map((c) => ({
+        origin: c.origin_name ?? undefined,
+        varietal: c.varietal_names?.length ? c.varietal_names.join(' / ') : undefined,
+        process: c.process_name ?? undefined,
+      }))
+    : [{
+        origin: bean.origin ?? undefined,
+        varietal: bean.varietal.length ? bean.varietal.join(' / ') : undefined,
+        process: bean.process ?? undefined,
+      }]
+  ).filter((col) => col.origin || col.varietal || col.process)
+  // 无风味维度时用评分作「用户评价」。
+  const ratingRows = RATING_LABELS
+    .map(([key, label]) => ({ label, score: bean.rating?.[key]?.score }))
+    .filter((r) => r.score !== undefined && r.score !== null)
+  const selBorder = selected ? `2px solid ${theme.accent}` : '2px solid transparent'
 
   return (
-    <article
-      className={`relative min-h-[300px] rounded-2xl p-5 flex flex-col border transition-all ${
-        selected ? 'border-dc-accent shadow-sm' : 'border-transparent'
-      }`}
-      style={{ background: theme.bg }}
+    <div
+      className="relative w-full cursor-pointer select-none"
+      style={{ perspective: '1400px', aspectRatio: '1/1' }}
+      onClick={() => setFlipped((value) => !value)}
     >
-      <div className="flex items-start justify-between gap-3 mb-auto">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-medium truncate" style={{ color: theme.textSub }}>
-            {bean.roaster ?? '匿名豆卡'}
-          </span>
-          {bean.owner_count > 1 && (
-            <span className="text-[11px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: theme.tagBg, color: theme.textMain }}>
-              👥 {bean.owner_count}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-pressed={selected}
-          className="w-8 h-8 rounded-full flex items-center justify-center border transition-colors"
-          style={{
-            borderColor: selected ? theme.accent : theme.tagBg,
-            background: selected ? theme.accent : 'rgba(255,255,255,0.45)',
-            color: selected ? '#fff' : theme.textMain,
-          }}
-        >
-          <Check size={15} />
-        </button>
-      </div>
-
-      <div className="py-5">
-        <h3 className="text-xl font-bold leading-snug line-clamp-3" style={{ color: theme.textMain }}>
-          {bean.name}
-        </h3>
-      </div>
-
-      {notes.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {notes.map((note) => {
-            const emoji = flavorEmoji(note, bean.flavor.note_emojis)
-            return (
-              <span key={note} className="text-xs px-2 py-0.5 rounded-full" style={{ background: theme.tagBg, color: theme.textMain }}>
-                {emoji ? `${emoji} ${note}` : note}
-              </span>
-            )
-          })}
-        </div>
-      )}
-
-      <div className="flex items-end justify-between gap-3">
-        <div className="flex flex-col gap-1.5 min-w-0">
-          {bean.origin && <span className="text-xs truncate" style={{ color: theme.textSub }}>{bean.origin}</span>}
-          {varietal && <span className="text-xs truncate" style={{ color: theme.textSub }}>{varietal}</span>}
-          {bean.process && (
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium w-fit" style={{ background: theme.tagBg, color: theme.accent }}>
-              {bean.process}
-            </span>
-          )}
-        </div>
-        {score !== null && score !== undefined && (
-          <div className="text-right flex-shrink-0">
-            <div className="text-3xl font-black leading-none" style={{ color: theme.accent }}>{score}</div>
-            <div className="text-xs mt-0.5" style={{ color: theme.textSub }}>/5</div>
-          </div>
-        )}
-      </div>
-
-      {bean.public_comment && (
-        <p className="mt-4 text-xs leading-relaxed line-clamp-2" style={{ color: theme.textSub }}>
-          匿名评论：{bean.public_comment}
-        </p>
-      )}
-
-      <button
-        type="button"
-        onClick={onInspect}
-        className="mt-4 flex items-center justify-center gap-1 text-xs font-medium py-1.5 rounded-full transition-opacity hover:opacity-75"
-        style={{ background: theme.tagBg, color: theme.textMain }}
+      <div
+        className="relative w-full h-full"
+        style={{
+          transformStyle: 'preserve-3d',
+          transition: 'transform 0.48s cubic-bezier(0.4,0,0.2,1)',
+          transform: flipped ? 'rotateY(180deg)' : 'rotateY(0)',
+        }}
       >
-        <Eye size={12} />
-        查看详情
-      </button>
-    </article>
+        {/* 正面 */}
+        <div
+          className="absolute inset-0 rounded-2xl overflow-hidden p-6 flex flex-col"
+          style={{ backfaceVisibility: 'hidden', background: theme.frontBg, border: selBorder }}
+        >
+          <div className="flex items-start justify-between gap-2 mb-auto">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-medium truncate" style={{ color: theme.textSub }}>
+                {bean.roaster ?? '匿名豆卡'}
+              </span>
+              {bean.owner_count > 1 && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: theme.tagBg, color: theme.textMain }}>
+                  👥 {bean.owner_count}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); onToggle() }}
+              aria-pressed={selected}
+              aria-label={selected ? '取消选择' : '选择'}
+              className="w-7 h-7 rounded-full flex items-center justify-center border transition-colors flex-shrink-0"
+              style={{
+                borderColor: selected ? theme.accent : theme.tagBg,
+                background: selected ? theme.accent : 'rgba(255,255,255,0.45)',
+                color: selected ? '#fff' : theme.textMain,
+              }}
+            >
+              <Check size={14} />
+            </button>
+          </div>
+
+          <div className="flex-1 flex items-center py-3">
+            <h3 className="text-xl font-bold leading-snug line-clamp-3" style={{ color: theme.textMain }}>
+              {bean.name}
+            </h3>
+          </div>
+
+          {notes.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3">
+              {notes.map((note) => {
+                const emoji = flavorEmoji(note, flavor?.note_emojis)
+                return (
+                  <span key={note} className="text-xs px-2 py-0.5 rounded-full" style={{ background: theme.tagBg, color: theme.textMain }}>
+                    {emoji ? `${emoji} ${note}` : note}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex gap-4 min-w-0 overflow-hidden">
+              {sourceColumns.slice(0, 3).map((col, index) => (
+                <div key={index} className="flex flex-col gap-1.5 min-w-0">
+                  {col.origin && <span className="text-xs truncate" style={{ color: theme.textSub }}>{col.origin}</span>}
+                  {col.varietal && <span className="text-xs truncate" style={{ color: theme.textSub }}>{col.varietal}</span>}
+                  {col.process && <span className="text-xs truncate" style={{ color: theme.textSub }}>{col.process}</span>}
+                </div>
+              ))}
+            </div>
+            {score !== null && score !== undefined && (
+              <div className="text-right flex-shrink-0">
+                <div className="text-3xl font-black leading-none" style={{ color: theme.accent }}>{score}</div>
+                <div className="text-xs mt-0.5" style={{ color: theme.textSub }}>/5</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 背面 */}
+        <div
+          className="absolute inset-0 rounded-2xl overflow-hidden p-5 flex flex-col gap-3"
+          style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', background: theme.backBg, border: selBorder }}
+        >
+          <div className="flex items-center justify-between flex-shrink-0 gap-2">
+            <p className="text-xs font-semibold truncate flex-1" style={{ color: theme.textMain }}>
+              {bean.name}
+            </p>
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); onInspect() }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity hover:opacity-70 flex-shrink-0"
+              style={{ background: theme.tagBg, color: theme.textMain }}
+            >
+              <Eye size={11} />
+              查看详情
+            </button>
+          </div>
+
+          <div style={{ height: 1, background: theme.tagBg, flexShrink: 0 }} />
+
+          <div className="flex-1 overflow-hidden">
+            <p className="text-xs font-semibold mb-2" style={{ color: theme.accent }}>
+              {axes.length > 0 ? '风味强度' : ratingRows.length > 0 ? '用户评价' : '风味强度'}
+            </p>
+            {axes.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {axes.map(({ label, value }) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <span className="text-xs flex-shrink-0 truncate" style={{ color: theme.textSub, width: '3.5em' }}>{label}</span>
+                    <Dots value={value} max={flavor?.scale_max} color={theme.accent} />
+                  </div>
+                ))}
+              </div>
+            ) : ratingRows.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {ratingRows.map(({ label, score: s }) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <span className="text-xs flex-shrink-0 truncate" style={{ color: theme.textSub, width: '3.5em' }}>{label}</span>
+                    <Dots value={s} max={5} color={theme.accent} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed" style={{ color: theme.textSub }}>暂无评价</p>
+            )}
+          </div>
+
+          <div style={{ height: 1, background: theme.tagBg, flexShrink: 0 }} />
+
+          <div className="flex-shrink-0">
+            <p className="text-xs font-semibold mb-2" style={{ color: theme.accent }}>建议冲煮参数</p>
+            {paramRows.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                {paramRows.map(([key, value]) => (
+                  <div key={key} className="flex gap-1.5 items-baseline">
+                    <span className="text-xs flex-shrink-0" style={{ color: theme.textSub }}>{key}</span>
+                    <span className="text-xs font-medium truncate" style={{ color: theme.textMain }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed" style={{ color: theme.textSub }}>暂无建议参数</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
