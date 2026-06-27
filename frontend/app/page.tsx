@@ -22,25 +22,60 @@ const features = [
   },
 ]
 
-// /billing/plans 不可用时的兜底文案；正常情况下价格与权益一律读接口
-const planFree = ['AI 问答 30 次 / 月', '知识库文章免费浏览', '冲煮记录不限条数', '基础冲煮对比']
-const planPro  = ['AI 问答无限次', '知识库文章免费浏览', '冲煮记录不限条数', '多记录横向对比', '优先体验新功能']
+const landingPlanFeatures = {
+  basic: ['基础 AI 用量', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
+  pro: ['更多 AI 用量', '可查看同豆匿名冲煮记录', '可进入豆仓广场', '可打开 AI 引用文章'],
+  max: ['近乎无限 AI 用量', '包含 Pro 权益', '可自由浏览知识库'],
+}
 
 // ── page ──────────────────────────────────────
 export default async function LandingPage() {
-  let freeFeatures = planFree
-  let proFeatures = planPro
-  let proPrice = 19
+  const prices = { basic: 0, pro: 59, max: 99 }
   try {
     const plans = await getBillingPlans()
-    const basic = plans.find(p => p.id === 'basic')
-    const pro = plans.find(p => p.id === 'pro')
-    if (basic?.features?.length) freeFeatures = basic.features
-    if (pro?.features?.length) proFeatures = pro.features
-    if (pro) proPrice = pro.price
+    for (const plan of plans) {
+      if (plan.id === 'basic' || plan.id === 'pro' || plan.id === 'max') {
+        prices[plan.id] = plan.price
+      }
+    }
   } catch {
     // 后端不可达时保留兜底文案，不影响落地页打开
   }
+  const pricingPlans = [
+    {
+      id: 'basic' as const,
+      title: 'Basic',
+      price: prices.basic,
+      period: '',
+      subline: '免费开始',
+      features: landingPlanFeatures.basic,
+      cta: '免费注册',
+      href: '/auth?tab=register',
+      featured: false,
+    },
+    {
+      id: 'pro' as const,
+      title: 'Pro',
+      price: prices.pro,
+      period: '/月',
+      subline: '',
+      features: landingPlanFeatures.pro,
+      cta: '免费开始，随时升级',
+      href: '/auth?tab=register',
+      featured: true,
+    },
+    {
+      id: 'max' as const,
+      title: 'Max',
+      price: prices.max,
+      period: '/月',
+      subline: '适合重度使用',
+      features: landingPlanFeatures.max,
+      cta: '免费开始，随时升级',
+      href: '/auth?tab=register',
+      featured: false,
+    },
+  ]
   return (
     <div className="bg-dc-bg min-h-screen">
       <PublicNav />
@@ -143,44 +178,46 @@ export default async function LandingPage() {
             <h2 className="text-2xl font-bold text-dc-text-1 mb-3">定价</h2>
             <p className="text-dc-text-2 text-sm">免费开始，按需升级。</p>
           </div>
-          <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-            {/* Free */}
-            <div className="dc-card p-6 flex flex-col h-full">
-              <div className="text-sm font-medium text-dc-text-3 mb-1">免费版</div>
-              <div className="text-3xl font-extrabold text-dc-text-1 mb-1">¥0</div>
-              <div className="text-sm text-dc-text-3 mb-6">永久免费</div>
-              <ul className="space-y-2.5 mb-6">
-                {freeFeatures.map(f => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
-                    <Check size={14} className="text-dc-green flex-shrink-0" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link href="/auth?tab=register" className="btn-secondary text-sm w-full h-10 flex items-center justify-center mt-auto">
-                免费注册
-              </Link>
-            </div>
-            {/* Pro */}
-            <div className="dc-card p-6 border-dc-accent ring-1 ring-dc-accent/20 flex flex-col h-full">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-dc-accent">Pro 版</span>
-                <span className="text-xs bg-dc-accent-light text-dc-accent px-2 py-0.5 rounded-full">推荐</span>
+          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            {pricingPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className={`dc-card p-6 flex flex-col h-full ${
+                  plan.featured ? 'border-dc-accent ring-1 ring-dc-accent/20' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className={`text-sm font-medium ${plan.featured ? 'text-dc-accent' : 'text-dc-text-3'}`}>
+                    {plan.title}
+                  </span>
+                  {plan.featured && (
+                    <span className="text-xs bg-dc-accent-light text-dc-accent px-2 py-0.5 rounded-full">推荐</span>
+                  )}
+                </div>
+                <div className={`text-3xl font-extrabold text-dc-text-1 ${plan.subline ? 'mb-1' : 'mb-6'}`}>
+                  ¥{plan.price}
+                  {plan.period && <span className="text-base font-semibold text-dc-text-1">{plan.period}</span>}
+                </div>
+                {plan.subline && <div className="text-sm text-dc-text-3 mb-6">{plan.subline}</div>}
+                <ul className="space-y-2.5 mb-6">
+                  {plan.features.map(f => (
+                    <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
+                      <Check
+                        size={14}
+                        className={`${plan.id === 'basic' ? 'text-dc-green' : 'text-dc-accent'} flex-shrink-0`}
+                      />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href={plan.href}
+                  className={`${plan.featured ? 'btn-primary' : 'btn-secondary'} text-sm w-full h-10 flex items-center justify-center mt-auto`}
+                >
+                  {plan.cta}
+                </Link>
               </div>
-              <div className="text-3xl font-extrabold text-dc-text-1 mb-1">¥{proPrice}</div>
-              <div className="text-sm text-dc-text-3 mb-6">/ 月，随时取消</div>
-              <ul className="space-y-2.5 mb-6">
-                {proFeatures.map(f => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
-                    <Check size={14} className="text-dc-accent flex-shrink-0" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link href="/auth?tab=register" className="btn-primary text-sm w-full h-10 flex items-center justify-center mt-auto">
-                免费开始，随时升级
-              </Link>
-            </div>
+            ))}
           </div>
         </div>
       </section>

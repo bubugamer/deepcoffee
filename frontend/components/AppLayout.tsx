@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect, useCallback } from 'react'
 import {
   MessageCircle, BookOpen, ClipboardList,
-  Settings, LayoutGrid, Menu, X, ShieldCheck, Wrench, LogOut,
+  Settings, LayoutGrid, Menu, X, ShieldCheck, Wrench,
 } from 'lucide-react'
 import InviteGateModal from '@/components/InviteGateModal'
 import { ProfileContext } from '@/components/ProfileContext'
@@ -134,12 +134,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => data.subscription.unsubscribe()
   }, [router])
 
-  async function handleLogout() {
-    try { await supabase.auth.signOut() } catch { /* 忽略：本地仍会清 token 并跳转 */ }
-    removeToken()
-    router.replace('/')
-  }
-
   const displayName = profile?.display_name ?? profile?.email ?? '账户'
   const initial = displayName.charAt(0) || '?'
   const planLabel = displayPlanLabel(profile)
@@ -216,8 +210,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             升级会员 →
           </Link>
         </div>
-        <div className="flex items-center gap-1">
-          <Link href="/app/settings" className="flex-1 flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-dc-subtle min-w-0">
+        <div>
+          <Link href="/app/settings" className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-dc-subtle min-w-0">
             <div className="w-7 h-7 rounded-full bg-dc-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
               {initial}
             </div>
@@ -226,14 +220,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="text-xs text-dc-text-3">{planLabel}</div>
             </div>
           </Link>
-          <button
-            onClick={handleLogout}
-            title="退出登录"
-            aria-label="退出登录"
-            className="p-2 rounded-lg text-dc-text-3 hover:bg-dc-subtle hover:text-dc-red flex-shrink-0"
-          >
-            <LogOut size={16} />
-          </button>
         </div>
       </div>
     </>

@@ -10,13 +10,13 @@ export function QuotaNotice({ message }: { message?: string }) {
     <div className="bg-amber-50 border border-amber-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-lg">
       <div className="flex items-start gap-2 text-sm text-amber-800 leading-relaxed">
         <Zap size={14} className="flex-shrink-0 mt-0.5" />
-        <span>{message || '本月 AI 问答次数已用完，升级 Pro 可无限使用。'}</span>
+        <span>{message || '本月 AI 用量已达上限。升级会员可获得更高额度。'}</span>
       </div>
       <Link
-        href="/app/settings"
+        href="/app/settings?tab=plan"
         className="inline-block mt-2 text-sm font-medium text-dc-accent hover:underline"
       >
-        升级 Pro →
+        查看会员方案 →
       </Link>
     </div>
   )
