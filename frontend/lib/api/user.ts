@@ -19,19 +19,19 @@ const fallbackQuota: UserQuota = {
   ai_total: 99,
   ai_remaining: 77,
   reset_at: '2026-07-01T00:00:00+08:00',
-  features: ['AI 问答 99 次 / 月', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
+  features: ['基础 AI 用量', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
 }
 
 // Pro plan features (shown in the upgrade card)
 export const proPlanFeatures: string[] = [
-  'AI 问答 500 次 / 月',
+  '更多 AI 用量',
   '可查看同豆匿名冲煮记录',
   '可进入豆仓广场',
   '可打开 AI 引用文章',
 ]
 
 export const maxPlanFeatures: string[] = [
-  'AI 问答 1000 次 / 月',
+  '近乎无限 AI 用量',
   '包含 Pro 权益',
   '可自由浏览知识库',
 ]

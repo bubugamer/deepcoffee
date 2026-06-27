@@ -19,9 +19,9 @@ export function canUseBeanSquare(profile?: Pick<UserProfile, 'plan' | 'role'> | 
 
 export function planLabel(profile?: Pick<UserProfile, 'plan'> | null): string {
   const plan = normalizedPlan(profile)
-  if (plan === 'max') return 'Max 版'
-  if (plan === 'pro') return 'Pro 版'
-  return profile ? 'Basic 版' : '载入中'
+  if (plan === 'max') return 'Max'
+  if (plan === 'pro') return 'Pro'
+  return profile ? 'Basic' : '载入中'
 }
 
 export function quotaPercent(quota?: Pick<UserQuota, 'ai_used' | 'ai_total'> | null): number {

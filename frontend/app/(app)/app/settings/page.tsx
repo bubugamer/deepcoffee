@@ -1,19 +1,27 @@
 'use client'
 import { FormEvent, Suspense, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Check } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Check, KeyRound, Loader2, LogOut, X } from 'lucide-react'
 import { getBillingPlans, getUserProfile, getUserQuota, maxPlanFeatures, proPlanFeatures, updateUserProfile } from '@/lib/api/user'
-import { getToken } from '@/lib/auth'
+import { getToken, removeToken, setToken } from '@/lib/auth'
 import { planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from '@/lib/entitlements'
+import { supabase } from '@/lib/supabase'
 import type { BillingPlan, UserProfile, UserQuota } from '@/types'
 
 type Tab = 'profile' | 'plan' | 'prefs'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+type PasswordState = 'idle' | 'saving' | 'saved' | 'error'
 
 const TABS: Tab[] = ['profile', 'plan', 'prefs']
+const planCardFeatures = {
+  basic: ['基础 AI 用量', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
+  pro: proPlanFeatures,
+  max: maxPlanFeatures,
+}
 
 function SettingsContent() {
   // 支持 ?tab=plan 直达「配额与会员」（侧边栏「升级会员」入口用）
+  const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = searchParams.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(initialTab && TABS.includes(initialTab) ? initialTab : 'profile')
@@ -27,6 +35,12 @@ function SettingsContent() {
   const [loadError, setLoadError] = useState('')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveMessage, setSaveMessage] = useState('')
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [passwordState, setPasswordState] = useState<PasswordState>('idle')
+  const [passwordMessage, setPasswordMessage] = useState('')
 
   useEffect(() => {
     const token = getToken()
@@ -96,6 +110,82 @@ function SettingsContent() {
     }
   }
 
+  async function handleLogout() {
+    try { await supabase.auth.signOut() } catch { /* 本地清理仍继续执行 */ }
+    removeToken()
+    router.replace('/')
+  }
+
+  function openPasswordDialog() {
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmNewPassword('')
+    setPasswordState('idle')
+    setPasswordMessage('')
+    setPasswordOpen(true)
+  }
+
+  function closePasswordDialog() {
+    if (passwordState === 'saving') return
+    setPasswordOpen(false)
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault()
+    if (!profile?.email) {
+      setPasswordState('error')
+      setPasswordMessage('当前账号缺少邮箱，无法修改密码。')
+      return
+    }
+    if (!currentPassword) {
+      setPasswordState('error')
+      setPasswordMessage('请输入当前密码。')
+      return
+    }
+    if (newPassword.length < 8) {
+      setPasswordState('error')
+      setPasswordMessage('新密码至少 8 位。')
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordState('error')
+      setPasswordMessage('两次输入的新密码不一致。')
+      return
+    }
+
+    setPasswordState('saving')
+    setPasswordMessage('')
+    try {
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: profile.email,
+        password: currentPassword,
+      })
+      if (signInError) {
+        setPasswordState('error')
+        setPasswordMessage(signInError.message === 'Invalid login credentials' ? '当前密码不正确。' : signInError.message)
+        return
+      }
+      if (signInData.session?.access_token) setToken(signInData.session.access_token)
+
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
+      if (updateError) {
+        setPasswordState('error')
+        setPasswordMessage(updateError.message || '密码修改失败，请稍后重试。')
+        return
+      }
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (sessionData.session?.access_token) setToken(sessionData.session.access_token)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmNewPassword('')
+      setPasswordState('saved')
+      setPasswordMessage('密码已修改。')
+    } catch (error) {
+      setPasswordState('error')
+      setPasswordMessage(error instanceof Error ? error.message : '密码修改失败，请稍后重试。')
+    }
+  }
+
   const initial = (displayName || profile?.email || '?').charAt(0)
   const planLabel = displayPlanLabel(profile)
   const joinedAt = profile?.created_at ? profile.created_at.slice(0, 7) : '--'
@@ -138,42 +228,142 @@ function SettingsContent() {
         <>
           {/* Profile */}
           {tab === 'profile' && (
-            <form onSubmit={saveProfile} className="dc-card p-6 space-y-5 max-w-lg">
-              <div className="flex items-center gap-4 pb-5 border-b border-dc-border">
-                <div className="w-14 h-14 rounded-full bg-dc-accent flex items-center justify-center text-white text-xl font-bold">{initial}</div>
-                <div>
-                  <div className="font-semibold text-dc-text-1">{displayName || profile.email}</div>
-                  <div className="text-sm text-dc-text-3">{planLabel} · 加入于 {joinedAt}</div>
+            <>
+              <form onSubmit={saveProfile} className="dc-card p-6 space-y-5 max-w-lg">
+                <div className="flex items-center gap-4 pb-5 border-b border-dc-border">
+                  <div className="w-14 h-14 rounded-full bg-dc-accent flex items-center justify-center text-white text-xl font-bold">{initial}</div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-dc-text-1">{displayName || profile.email}</div>
+                    {profile.email && (
+                      <div className="text-sm text-dc-text-2 truncate">{profile.email}</div>
+                    )}
+                    <div className="text-sm text-dc-text-3">{planLabel} · 加入于 {joinedAt}</div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="text-xs text-dc-text-3 mb-1.5 block">昵称</label>
-                <input
-                  className="dc-input"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="请输入昵称"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-dc-text-3 mb-1.5 block">邮箱</label>
-                <input className="dc-input" value={profile.email ?? ''} readOnly />
-              </div>
-              <div>
-                <label className="text-xs text-dc-text-3 mb-1.5 block">密码</label>
-                <button type="button" className="btn-secondary text-sm px-4 py-2">修改密码</button>
-              </div>
-              <div className="pt-2 flex items-center gap-3">
-                <button className="btn-primary text-sm px-5 py-2" disabled={saveState === 'saving'}>
-                  {saveState === 'saving' ? '保存中…' : '保存修改'}
-                </button>
-                {saveMessage && (
-                  <span className={`text-xs ${saveState === 'error' ? 'text-dc-red' : 'text-dc-green'}`}>
-                    {saveMessage}
-                  </span>
-                )}
-              </div>
-            </form>
+                <div>
+                  <label className="text-xs text-dc-text-3 mb-1.5 block">昵称</label>
+                  <input
+                    className="dc-input"
+                    value={displayName}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    placeholder="请输入昵称"
+                  />
+                  <div className="flex items-center justify-end gap-3 pt-3">
+                    {saveMessage && (
+                      <span className={`text-xs ${saveState === 'error' ? 'text-dc-red' : 'text-dc-green'}`}>
+                        {saveMessage}
+                      </span>
+                    )}
+                    <button className="btn-primary w-24 text-sm py-2 whitespace-nowrap" disabled={saveState === 'saving'}>
+                      {saveState === 'saving' ? '保存中…' : '保存修改'}
+                    </button>
+                  </div>
+                </div>
+                <div className="pt-5 border-t border-dc-border flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium text-dc-text-1">
+                      <KeyRound size={15} className="text-dc-text-3" />
+                      修改登录密码
+                    </div>
+                    <p className="text-xs text-dc-text-3 mt-1">用于保护当前账号的登录安全。</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openPasswordDialog}
+                    className="btn-secondary w-24 text-sm py-2 whitespace-nowrap"
+                  >
+                    修改密码
+                  </button>
+                </div>
+                <div className="pt-5 border-t border-dc-border flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium text-dc-text-1">
+                      <LogOut size={15} className="text-dc-text-3" />
+                      退出当前账号
+                    </div>
+                    <p className="text-xs text-dc-text-3 mt-1">退出后需要重新登录才能继续使用。</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="btn-secondary w-24 text-sm py-2 whitespace-nowrap text-dc-red hover:border-dc-red/40 hover:bg-red-50"
+                  >
+                    退出登录
+                  </button>
+                </div>
+              </form>
+
+              {passwordOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onClick={closePasswordDialog}>
+                  <div className="dc-card w-full max-w-md p-6" onClick={(event) => event.stopPropagation()}>
+                    <div className="flex items-start justify-between gap-4 mb-5">
+                      <div>
+                        <h2 className="text-base font-bold text-dc-text-1">修改密码</h2>
+                        <p className="text-xs text-dc-text-3 mt-1">请输入当前密码，并设置新的登录密码。</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={closePasswordDialog}
+                        className="p-1.5 rounded-lg text-dc-text-3 hover:bg-dc-subtle hover:text-dc-text-1"
+                        aria-label="关闭"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                    <form onSubmit={changePassword} className="space-y-4">
+                      <input className="hidden" type="email" value={profile.email ?? ''} readOnly autoComplete="username" />
+                      <div>
+                        <label className="text-xs text-dc-text-3 mb-1.5 block">当前密码</label>
+                        <input
+                          className="dc-input"
+                          type="password"
+                          value={currentPassword}
+                          onChange={(event) => setCurrentPassword(event.target.value)}
+                          autoComplete="current-password"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-dc-text-3 mb-1.5 block">新密码</label>
+                        <input
+                          className="dc-input"
+                          type="password"
+                          value={newPassword}
+                          onChange={(event) => setNewPassword(event.target.value)}
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-dc-text-3 mb-1.5 block">确认新密码</label>
+                        <input
+                          className="dc-input"
+                          type="password"
+                          value={confirmNewPassword}
+                          onChange={(event) => setConfirmNewPassword(event.target.value)}
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      {passwordMessage && (
+                        <p className={`text-xs ${passwordState === 'saved' ? 'text-dc-green' : 'text-dc-red'}`}>
+                          {passwordMessage}
+                        </p>
+                      )}
+                      <div className="flex items-center justify-end gap-3 pt-1">
+                        <button type="button" onClick={closePasswordDialog} className="btn-secondary text-sm px-4 py-2" disabled={passwordState === 'saving'}>
+                          取消
+                        </button>
+                        <button
+                          className="btn-primary text-sm px-5 py-2 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                          disabled={passwordState === 'saving'}
+                        >
+                          {passwordState === 'saving' && <Loader2 size={14} className="animate-spin" />}
+                          确认修改
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Plan & Quota */}
@@ -199,7 +389,7 @@ function SettingsContent() {
                       </div>
                     </div>
                     <p className="text-xs text-dc-text-3">
-                      记录冲煮、豆卡识别和知识库问答统一消耗 AI 问答次数。
+                      记录冲煮、豆卡识别和知识库问答都会计入本月 AI 用量。
                     </p>
                     {resetDate && (
                       <p className="text-xs text-dc-text-3">配额于 {resetDate} 重置</p>
@@ -212,16 +402,16 @@ function SettingsContent() {
 
               <div className="grid gap-4">
                 {[
-                  { id: 'basic', title: 'Basic', fallbackPrice: 0, fallbackFeatures: ['AI 问答 99 次 / 月', '可使用 AI 知识库问答', '可打开 AI 引用文章'] },
-                  { id: 'pro', title: 'Pro', fallbackPrice: 59, fallbackFeatures: proPlanFeatures },
-                  { id: 'max', title: 'Max', fallbackPrice: 99, fallbackFeatures: maxPlanFeatures },
+                  { id: 'basic', title: 'Basic', fallbackPrice: 0, features: planCardFeatures.basic },
+                  { id: 'pro', title: 'Pro', fallbackPrice: 59, features: planCardFeatures.pro },
+                  { id: 'max', title: 'Max', fallbackPrice: 99, features: planCardFeatures.max },
                 ].map((plan) => {
                   const apiPlan = plans.find((item) => item.id === plan.id)
                   const active = profile.plan === plan.id
                   return (
                     <div key={plan.id} className={`dc-card p-6 ${active ? 'border-dc-accent ring-1 ring-dc-accent/20' : ''}`}>
                       <div className="flex items-center justify-between mb-4">
-                        <h2 className="section-title">{plan.title} 版</h2>
+                        <h2 className="section-title">{plan.title}</h2>
                         {active && <span className="dc-tag-accent">当前套餐</span>}
                       </div>
                       <div className="text-3xl font-extrabold text-dc-text-1 mb-1">
@@ -229,7 +419,7 @@ function SettingsContent() {
                       </div>
                       <p className="text-xs text-dc-text-3 mb-5">{plan.id === 'basic' ? '免费使用' : '支付暂未开放，可联系管理员开通'}</p>
                       <ul className="space-y-2.5 mb-5">
-                        {(apiPlan?.features ?? plan.fallbackFeatures).map(f => (
+                        {plan.features.map(f => (
                           <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
                             <Check size={13} className="text-dc-accent flex-shrink-0" />
                             {f}
