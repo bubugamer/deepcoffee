@@ -531,7 +531,7 @@ export default function BeanSquarePage() {
           <p className="text-sm text-dc-text-3">可以换个关键词或处理法。</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-3xl">
           {beans.map((bean) => (
             <SquareCard
               key={bean.bean_id}
