@@ -34,7 +34,14 @@ logger = logging.getLogger(__name__)
 _IMAGE_ACTIONS = frozenset({"read_bean_card_image", "assess_brew_photo"})
 # 这些动作交给冲煮教练 brew_coach（§8）。
 _COACH_ACTIONS = frozenset(
-    {"adjust_brew_params", "scale_recipe", "grinder_conversion", "storage_resting_advice", "equipment_advice"}
+    {
+        "recommend_brew_params",
+        "adjust_brew_params",
+        "scale_recipe",
+        "grinder_conversion",
+        "storage_resting_advice",
+        "equipment_advice",
+    }
 )
 # 仅作意图、无执行动作（由调度器的 direct_reply 直接回用户）。
 # 注意：direct_answer 不在此列——它要真正调模型生成回答（见 execute_plan），否则回答全靠
@@ -48,19 +55,20 @@ _ANSWER_TYPES = frozenset({
     "knowledge_answer",
     "web_verify",
     "direct_answer",
+    "recommend_brew_params",
     "adjust_brew_params",
     "scale_recipe",
     "grinder_conversion",
     "storage_resting_advice",
     "equipment_advice",
 })
-# 写库类动作（建/改豆卡、生成建议参数）故意不在聊天单轮自动执行，避免一句话误改用户数据。
+# 写库类动作（建/改豆卡）故意不在聊天单轮自动执行，避免一句话误改用户数据。
 # 给明确的引导语，指向各自的确认流程，而不是笼统的「后续阶段接入」（那会被前端误显示成"处理中"）。
 # brew_record_parse 例外：消息里带参数时真解析出草稿（落库仍由用户在草稿卡确认）。
+# recommend_brew_params 不在此列：它走冲煮教练，直接在聊天里出一版有依据的纯文本方案（见 _COACH_ACTIONS）。
 _PENDING_GUIDANCE = {
     "brew_record_parse": "想记录这杯吗？把冲煮参数发我（豆子、粉量、水量、水温、时间、风味），或到「记录冲煮」页录入——记录会在你确认后才入库。",
     "create_or_update_bean_card": "想建立或修改这支豆子的豆卡吗？到「豆仓」新建 / 编辑，确认后才保存。",
-    "recommend_brew_params": "想要冲煮建议参数吗？在对应豆子的「生成建议参数」发起，会先问你的器具再给方案。",
 }
 # 冲煮草稿关键字段 → 中文名（缺失提示用）。与 input_parser.assess_brew_draft 的字段集一致。
 _BREW_FIELD_LABELS = {
@@ -309,9 +317,12 @@ def assemble_reply(plan: DispatchPlan, results: list[ActionResult]) -> str | Non
     if combined:
         return "\n\n".join(combined)
 
-    # 兜底：全无实质正文（仅教练兜底空话 / 仅状态型）→ 主意图结果 / 任一结果 / direct_reply。
+    # 兜底：全无实质正文（仅教练兜底空话 / 仅状态型）→ 主意图结果 / 任一结果 / pending 引导语 / direct_reply。
+    # pending 引导语（如「到豆仓新建豆卡」）此前被这里漏掉，导致主气泡落到端点层那句完全通用的兜底——
+    # 把它纳入兜底，让用户至少看到一句对得上的引导，而不是「我可以帮你聊咖啡豆…」。
     primary_any = primary.message if primary else None
-    return primary_any or (displayable[0].message if displayable else None) or plan.direct_reply
+    pending_msg = next((r.message for r in results if r.status == "pending" and r.message), None)
+    return primary_any or (displayable[0].message if displayable else None) or pending_msg or plan.direct_reply
 
 
 async def _run_knowledge(
