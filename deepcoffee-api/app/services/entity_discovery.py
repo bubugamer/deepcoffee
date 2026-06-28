@@ -1,11 +1,11 @@
 """新实体发现（不可穷尽 / 目录未覆盖的处理）：对未命中器具目录的输入，用大模型给出
-规范名 + 别名，落成**候选（candidate）**进管理员审核链路；审核通过后入目录，今后即可命中。
+规范名 + 别名，**即时自动入库**——建成 active 公共器具实体 + 别名，下次即可直接命中。
 
-设计（对齐 plan 的保守取舍）：
-- 只产候选，**不自动建 active 公共实体**——避免未经审核的搜索结果污染策展好的目录。
-- 去重：已是 active 实体 / 已有未关闭候选 → 跳过；若大模型给的规范名其实已在目录（别名命中），
-  则把用户的原始写法登记为该实体别名（今后直接命中），不重复建候选。
-- 失败 / 低置信 / 判定非真实器具 → 不落候选（用户当轮仍走手输兜底，互不影响）。
+设计（按用户确认的"即时自动入库"取舍）：
+- 命中即建：大模型确认是真实器具且足够有把握时，直接 upsert 成 active 公共实体并登记别名
+  （含用户的原始写法）。`created_from="discovery"` 标明是 AI 发现，便于管理员事后审计/清理。
+- 去重：已是 active 实体（规范名或别名命中）→ 不重复建，只把用户写法补登记为别名。
+- 失败 / 低置信 / 判定非真实器具 → 不入库（用户当轮仍走手输兜底，互不影响）。
 - 跑在后台任务里（独立 session），绝不阻塞对话响应。
 
 发现用提示词为本服务私有常量（不进 app/prompts 的逐字校验清单，便于该新功能迭代）。
@@ -14,12 +14,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_sessionmaker
-from app.repositories.candidates import candidate_repository
 from app.repositories.entities import entity_repository
 from app.services.entity_resolver import EQUIPMENT_CATEGORIES, resolve_equipment
 from app.services.model_gateway import ModelGateway, model_gateway
@@ -56,7 +54,7 @@ async def discover_equipment(
     model: str,
     gateway: ModelGateway | None = None,
 ) -> str | None:
-    """对一个未命中目录的器具输入做"搜索确认"。返回新建的 candidate id；无需落候选则 None。"""
+    """对一个未命中目录的器具输入做"搜索确认 + 即时入库"。返回入库/命中的实体 id；不入库则 None。"""
     name = (raw_name or "").strip()
     if not name or category not in EQUIPMENT_CATEGORIES:
         return None
@@ -65,8 +63,6 @@ async def discover_equipment(
         return None
     # 已在目录（规范名或别名命中）→ 无需发现。
     if await resolve_equipment(session, category=category, name=name) is not None:
-        return None
-    if await candidate_repository.has_open(session, category, name):
         return None
 
     try:
@@ -99,29 +95,23 @@ async def discover_equipment(
         return None
     aliases = [a.strip() for a in (data.get("aliases") or []) if isinstance(a, str) and a.strip()]
 
-    # 模型给的规范名其实已在目录（别名命中）→ 把用户写法 + 别名登记到该实体，不另建候选。
+    # 模型给的规范名其实已在目录（别名命中）→ 把用户写法 + 别名补登记到该实体，不重复建。
     hit = await resolve_equipment(session, category=category, name=canonical)
     if hit is not None:
         await entity_repository.register_aliases(
             session, hit.id, hit.canonical_name, extra=[name, *aliases], source="discovery"
         )
-        return None
-    if await entity_repository.exists_active(session, category, canonical):
-        return None
-    if await candidate_repository.has_open(session, category, canonical):
-        return None
+        return hit.id
 
-    candidate = await candidate_repository.create(
+    # 即时自动入库：建 active 公共器具实体 + 别名（含用户原始写法）。created_from 标 discovery 便于审计。
+    entity = await entity_repository.upsert(
         session,
         entity_type=category,
-        title=canonical,
-        payload={"name": canonical, "aliases": [name, *aliases]},
-        source_table="user_equipment_items",
-        source_record_id=None,
-        source_user_id=None,
-        source_input=name,
+        canonical_name=canonical,
+        payload={"aliases": [name, *aliases]},
+        created_from="discovery",
     )
-    return candidate.id
+    return entity.id
 
 
 async def run_equipment_discovery(*, items: list[tuple[str, str]], model: str) -> None:
