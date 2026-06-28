@@ -7,8 +7,10 @@ from types import SimpleNamespace
 from app.schemas.coffea import ActionResult, DispatchPlan
 from app.schemas.knowledge import GroundingDoc
 from app.services.coffea_executor import (
+    _contains_brew_record_hint,
     _draft_substance_count,
     _mentions_brew_quantity,
+    _official_recipe_from_bean,
     assemble_reply,
     ensure_brew_draft_result,
     ensure_equipment_capture_for_brew,
@@ -516,3 +518,49 @@ def test_draft_substance_count_ignores_equipment_only() -> None:
     assert _draft_substance_count({"grinder": "ZP6S", "grind_setting": "22"}) == 0
     assert _draft_substance_count({"dose_g": 15, "water_ml": 225}) == 2
     assert _draft_substance_count({"ratio": "1:15", "brew_steps": [{"time_seconds": 0, "action": "注水"}]}) == 2
+
+
+# ── 记录豆卡不算冲煮意图 + 追问体系确认轮（关联活跃豆 + 按豆袋官方配方预填）──
+
+def test_record_bean_card_phrasing_is_not_brew_intent() -> None:
+    # 「帮我记录这个豆卡 / 这支豆」是录豆卡，不是记冲煮。
+    assert _contains_brew_record_hint("帮我记录这个豆卡") is False
+    assert _contains_brew_record_hint("帮我记录这支豆") is False
+    # 含明确冲煮词仍算冲煮意图。
+    assert _contains_brew_record_hint("记录一次冲煮") is True
+    assert _contains_brew_record_hint("帮我记录这包豆的冲煮") is True
+
+
+def test_record_bean_card_does_not_attach_brew_draft() -> None:
+    # 「帮我记录这个豆卡」既不该当冲煮意图，也没冲煮量 → 不附冲煮草稿。
+    assert _ensure_draft("帮我记录这个豆卡") == []
+
+
+def test_official_recipe_extracted_from_bean_notes() -> None:
+    assert _official_recipe_from_bean({"private_notes": "官方建议：V60 15g 270ml 96℃"}) == "V60 15g 270ml 96℃"
+    assert _official_recipe_from_bean({"private_notes": "普通备注"}) is None
+    assert _official_recipe_from_bean(None) is None
+
+
+def test_brew_offer_confirm_links_active_bean_and_prefills_from_bag() -> None:
+    # 追问确认轮：明确记录 + 活跃豆有豆袋官方配方 → 草稿关联豆名并预填粉/水/温。
+    bean = {"name": "圣洁庄园 苏丹汝魅", "private_notes": "官方建议：V60 15g 270ml 96℃"}
+    results = _ensure_draft("记录一次冲煮", active_bean=bean)
+    brew = [r for r in results if r.type == "brew_record_parse" and isinstance(r.output, dict)]
+    assert brew, results
+    draft = brew[0].output["draft"]
+    assert draft.get("bean_name") == "圣洁庄园 苏丹汝魅"
+    assert draft.get("dose_g") == 15
+    assert draft.get("water_ml") == 270
+    assert draft.get("water_temp_c") == 96
+
+
+def test_brew_offer_confirm_blank_without_bag_recipe() -> None:
+    # 活跃豆但无官方配方：仍出草稿、关联豆名，量留空待用户填。
+    bean = {"name": "测试豆", "private_notes": None}
+    results = _ensure_draft("记录一次冲煮", active_bean=bean)
+    brew = [r for r in results if r.type == "brew_record_parse" and isinstance(r.output, dict)]
+    assert brew
+    draft = brew[0].output["draft"]
+    assert draft.get("bean_name") == "测试豆"
+    assert draft.get("dose_g") is None and draft.get("water_ml") is None

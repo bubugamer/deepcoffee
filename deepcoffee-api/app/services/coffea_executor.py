@@ -562,15 +562,29 @@ async def _run_brew_parse(
     )
 
 
+# 明显在说豆卡/豆子的措辞：此时「记录」指录豆卡，不是记冲煮。
+_BEAN_CARD_PHRASES = ("豆卡", "这支豆", "这包豆", "这袋豆", "豆袋", "这只豆", "录入豆")
+# 明确的冲煮词：句中即便提到豆子，带这些仍按冲煮记录意图处理。
+_BREW_WORDS = ("冲煮", "这杯", "冲了", "萃取", "这一杯", "冲这")
+
+
 def _contains_brew_record_hint(message: str) -> bool:
-    """用户是否明确表达「想记录这杯冲煮」。覆盖自然说法（我要记录一次冲煮 / 想记录下来 等）。"""
-    return any(
+    """用户是否明确表达「想记录这杯冲煮」。覆盖自然说法（我要记录一次冲煮 / 想记录下来 等）。
+
+    但当消息明显在说豆卡/豆子（如「帮我记录这个豆卡」）且无冲煮词时，「记录」指录豆卡、不算冲煮意图。
+    """
+    has_hint = any(
         hint in message
         for hint in (
             "记录这杯", "记录这次", "记录冲煮", "记录一杯", "记录一次", "记录今天",
             "帮我记录", "想记录", "记录一下", "记一下", "保存这杯", "存这杯",
         )
     )
+    if not has_hint:
+        return False
+    if any(p in message for p in _BEAN_CARD_PHRASES) and not any(w in message for w in _BREW_WORDS):
+        return False
+    return True
 
 
 # 「冲煮量」信号：粉量/水量/水温/时间/粉水比/分段——这些只有真在描述一杯冲煮时才会出现。
@@ -604,6 +618,72 @@ def _draft_substance_count(draft: dict[str, Any]) -> int:
     return count
 
 
+def _official_recipe_from_bean(bean: dict[str, Any] | None) -> str | None:
+    """从活跃豆卡的备注里抽出「官方建议：…」那行（豆袋上的推荐配方），用于预填冲煮草稿。"""
+    if not bean:
+        return None
+    notes = bean.get("private_notes") or ""
+    for raw in notes.splitlines():
+        line = raw.strip()
+        for prefix in ("官方建议：", "官方建议:"):
+            if line.startswith(prefix):
+                rest = line[len(prefix):].strip()
+                return rest or None
+    return None
+
+
+async def _brew_draft_for_bean(
+    message: str,
+    *,
+    active_bean: dict[str, Any],
+    model: str,
+    gateway: ModelGateway | None,
+    history: list[dict[str, str]] | None,
+    active_recipe: dict[str, Any] | None,
+) -> ActionResult:
+    """为活跃豆卡生成一张冲煮草稿：关联该豆，并按豆袋官方配方（若有）预填粉量/水量/水温等。
+
+    用于「追问体系」确认轮（用户点「记录一次冲煮」）：即便消息没参数也给草稿卡，豆袋无配方则留空。
+    """
+    parse_text = _contextual_brew_text(message, history=history, active_recipe=active_recipe)
+    official = _official_recipe_from_bean(active_bean)
+    if official:
+        parse_text = f"{parse_text}\n{official}".strip()
+    draft = await parse_brew_with_model(parse_text, model=model, gateway=gateway)
+    source = "model"
+    if draft is None:
+        draft, _, _, _ = parse_brew_input(parse_text)
+        source = "local"
+    _enrich_brew_draft_from_text(draft, parse_text)
+    # 关联刚记录/活跃的豆子（本地解析可能抽出垃圾豆名，直接以活跃豆名覆盖）。
+    bean_name = active_bean.get("name")
+    if bean_name:
+        draft.bean_name = bean_name
+    confidence, missing, _ = assess_brew_draft(draft)
+    summary = _brew_summary(draft)
+    missing_labels = [_BREW_FIELD_LABELS[f] for f in missing if f in _BREW_FIELD_LABELS]
+    if official:
+        msg = f"好的，给「{bean_name or '这支豆子'}」建一张冲煮草稿，已带上豆袋的推荐参数：{summary}。"
+    else:
+        msg = f"好的，给「{bean_name or '这支豆子'}」建一张冲煮草稿。"
+    if missing_labels:
+        msg += f"还缺{('、'.join(missing_labels[:4]))}，在下面补全后确认保存。"
+    else:
+        msg += "确认后保存。"
+    return ActionResult(
+        type="brew_record_parse",
+        status="done",
+        source=source,
+        output={
+            "draft": draft.model_dump(exclude_none=True),
+            "confidence": confidence,
+            "missing_fields": missing,
+            "raw_input": message,
+        },
+        message=msg,
+    )
+
+
 async def ensure_brew_draft_result(
     results: list[ActionResult],
     *,
@@ -612,6 +692,7 @@ async def ensure_brew_draft_result(
     gateway: ModelGateway | None = None,
     history: list[dict[str, str]] | None = None,
     active_recipe: dict[str, Any] | None = None,
+    active_bean: dict[str, Any] | None = None,
 ) -> None:
     """端点级兜底：调度没附 brew_record_parse 时，仍可主动补冲煮草稿。
 
@@ -619,6 +700,7 @@ async def ensure_brew_draft_result(
       ① 用户明确说要记录（记录这杯 / 想记录…）；或
       ② 用户确实报了冲煮详情——解析出的草稿凑齐「足量核心字段」（粉量/水量/水温/时间/
          粉水比/分段 中 ≥2 项）。仅出现磨豆机+刻度（如「C40 刻度 22 对应 ZP6s」）不算。
+    明确要记录且有活跃豆卡时（追问体系确认轮），草稿关联该豆并按豆袋官方配方预填。
     """
     has_brew_result = any(r.type == "brew_record_parse" for r in results)
     if any(r.type == "brew_record_parse" and isinstance(r.output, dict) and r.output.get("draft") for r in results):
@@ -629,6 +711,19 @@ async def ensure_brew_draft_result(
         parse_text = _contextual_brew_text(message, history=history, active_recipe=active_recipe)
         if not _mentions_brew_quantity(parse_text):
             return
+    if explicit and active_bean:
+        # 明确要记录 + 有活跃豆：直接为该豆建草稿（关联豆 + 豆袋配方预填），即便消息没参数也给卡。
+        results.append(
+            await _brew_draft_for_bean(
+                message,
+                active_bean=active_bean,
+                model=model,
+                gateway=gateway,
+                history=history,
+                active_recipe=active_recipe,
+            )
+        )
+        return
     candidate = await _run_brew_parse(
         message,
         model=model,
