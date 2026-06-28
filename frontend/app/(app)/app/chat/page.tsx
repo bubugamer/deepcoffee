@@ -122,6 +122,7 @@ const ANSWER_RESULT_TYPES = new Set([
   'knowledge_answer',
   'web_verify',
   'direct_answer',
+  'recommend_brew_params',
   'adjust_brew_params',
   'scale_recipe',
   'grinder_conversion',

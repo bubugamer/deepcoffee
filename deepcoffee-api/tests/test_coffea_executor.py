@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from app.schemas.coffea import ActionResult, DispatchPlan
 from app.schemas.knowledge import GroundingDoc
+from app.services.brew_coach import LOCAL_COACH_FALLBACK
 from app.services.coffea_executor import (
     _contains_brew_record_hint,
     _draft_substance_count,
@@ -226,13 +227,64 @@ def test_web_verify_degrades_to_local_knowledge() -> None:
     assert "非联网" in results[0].message or "联网" in results[0].message
 
 
-def test_unknown_capability_is_pending() -> None:
+def test_write_capability_is_pending() -> None:
+    # 文字建/改豆卡仍是「待确认」动作（不在聊天单轮自动写库），走 pending 引导语。
+    plan = DispatchPlan(
+        primary_intent="create_or_update_bean_card",
+        actions=[{"type": "create_or_update_bean_card"}],
+    )
+    results = _run(plan)
+    assert results[0].status == "pending"
+    assert results[0].message
+
+
+def test_recommend_brew_params_runs_coach_inline() -> None:
+    # 「给我出个推荐冲煮方案」改走冲煮教练：聊天里直接出一版方案，而不是 pending 引导去别处。
     plan = DispatchPlan(
         primary_intent="recommend_brew_params",
         actions=[{"type": "recommend_brew_params"}],
     )
-    results = _run(plan)
-    assert results[0].status == "pending"
+    results = _run(
+        plan,
+        message="按照4.2的研磨度，给我出个推荐冲煮方案",
+        gateway=_FakeGateway("苏丹汝魅 V60 方案：粉量15g，水量240g，水温92℃。"),
+        active_context={
+            "bean": {"name": "苏丹汝魅"},
+            "equipment": {"dripper": "V60", "grinder": "ZP6S", "filter_media": "纸滤"},
+            "recipe": None,
+        },
+    )
+    assert results[0].type == "recommend_brew_params"
+    assert results[0].status == "done"
+    assert results[0].source == "model"
+    # 方案正文应进主回复（recommend_brew_params 是正文型回答），而非被丢弃落到通用兜底。
+    reply = assemble_reply(plan, results)
+    assert reply is not None and "水温92℃" in reply
+
+
+def test_recommend_brew_params_never_hits_generic_fallback_when_degraded() -> None:
+    # 模型不可用时教练回本地保守兜底；assemble_reply 仍须给出非空回复，
+    # 端点层那句完全通用的「我可以帮你聊咖啡豆…」兜底不应被触发。
+    plan = DispatchPlan(
+        primary_intent="recommend_brew_params",
+        actions=[{"type": "recommend_brew_params"}],
+    )
+    results = _run(plan, message="给我出个推荐冲煮方案")  # gateway=None → 本地兜底
+    assert results[0].status == "done"
+    reply = assemble_reply(plan, results)
+    assert reply and reply.strip() == LOCAL_COACH_FALLBACK.strip()
+
+
+def test_pending_guidance_surfaces_as_reply() -> None:
+    # pending 引导语（如「到豆仓新建豆卡」）以前被 assemble_reply 漏掉、落到通用兜底；
+    # 现在应作为主回复返回，让用户看到对得上的引导。
+    plan = DispatchPlan(
+        primary_intent="create_or_update_bean_card",
+        actions=[{"type": "create_or_update_bean_card"}],
+    )
+    results = _run(plan, message="帮我新建一张耶加雪菲豆卡")
+    reply = assemble_reply(plan, results)
+    assert reply is not None and "豆仓" in reply
 
 
 def test_intent_only_yields_no_result() -> None:
@@ -382,7 +434,8 @@ def test_knowledge_action_receives_original_images() -> None:
 
 def test_pending_writeback_actions_give_guidance() -> None:
     # 写库类动作在聊天里仍 pending（不自动落库），但 message 应是明确引导语，而非"后续阶段接入"的桩。
-    for intent in ("brew_record_parse", "create_or_update_bean_card", "recommend_brew_params"):
+    # recommend_brew_params 不在此列：它已改走冲煮教练，在聊天里直接出方案（见 test_recommend_brew_params_runs_coach_inline）。
+    for intent in ("brew_record_parse", "create_or_update_bean_card"):
         plan = DispatchPlan(primary_intent=intent, actions=[{"type": intent}])
         results = _run(plan)
         assert results[0].status == "pending"
@@ -422,12 +475,22 @@ def test_assemble_reply_falls_back_to_first_displayable_result() -> None:
 
 
 def test_assemble_reply_returns_none_when_nothing_displayable() -> None:
+    # 真·无可用回复（既无可展示正文、也无 pending 引导、也无 direct_reply）才返回 None；
+    # 仅有 failed 结果时不应硬凑出回复。
     plan = DispatchPlan(primary_intent="knowledge_answer")
     results = [
         ActionResult(type="knowledge_answer", status="failed", message="失败内容不展示为主回复。"),
-        ActionResult(type="recommend_brew_params", status="pending", message="待确认流程。"),
     ]
     assert assemble_reply(plan, results) is None
+
+
+def test_assemble_reply_surfaces_pending_guidance() -> None:
+    # pending 引导语此前被 assemble_reply 漏掉、落到端点层通用兜底；现在应作为主回复返回。
+    plan = DispatchPlan(primary_intent="create_or_update_bean_card")
+    results = [
+        ActionResult(type="create_or_update_bean_card", status="pending", message="到「豆仓」新建 / 编辑。"),
+    ]
+    assert assemble_reply(plan, results) == "到「豆仓」新建 / 编辑。"
 
 
 def test_assemble_reply_coach_fallback_does_not_override_real_answer() -> None:
