@@ -85,58 +85,38 @@ export function RecommendParamsChat({
   }
 
   if (!active) {
+    // 重新生成暂不做：已有建议参数时不再显示生成入口（要改走豆卡编辑）。
+    if (hasParams) return null
     return (
       <button
         onClick={start}
         className="btn-primary text-sm py-2 w-full flex items-center justify-center gap-1.5"
       >
         <Sparkles size={14} />
-        {hasParams ? '重新生成建议参数' : '生成建议参数'}
+        生成建议参数
       </button>
     )
   }
 
   return (
     <div className="rounded-xl border border-dc-border bg-dc-subtle/50 p-3">
-      <div ref={scrollRef} className="max-h-56 overflow-y-auto space-y-2.5 mb-2">
+      <div ref={scrollRef} className="max-h-56 overflow-y-auto space-y-2 mb-2">
         {turns.map((turn, i) => (
-          <div key={i} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`text-sm leading-relaxed px-3 py-2 rounded-2xl max-w-[85%] ${
-                turn.role === 'user'
-                  ? 'bg-dc-accent text-white rounded-br-sm'
-                  : 'bg-white border border-dc-border text-dc-text-1 rounded-tl-sm'
-              }`}
-            >
-              {turn.text}
-            </div>
-          </div>
+          <p
+            key={i}
+            className={`text-sm leading-relaxed ${turn.role === 'user' ? 'text-dc-text-3' : 'text-dc-text-1'}`}
+          >
+            {turn.role === 'user' ? `你：${turn.text}` : turn.text}
+          </p>
         ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-dc-border rounded-2xl rounded-tl-sm px-3 py-2 flex gap-1 items-center">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-dc-text-3 animate-bounce"
-                  style={{ animationDelay: `${i * 0.15}s`, animationDuration: '1.2s' }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        {loading && <p className="text-sm text-dc-text-3">正在生成…</p>}
       </div>
 
       {error && <p className="text-xs text-dc-red mb-2">{error}</p>}
       {quotaMsg && <div className="mb-2"><QuotaNotice message={quotaMsg} /></div>}
 
       {done ? (
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-dc-green">已保存到豆卡</span>
-          <button onClick={start} className="text-xs text-dc-text-3 hover:text-dc-accent">
-            重新生成
-          </button>
-        </div>
+        <span className="text-xs text-dc-green">已保存到豆卡</span>
       ) : (
         <div className="flex gap-2 items-end">
           <input

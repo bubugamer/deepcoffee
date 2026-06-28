@@ -833,6 +833,35 @@ function AutoSavedBeanCard({ beanId }: { beanId: string }) {
   )
 }
 
+// 追问卡（追问体系）：一句提示 + 快捷回复。带 message 的回复调 send 发出去；message 为空则本地关闭。
+function BrewRecordOffer({ result, onSend }: { result: ActionResult; onSend: (text: string) => void }) {
+  const [dismissed, setDismissed] = useState(false)
+  if (dismissed) return null
+  const output = (result.output ?? {}) as { prompt?: string; replies?: { label?: string; message?: string | null }[] }
+  const prompt = output.prompt ?? '要顺手记录一次冲煮吗？'
+  const replies = Array.isArray(output.replies) ? output.replies : []
+  return (
+    <div className="dc-card px-4 py-3 text-sm">
+      <p className="text-dc-text-2 mb-2.5">{prompt}</p>
+      <div className="flex flex-wrap gap-2">
+        {replies.map((rep, i) => (
+          <button
+            key={i}
+            onClick={() => { if (rep.message) onSend(rep.message); else setDismissed(true) }}
+            className={
+              rep.message
+                ? 'btn-primary text-xs px-3.5 py-1.5'
+                : 'text-xs px-3.5 py-1.5 rounded-full border border-dc-border text-dc-text-2 hover:border-dc-accent-hi bg-white'
+            }
+          >
+            {rep.label ?? '好的'}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────
 // Coffea 真实对话线程（通用聊天 + 冲煮记录）
 // ─────────────────────────────────────────────────────────
@@ -1177,6 +1206,9 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                   {m.results?.map((r, j) => {
                     if (r.type === 'read_bean_card_image' && r.output?.auto_saved && typeof r.output.bean_id === 'string') {
                       return <AutoSavedBeanCard key={j} beanId={r.output.bean_id} />
+                    }
+                    if (r.type === 'brew_record_offer') {
+                      return <BrewRecordOffer key={j} result={r} onSend={(text) => send(text)} />
                     }
                     if (r.type === 'read_bean_card_image' && r.output?.draft) {
                       return <ChatBeanDraft key={j} result={r} onPatch={(patch, message) => patchResultOutput(i, j, patch, message)} />

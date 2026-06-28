@@ -82,6 +82,10 @@ _DISPLAY_OUTPUT_KEYS = frozenset(
         "saved",
         "saved_count",
         "dismissed",
+        # 追问卡（brew_record_offer）：提示 + 快捷回复
+        "prompt",
+        "bean_name",
+        "replies",
     }
 )
 _PATCH_OUTPUT_KEYS = frozenset(
@@ -244,6 +248,23 @@ def _default_equipment_context(equipment: list[UserEquipmentItem]) -> dict[str, 
     return context
 
 
+def _brew_record_offer(bean_name: str | None) -> ActionResult:
+    """追问卡（追问体系）：豆卡刚录入后，问用户要不要顺手记一次冲煮。
+    点「记录一次冲煮」前端发该 message → 下一轮为活跃豆建冲煮草稿；「暂不」前端本地关闭。"""
+    return ActionResult(
+        type="brew_record_offer",
+        status="done",
+        output={
+            "prompt": "要顺手记录一次这支豆子的冲煮吗？",
+            "bean_name": bean_name,
+            "replies": [
+                {"label": "记录一次冲煮", "message": "记录一次冲煮"},
+                {"label": "暂不", "message": None},
+            ],
+        },
+    )
+
+
 async def _autosave_bean_card(
     session: AsyncSession,
     *,
@@ -301,6 +322,8 @@ async def _autosave_bean_card(
         pct = f"（识别度 {round(confidence * 100)}%）" if isinstance(confidence, (int, float)) else ""
         result.message = f"已识别并录入这支豆子：{summary}{pct}。已保存到你的豆仓，可随时打开豆卡修改。"
         result.output = {"bean_id": bean_id, "confidence": confidence, "auto_saved": True}
+        # 追问体系：豆卡录入后追加「要记录冲煮吗?」追问卡（不直接冒冲煮草稿）。
+        results.append(_brew_record_offer(name))
         return bean_id
     return None
 
@@ -386,13 +409,16 @@ async def post_message(
             )
         ]
         results.extend(duplicate_saved_prompts)
-    if "brew_record_parse" not in duplicate_prompt_types:
+    # 本轮在记录豆卡（识图建卡）时，不顺带冒冲煮草稿——改由 _autosave_bean_card 追加「要记录冲煮吗?」追问卡。
+    bean_card_in_turn = any(r.type == "read_bean_card_image" for r in results)
+    if "brew_record_parse" not in duplicate_prompt_types and not bean_card_in_turn:
         await ensure_brew_draft_result(
             results,
             message=payload.message,
             model=settings.model_default_model,
             history=mc.history_messages,
             active_recipe=active_context.get("recipe"),
+            active_bean=active_context.get("bean"),
         )
     if "equipment_capture" not in duplicate_prompt_types:
         await ensure_equipment_capture_result(
