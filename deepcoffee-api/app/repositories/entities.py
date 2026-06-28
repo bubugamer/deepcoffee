@@ -62,6 +62,19 @@ _TYPE_ALIASES = {
     "烘焙商产品": "roaster_product",
     "green_bean_product": "green_bean_product",
     "生豆商产品": "green_bean_product",
+    # 器具:四类「可穷尽实体」（公共目录 + 别名）。与前端 EquipmentCategory 对齐。
+    "brewer": "brewer",
+    "dripper": "brewer",
+    "滤杯": "brewer",
+    "冲煮器具": "brewer",
+    "grinder": "grinder",
+    "磨豆机": "grinder",
+    "filter_media": "filter_media",
+    "filter": "filter_media",
+    "滤纸": "filter_media",
+    "过滤介质": "filter_media",
+    "water": "water",
+    "用水": "water",
 }
 
 

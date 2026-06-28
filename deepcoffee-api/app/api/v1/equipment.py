@@ -10,11 +10,28 @@ from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.models.tables import UserEquipmentItem
+from app.repositories.entities import entity_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.equipment import _clean, _norm, equipment_repository
 from app.schemas.equipment import EquipmentCreateRequest, EquipmentItem, EquipmentUpdateRequest
+from app.services.entity_resolver import EQUIPMENT_CATEGORIES
 
 router = APIRouter(prefix="/equipment", tags=["equipment"], dependencies=[Depends(require_member)])
+
+
+@router.get("/catalog")
+async def equipment_catalog(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, list[str]]:
+    """公共器具目录（可穷尽实体的规范名），按类别给前端下拉直接选。
+
+    与「我的器具」合并展示（目录 ∪ 用户已存）；用户输入别名/简写时由后端解析归一到这些规范名。
+    """
+    out: dict[str, list[str]] = {}
+    for category in EQUIPMENT_CATEGORIES:
+        items = await entity_repository.list(session, entity_type=category, status="active")
+        out[category] = sorted({e.canonical_name for e in items if e.canonical_name})
+    return out
 
 
 async def _get_own(session: AsyncSession, user_id: str, equipment_id: str) -> UserEquipmentItem:

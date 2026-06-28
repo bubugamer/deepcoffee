@@ -562,6 +562,10 @@ class UserEquipmentItem(Base):
     category: Mapped[str] = mapped_column(String, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     normalized_name: Mapped[str] = mapped_column(String, nullable=False)
+    # 关联到公共器具目录实体（规范名来源）。录入时解析命中即写；目录无此型号则留空（仍是有效的私有器具）。
+    entity_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("public_entities.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     notes: Mapped[str | None] = mapped_column(Text)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

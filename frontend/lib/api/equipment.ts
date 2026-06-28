@@ -24,6 +24,11 @@ export function listEquipment(): Promise<EquipmentProfile[]> {
   return apiFetch('/equipment')
 }
 
+// 公共器具目录（可穷尽实体的规范名），按类别给下拉直接选；与「我的器具」合并展示。
+export function getEquipmentCatalog(): Promise<Record<EquipmentCategory, string[]>> {
+  return apiFetch('/equipment/catalog')
+}
+
 export function createEquipment(body: EquipmentInput): Promise<EquipmentProfile> {
   return apiFetch('/equipment', { method: 'POST', body: JSON.stringify(body) })
 }

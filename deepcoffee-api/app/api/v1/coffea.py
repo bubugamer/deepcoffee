@@ -50,8 +50,10 @@ from app.services.coffea_executor import (
     ensure_brew_draft_result,
     ensure_equipment_capture_result,
     execute_plan,
+    resolve_brew_draft_entities,
 )
 from app.services.memory_context import build_memory_context
+from app.services.entity_discovery import run_equipment_discovery
 from app.services.memory_maintenance import run_memory_maintenance
 from app.services.image_storage import upload_chat_images
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
@@ -73,6 +75,7 @@ _DISPLAY_OUTPUT_KEYS = frozenset(
         "confidence",
         "low_confidence_fields",
         "missing_fields",
+        "resolved_bean_id",
         "raw_input",
         "items",
         "saved_bean_id",
@@ -427,6 +430,18 @@ async def post_message(
             model=settings.model_default_model,
             history=mc.history_messages,
             active_context=active_context,
+        )
+
+    # 把冲煮草稿里的器具/豆名解析到系统已有实体（器具→目录规范名、豆名→用户豆卡），减少手选。
+    unmatched_equipment = await resolve_brew_draft_entities(
+        session, results, beans=beans, active_bean=active_context.get("bean")
+    )
+    # 未命中目录的器具：后台"搜索确认"，丰富目录别名（管理员审核后入库），下次即可命中。不阻塞本轮。
+    if unmatched_equipment:
+        background_tasks.add_task(
+            run_equipment_discovery,
+            items=unmatched_equipment,
+            model=settings.model_default_model,
         )
 
     trace_id = f"coffea_dispatch_{uuid4().hex[:12]}"
