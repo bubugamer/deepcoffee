@@ -160,38 +160,57 @@ function EquipmentSelect({
   onChange: (value: string) => void
   optional?: boolean
 }) {
+  const [customMode, setCustomMode] = useState(false)
   const options = useMemo(
     // 选项 = 公共器具目录 ∪ 我的器具（去重）；用户仍可「手动输入」兜底。
     () => Array.from(new Set([...catalogNames, ...equipment.filter((item) => item.category === category).map((item) => item.name)].filter(Boolean))),
     [category, equipment, catalogNames],
   )
-  const isCustom = value.trim() !== '' && !options.includes(value)
-  const selectValue = isCustom ? CUSTOM : value
+  // 已填了目录里没有的值，或主动点了「手动输入」，都就地切成输入框（不堆叠多一行）。
+  const isCustomValue = value.trim() !== '' && !options.includes(value)
+  const showInput = customMode || isCustomValue
   return (
-    <label className="block">
-      <span className="text-xs text-dc-text-3 mb-1 block">
-        {label}{optional && <span className="ml-1">可选</span>}
-      </span>
-      <select
-        value={selectValue}
-        onChange={(event) => onChange(event.target.value === CUSTOM ? value : event.target.value)}
-        className="dc-input text-sm py-1.5"
-      >
-        <option value="">未选择</option>
-        {options.map((name) => (
-          <option key={name} value={name}>{name}</option>
-        ))}
-        <option value={CUSTOM}>手动输入新{EQUIPMENT_LABELS[category]}</option>
-      </select>
-      {(selectValue === CUSTOM || isCustom) && (
+    <div className="block">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-dc-text-3">
+          {label}{optional && <span className="ml-1">可选</span>}
+        </span>
+        {showInput && options.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { setCustomMode(false); onChange('') }}
+            className="text-xs text-dc-accent hover:underline"
+          >
+            从列表选择
+          </button>
+        )}
+      </div>
+      {showInput ? (
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="dc-input text-sm py-1.5 mt-1.5"
+          className="dc-input text-sm py-1.5"
           placeholder={`输入${label}`}
+          autoFocus={customMode}
         />
+      ) : (
+        <select
+          value={value}
+          onChange={(event) => {
+            const v = event.target.value
+            if (v === CUSTOM) setCustomMode(true)
+            else { setCustomMode(false); onChange(v) }
+          }}
+          className="dc-input text-sm py-1.5"
+        >
+          <option value="">未选择</option>
+          {options.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+          <option value={CUSTOM}>手动输入新{EQUIPMENT_LABELS[category]}</option>
+        </select>
       )}
-    </label>
+    </div>
   )
 }
 

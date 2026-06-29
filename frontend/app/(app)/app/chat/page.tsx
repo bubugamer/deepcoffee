@@ -292,7 +292,7 @@ const EQUIPMENT_CATEGORY_LABEL: Record<EquipmentCategory, string> = {
   water: '用水',
 }
 
-// 下拉（来源：豆仓 / 我的器具）+「自定义输入」的组合字段
+// 下拉（来源：豆仓 / 我的器具）+「自定义输入」的组合字段；选「自定义输入…」时就地切换为输入框，不堆叠。
 function ComboField({
   label, missing, options, choice, custom, placeholder, onChoice, onCustom,
 }: {
@@ -305,31 +305,47 @@ function ComboField({
   onChoice: (v: string) => void
   onCustom: (v: string) => void
 }) {
-  const empty = choice === '' || (choice === CUSTOM && !custom.trim())
+  const [autofocus, setAutofocus] = useState(false)
+  const isCustom = choice === CUSTOM
+  const empty = choice === '' || (isCustom && !custom.trim())
   const highlight = missing && empty
+  const fieldCls = `dc-input text-sm py-1.5 ${highlight ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`
   return (
-    <label className="block">
-      <span className="text-xs text-dc-text-3 mb-1 block">
-        {label}{highlight && <span className="text-dc-yellow ml-1">待补充</span>}
-      </span>
-      <select
-        value={choice}
-        onChange={e => onChoice(e.target.value)}
-        className={`dc-input text-sm py-1.5 ${highlight ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`}
-      >
-        <option value="">未选择</option>
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        <option value={CUSTOM}>自定义输入…</option>
-      </select>
-      {choice === CUSTOM && (
+    <div className="block">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-dc-text-3">
+          {label}{highlight && <span className="text-dc-yellow ml-1">待补充</span>}
+        </span>
+        {isCustom && options.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { onCustom(''); onChoice('') }}
+            className="text-xs text-dc-accent hover:underline"
+          >
+            从列表选择
+          </button>
+        )}
+      </div>
+      {isCustom ? (
         <input
           value={custom}
           onChange={e => onCustom(e.target.value)}
           placeholder={placeholder}
-          className={`dc-input text-sm py-1.5 mt-1.5 ${highlight ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`}
+          autoFocus={autofocus}
+          className={fieldCls}
         />
+      ) : (
+        <select
+          value={choice}
+          onChange={e => { if (e.target.value === CUSTOM) setAutofocus(true); onChoice(e.target.value) }}
+          className={fieldCls}
+        >
+          <option value="">未选择</option>
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          <option value={CUSTOM}>自定义输入…</option>
+        </select>
       )}
-    </label>
+    </div>
   )
 }
 
