@@ -95,8 +95,8 @@ IMAGE_UNDERSTANDING_SYSTEM = """你是 DeepCoffee 的图片理解助手。任务
 - suggested_next_actions: 字符串数组
 
 bean_fields 仅 bean_card 时填写，可包含：
-- name / roaster_name / roaster_product_name / origin_name / process_name / varietal_names / coffee_source_name / green_bean_merchant_name / flavor_notes / flavor_note_emojis / flavor_axes / roast_date_text / harvest_date_text / altitude_text / net_weight_text / bean_components / official_recipe
-- bean_components 是数组，用于拼配 / 多豆源；每项可包含 origin_name / coffee_source_name / process_name / varietal_names / altitude_text / share_text / notes。
+- name / roaster_name / roaster_product_name / roast_date_text / net_weight_text / bean_components / flavor_notes / flavor_note_emojis / flavor_axes / official_recipe
+- bean_components 是数组；单一豆源也填 1 条，拼配 / 多豆源填多条。每项可包含 origin_name / coffee_source_name / green_bean_merchant_name / green_bean_product_name / process_name / varietal_names / altitude_text / harvest_date_text / share_text / notes。
 - flavor_note_emojis 是对象 {风味词: emoji}，给 flavor_notes 里每个词各配一个最贴切的 emoji（如 {"柑橘":"🍊","蓝莓":"🫐"}）；没有就 {}。
 
 brew_photo_assessment 仅 brew_photo 时填写，可包含：
@@ -110,7 +110,7 @@ equipment_fields 仅 equipment_photo 时填写，可包含：
 2. 不要编造图片上看不清的文字；读不清就放进 uncertainties。
 3. 粉床图片不能直接证明杯中风味，只能判断可能风险；如果用户没有杯测反馈，建议追问口味表现。
 4. 豆卡图片如果同时包含官方配方，要把官方配方放进 official_recipe，不要和你自己的建议混在一起。
-5. 拼配或多产地产品要尽量填 bean_components；单一豆源可以只填顶层 origin_name / process_name 等字段。
+5. 所有产地、处理法、品种、生产者 / 庄园 / 处理站、生豆商、生豆商产品、海拔、采收期都放进 bean_components；不要输出顶层 origin_name / process_name / varietal_names 等豆源字段。
 6. 不要新增任何键。"""
 
 IMAGE_UNDERSTANDING_USER_TEMPLATE = """用户文字说明：
@@ -146,23 +146,26 @@ BEAN_PARSE_SYSTEM = """你是 DeepCoffee 的咖啡豆信息抽取器。任务：
 - name: 字符串或 null。豆子名称，优先取豆袋正面主标题 / 烘焙商产品名 / 批次名；如果用户只写了一串可作为豆名的描述（如产地/庄园/品种/处理法组合），可以原样作为 name。
 - roaster_name: 字符串或 null。烘焙商。
 - roaster_product_name: 字符串或 null。烘焙商产品名、批次名、系列名；不要和豆子名称强行重复。
-- origin_name: 字符串或 null。产地，优先保留国家 + 知名产区（如「埃塞俄比亚 耶加雪菲」）。
-- process_name: 字符串或 null。处理法；尽量归一为：水洗 / 日晒 / 蜜处理 / 红蜜处理 / 黄蜜处理 / 黑蜜处理 / 厌氧 / 厌氧日晒 / 厌氧水洗 / 二氧化碳浸渍 / 湿刨。natural=日晒，washed=水洗，anaerobic=厌氧，carbonic maceration 或 CM=二氧化碳浸渍；不确定就保留用户原文。
-- varietal_names: 字符串数组。品种，如 ["瑰夏"]；没有就 []。
-- green_bean_merchant_name: 字符串或 null。生豆商、进口商。
-- coffee_source_name: 字符串或 null。生产者、庄园、处理站、合作社。
-- altitude_text: 字符串或 null。海拔原文，如 "2,200 masl"。
-- harvest_date_text: 字符串或 null。采收期原文。
 - roast_date_text: 字符串或 null。烘焙日期原文。
 - net_weight_text: 字符串或 null。净含量原文。
-- bean_components: 数组。拼配 / 多豆源时填写；每项可包含 origin_name / coffee_source_name / process_name / varietal_names / altitude_text / share_text / notes。单一豆源或抽不到就 []。
+- bean_components: 数组。单一豆源填 1 条，拼配 / 多豆源填多条；每项可包含：
+  - origin_name: 字符串或 null。产地，优先保留国家 + 知名产区（如「埃塞俄比亚 耶加雪菲」）。
+  - coffee_source_name: 字符串或 null。生产者、庄园、处理站、合作社。
+  - green_bean_merchant_name: 字符串或 null。生豆商、进口商。
+  - green_bean_product_name: 字符串或 null。生豆商产品。
+  - process_name: 字符串或 null。处理法；尽量归一为：水洗 / 日晒 / 蜜处理 / 红蜜处理 / 黄蜜处理 / 黑蜜处理 / 厌氧 / 厌氧日晒 / 厌氧水洗 / 二氧化碳浸渍 / 湿刨。natural=日晒，washed=水洗，anaerobic=厌氧，carbonic maceration 或 CM=二氧化碳浸渍；不确定就保留用户原文。
+  - varietal_names: 字符串数组。品种，如 ["瑰夏"]；没有就 []。
+  - altitude_text: 字符串或 null。海拔原文，如 "2,200 masl"。
+  - harvest_date_text: 字符串或 null。采收期原文。
+  - share_text: 字符串或 null。拼配占比或说明。
+  - notes: 字符串或 null。该豆源补充说明。
 - flavor_notes: 字符串数组。只放用户明确写出的风味描述词，如 ["茉莉花香","柑橘"]；没有就 []。
 - flavor_note_emojis: 对象或 {}。给 flavor_notes 里每个风味词各配一个最贴切的 emoji，键是风味词原文、值是单个 emoji，如 {"茉莉花香":"🌸","柑橘":"🍊","蓝莓":"🫐","巧克力":"🍫"}；flavor_notes 为空就 {}。每个词只给一个 emoji，挑最能代表该风味的水果/花/食物图标。
 
 规则：
 1. 只抽取用户明确写出的信息；不要根据常识、产地、品种、处理法补全字段。
 2. 用户的喜好、评价、冲煮理念、购买原因不算风味描述，不要放进 flavor_notes。
-3. 不要输出空字符串；抽不到的字符串字段用 null，数组字段用 []；不要把多个豆源硬塞进单个 origin_name，优先拆到 bean_components。
+3. 不要输出空字符串；抽不到的字符串字段用 null，数组字段用 []；不要把多个豆源硬塞进同一条 bean_components，能拆则拆。
 4. 不要新增任何键。"""
 
 # user 消息模板：直接传用户输入的豆子描述原文（见清单 §4）。

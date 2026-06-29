@@ -70,9 +70,9 @@ def _confirm_bean(client: TestClient, name: str = "千峰庄园 瑰夏 日晒", 
             "draft": {
                 "name": name,
                 "roaster_name": "千峰",
-                "origin_name": "巴拿马",
-                "process_name": "日晒",
-                "varietal_names": ["瑰夏"],
+                "bean_components": [
+                    {"origin_name": "巴拿马", "process_name": "日晒", "varietal_names": ["瑰夏"]}
+                ],
             }
         },
     )
@@ -90,9 +90,9 @@ def test_bean_parse_returns_flavor_without_default_axes() -> None:
     assert resp.status_code == 200, resp.text
     body = resp.json()
     draft = body["draft"]
-    assert draft["origin_name"] == "巴拿马"
-    assert draft["process_name"] == "日晒"
-    assert "瑰夏" in draft["varietal_names"]
+    assert draft["bean_components"][0]["origin_name"] == "巴拿马"
+    assert draft["bean_components"][0]["process_name"] == "日晒"
+    assert "瑰夏" in draft["bean_components"][0]["varietal_names"]
     assert draft["flavor"]["axes"] == []
     assert "茉莉" in draft["flavor"]["notes"]
     assert body["trace_id"].startswith("bean_parse_")
@@ -149,10 +149,6 @@ def test_bean_confirm_uses_roaster_product_as_stable_name_and_saves_components()
             "draft": {
                 "roaster_product_name": "Bong Bong",
                 "roaster_name": "coffee buff",
-                "origin_name": "多产地 / 拼配",
-                "process_name": "多处理法",
-                "altitude_text": "1700-2300m",
-                "harvest_date_text": "2026",
                 "roast_date_text": "2026/05/18",
                 "net_weight_text": "100g",
                 "bean_components": [
@@ -273,7 +269,13 @@ def test_brew_records_full_field_search() -> None:
     bean_id = client.post(
         "/v1/beans/confirm",
         headers=headers,
-        json={"draft": {"name": "耶加雪菲 科契尔", "roaster_name": "测试烘焙", "origin_name": "埃塞俄比亚", "process_name": "水洗"}},
+        json={
+            "draft": {
+                "name": "耶加雪菲 科契尔",
+                "roaster_name": "测试烘焙",
+                "bean_components": [{"origin_name": "埃塞俄比亚", "process_name": "水洗"}],
+            }
+        },
     ).json()["bean_id"]
     client.post(
         "/v1/brew/confirm",
@@ -446,13 +448,13 @@ def test_single_normalizes_to_one_source_and_blend_derivation_and_aggregation() 
     client = TestClient(create_app())
     h1 = {"Authorization": "Bearer dev:blend-u1:b1@example.com"}
 
-    # 单豆：顶层字段折成 1 条豆源，type=single，派生 origin = 该豆源产地。
+    # 单豆：用 1 条豆源保存，type=single，派生 origin = 该豆源产地。
     single_id = client.post(
         "/v1/beans/confirm",
         headers=h1,
         json={"draft": {
             "name": "云南单豆", "roaster_name": "测试烘焙",
-            "origin_name": "云南", "process_name": "水洗", "varietal_names": ["卡蒂姆"],
+            "bean_components": [{"origin_name": "云南", "process_name": "水洗", "varietal_names": ["卡蒂姆"]}],
         }},
     ).json()["bean_id"]
     single = client.get(f"/v1/beans/{single_id}", headers=h1).json()
@@ -493,3 +495,51 @@ def test_single_normalizes_to_one_source_and_blend_derivation_and_aggregation() 
     matches = [it for it in square if it["name"] == "拼配 X"]
     assert len(matches) == 1
     assert matches[0]["owner_count"] == 2
+
+
+def test_blend_bean_update_validates_components_not_derived_top_fields() -> None:
+    client = TestClient(create_app())
+    headers = _headers("blend-edit-u1", "blend-edit@example.com")
+    blend_payload = {"draft": {
+        "name": "Bong Bong", "roaster_name": "coffee buff", "roaster_product_name": "F508",
+        "bean_components": [
+            {"origin_name": "Panama Chiriqui", "process_name": "Washed", "varietal_names": ["Geisha"]},
+            {"origin_name": "Ethiopia Oromia Guji", "process_name": "Washed", "varietal_names": ["Heirloom"]},
+        ],
+    }}
+    bean_id = client.post("/v1/beans/confirm", headers=headers, json=blend_payload).json()["bean_id"]
+    blend = client.get(f"/v1/beans/{bean_id}", headers=headers).json()
+    assert blend["origin"] is None
+    assert blend["process"] is None
+
+    updated = client.patch(
+        f"/v1/beans/{bean_id}",
+        headers=headers,
+        json={"net_weight_text": "150g"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["net_weight_text"] == "150g"
+
+    missing_roaster = client.patch(
+        f"/v1/beans/{bean_id}",
+        headers=headers,
+        json={"roaster_name": None},
+    )
+    assert missing_roaster.status_code == 422
+    assert "roaster_name" in missing_roaster.json()["error"]["details"]["fields"]
+
+    missing_sources = client.patch(
+        f"/v1/beans/{bean_id}",
+        headers=headers,
+        json={"bean_components": []},
+    )
+    assert missing_sources.status_code == 422
+    assert "bean_components" in missing_sources.json()["error"]["details"]["fields"]
+
+    partial_source = client.patch(
+        f"/v1/beans/{bean_id}",
+        headers=headers,
+        json={"bean_components": [{"origin_name": "Panama Chiriqui"}]},
+    )
+    assert partial_source.status_code == 422
+    assert "bean_components.0.process_name" in partial_source.json()["error"]["details"]["fields"]

@@ -47,11 +47,37 @@ from app.services.langfuse_client import langfuse_tracer
 
 router = APIRouter(prefix="/beans", tags=["beans"], dependencies=[Depends(require_member)])
 
+_COMPONENT_TEXT_FIELDS = (
+    "origin_name",
+    "coffee_source_name",
+    "green_bean_merchant_name",
+    "green_bean_product_name",
+    "process_name",
+    "altitude_text",
+    "harvest_date_text",
+    "share_text",
+    "notes",
+)
+
+
+def _component_text(component: object, field: str) -> str:
+    value = component.get(field) if isinstance(component, dict) else getattr(component, field, None)
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _component_has_content(component: object) -> bool:
+    if any(_component_text(component, field) for field in _COMPONENT_TEXT_FIELDS):
+        return True
+    varietals = component.get("varietal_names") if isinstance(component, dict) else getattr(component, "varietal_names", None)
+    return isinstance(varietals, list) and any(isinstance(item, str) and item.strip() for item in varietals)
+
 
 def _validate_required_bean_fields(draft: BeanConfirmRequest | BeanUpdateRequest) -> None:
     data = draft.draft if isinstance(draft, BeanConfirmRequest) else draft
     is_confirm = isinstance(draft, BeanConfirmRequest)
-    components = data.bean_components or []
+    components = [component for component in (data.bean_components or []) if _component_has_content(component)]
     missing: list[str] = []
     if is_confirm and not (
         (data.name and data.name.strip())
@@ -61,38 +87,47 @@ def _validate_required_bean_fields(draft: BeanConfirmRequest | BeanUpdateRequest
     if not (isinstance(data.roaster_name, str) and data.roaster_name.strip()):
         missing.append("draft.roaster_name" if is_confirm else "roaster_name")
 
-    # 产地 / 处理法可填在顶层（单豆 / AI 折叠）或任一豆源里（拼配）——二者有其一即可。
-    def _has(field: str) -> bool:
-        top = getattr(data, field, None)
-        if isinstance(top, str) and top.strip():
-            return True
-        return any(isinstance(getattr(c, field, None), str) and getattr(c, field).strip() for c in components)
-
-    for field in ("origin_name", "process_name"):
-        if not _has(field):
-            missing.append(f"draft.{field}" if is_confirm else field)
+    if not components:
+        missing.append("draft.bean_components" if is_confirm else "bean_components")
+    else:
+        for index, component in enumerate(components):
+            prefix = f"draft.bean_components.{index}" if is_confirm else f"bean_components.{index}"
+            if not _component_text(component, "origin_name"):
+                missing.append(f"{prefix}.origin_name")
+            if not _component_text(component, "process_name"):
+                missing.append(f"{prefix}.process_name")
     if missing:
         raise AppError(
             422,
             "bean_required_fields_missing",
-            "确认建档前请填写烘焙商、产地和处理法。",
+            "请填写烘焙商，并在豆源里填写产地和处理法。",
             details={"fields": missing},
         )
 
 
 def _validate_update_required_fields(payload: BeanUpdateRequest, current: Bean) -> None:
     updates = payload.model_dump(exclude_unset=True)
-    values = {
-        "roaster_name": updates.get("roaster_name", current.roaster),
-        "origin_name": updates.get("origin_name", current.origin),
-        "process_name": updates.get("process_name", current.process),
-    }
-    missing = [field for field, value in values.items() if not (isinstance(value, str) and value.strip())]
+    roaster = updates.get("roaster_name", current.roaster)
+    components = list(payload.bean_components or []) if "bean_components" in updates else list(current.bean_components or [])
+    active_components = [component for component in components if _component_has_content(component)]
+
+    missing: list[str] = []
+    if not (isinstance(roaster, str) and roaster.strip()):
+        missing.append("roaster_name")
+    if not active_components:
+        missing.append("bean_components")
+    else:
+        for index, component in enumerate(active_components):
+            if not _component_text(component, "origin_name"):
+                missing.append(f"bean_components.{index}.origin_name")
+            if not _component_text(component, "process_name"):
+                missing.append(f"bean_components.{index}.process_name")
+
     if missing:
         raise AppError(
             422,
             "bean_required_fields_missing",
-            "请填写烘焙商、产地和处理法后再保存豆卡。",
+            "请填写烘焙商，并在豆源里填写产地和处理法。",
             details={"fields": missing},
         )
 

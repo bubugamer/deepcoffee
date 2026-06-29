@@ -37,14 +37,14 @@ def test_draft_maps_direct_fields_and_flavor_notes() -> None:
     )
     assert draft.name == "千峰庄园 帕卡马拉"
     assert draft.roaster_name == "Coffeebuff"
-    assert draft.varietal_names == ["帕卡马拉"]
     assert draft.flavor is not None and draft.flavor.notes == ["草莓", "奶油"]
     assert draft.flavor.source == "roaster"
     assert draft.roast_date_text == "2026-05-20"
-    assert draft.altitude_text == "1800m"
     assert draft.net_weight_text == "100g"
     assert len(draft.bean_components) == 1
     assert draft.bean_components[0].coffee_source_name == "千峰庄园"
+    assert draft.bean_components[0].varietal_names == ["瑰夏"]
+    assert draft.bean_components[0].altitude_text == "1800m"
 
 
 def test_draft_tolerates_missing_or_invalid_bean_fields() -> None:
@@ -54,7 +54,9 @@ def test_draft_tolerates_missing_or_invalid_bean_fields() -> None:
 
 def test_effective_confidence_takes_min_of_reported_and_assessed() -> None:
     full = _data(
-        name="A", roaster_name="B", origin_name="C", process_name="D", varietal_names=["E"]
+        name="A",
+        roaster_name="B",
+        bean_components=[{"origin_name": "C", "process_name": "D", "varietal_names": ["E"]}],
     )
     draft = draft_from_bean_fields(full)
     # 字段全齐 assessed=1.0；vision 自报 0.7 → 取 min

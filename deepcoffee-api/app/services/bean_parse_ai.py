@@ -17,10 +17,8 @@ from app.services.model_json import chat_json
 logger = logging.getLogger(__name__)
 
 _BEAN_KEYS = [
-    "name", "roaster_name", "roaster_product_name", "origin_name", "process_name",
-    "varietal_names", "green_bean_merchant_name", "coffee_source_name", "flavor_notes",
-    "flavor_note_emojis",
-    "altitude_text", "harvest_date_text", "roast_date_text", "net_weight_text", "bean_components",
+    "name", "roaster_name", "roaster_product_name", "flavor_notes", "flavor_note_emojis",
+    "roast_date_text", "net_weight_text", "bean_components",
 ]
 
 
@@ -49,9 +47,12 @@ def _components(value: object) -> list[BeanComponent]:
             BeanComponent(
                 origin_name=_str(item.get("origin_name")),
                 coffee_source_name=_str(item.get("coffee_source_name")),
+                green_bean_merchant_name=_str(item.get("green_bean_merchant_name")),
+                green_bean_product_name=_str(item.get("green_bean_product_name")),
                 process_name=_str(item.get("process_name")),
                 varietal_names=_str_list(item.get("varietal_names")),
                 altitude_text=_str(item.get("altitude_text")),
+                harvest_date_text=_str(item.get("harvest_date_text")),
                 share_text=_str(item.get("share_text")),
                 notes=_str(item.get("notes")),
             )
@@ -78,13 +79,6 @@ async def parse_bean_with_model(
             name=data.get("name"),
             roaster_name=data.get("roaster_name"),
             roaster_product_name=data.get("roaster_product_name"),
-            coffee_source_name=data.get("coffee_source_name"),
-            green_bean_merchant_name=data.get("green_bean_merchant_name"),
-            origin_name=data.get("origin_name"),
-            process_name=data.get("process_name"),
-            varietal_names=_str_list(data.get("varietal_names")),
-            altitude_text=_str(data.get("altitude_text")),
-            harvest_date_text=_str(data.get("harvest_date_text")),
             roast_date_text=_str(data.get("roast_date_text")),
             net_weight_text=_str(data.get("net_weight_text")),
             bean_components=_components(data.get("bean_components")),
