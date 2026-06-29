@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tables import UserEquipmentItem
+from app.services.entity_resolver import resolve_equipment
 
 EQUIPMENT_CATEGORIES = ("brewer", "grinder", "filter_media", "water")
 
@@ -82,10 +83,18 @@ class EquipmentRepository:
         is_default: bool | None = None,
     ) -> UserEquipmentItem:
         cleaned = _clean(name)
+        # 录入即归一：输入若是别名/简写,解析到公共器具目录的规范名 + 关联 entity_id（防脏数据）。
+        entity = await resolve_equipment(session, category=category, name=cleaned)
+        entity_id = entity.id if entity is not None else None
+        if entity is not None and entity.canonical_name:
+            cleaned = _clean(entity.canonical_name)
+
         existing = await self.find_by_name(session, user_id=user_id, category=category, name=cleaned)
         if existing:
             if notes is not None:
                 existing.notes = notes or None
+            if entity_id and not existing.entity_id:
+                existing.entity_id = entity_id
             if is_default is True:
                 await self.set_default(session, user_id=user_id, equipment_id=existing.id)
             elif is_default is False:
@@ -101,6 +110,7 @@ class EquipmentRepository:
             category=category,
             name=cleaned,
             normalized_name=_norm(cleaned),
+            entity_id=entity_id,
             notes=notes or None,
             is_default=bool(should_default),
         )

@@ -9,6 +9,7 @@ import {
 import { confirmBean, getBeans, parseBeanInput } from '@/lib/api/beans'
 import {
   createEquipment,
+  getEquipmentCatalog,
   listEquipment,
   type EquipmentCategory,
   type EquipmentProfile,
@@ -363,9 +364,11 @@ function ChatBrewDraft({
   const parsedFilterMedia = String(baseDraft.filter_media ?? '').trim()
   const parsedWater = String(baseDraft.water ?? '').trim()
 
-  // 下拉数据源：豆仓 + 我的器具；拉取失败回退为纯手输（空选项 + 自定义）
+  // 下拉数据源：豆仓 + 我的器具 + 公共器具目录；拉取失败回退为纯手输（空选项 + 自定义）
   const [beans, setBeans] = useState<Bean[] | null>(null)
   const [equipment, setEquipment] = useState<EquipmentProfile[] | null>(null)
+  const [catalog, setCatalog] = useState<Record<string, string[]> | null>(null)
+  const resolvedBeanId = typeof output.resolved_bean_id === 'string' ? output.resolved_bean_id : null
   const [beanChoice, setBeanChoice] = useState(parsedBeanName ? CUSTOM : '')
   const [beanCustom, setBeanCustom] = useState(parsedBeanName)
   const [brewMethod, setBrewMethod] = useState(parsedBrewMethod)
@@ -396,26 +399,33 @@ function ChatBrewDraft({
     listEquipment()
       .then(list => { if (!cancelled) setEquipment(list) })
       .catch(() => { if (!cancelled) setEquipment([]) })
+    getEquipmentCatalog()
+      .then(c => { if (!cancelled) setCatalog(c) })
+      .catch(() => { if (!cancelled) setCatalog({}) })
     return () => { cancelled = true }
   }, [])
 
-  // 豆仓就绪后预选：来自豆卡页的 linkedBeanId 优先；其次解析名精确同名；未命中保持自定义预填
+  // 豆仓就绪后预选：后端已解析的 resolved_bean_id 优先，其次豆卡页的 linkedBeanId，再次解析名精确同名；
+  // 未命中保持自定义预填（后端 post-pass 已把解析名改写成豆卡全名，精确同名通常即可命中）。
   useEffect(() => {
     if (beans === null || beanInitRef.current) return
     beanInitRef.current = true
-    if (linkedBeanId && beans.some(b => b.bean_id === linkedBeanId)) {
-      setBeanChoice(linkedBeanId)
+    const preferredId = [resolvedBeanId, linkedBeanId].find(id => id && beans.some(b => b.bean_id === id))
+    if (preferredId) {
+      setBeanChoice(preferredId)
       return
     }
     const match = parsedBeanName ? beans.find(b => b.name.trim() === parsedBeanName) : undefined
     if (match) setBeanChoice(match.bean_id)
-  }, [beans, linkedBeanId, parsedBeanName])
+  }, [beans, resolvedBeanId, linkedBeanId, parsedBeanName])
 
-  // 器具就绪后预选：解析值命中选项即选中；解析为空时取各类别默认项
+  // 器具就绪后预选：解析值命中选项（目录 ∪ 我的器具）即选中；解析为空时取各类别默认项。
+  // 等器具与目录都到位再预选一次，避免目录后到导致漏选。
   useEffect(() => {
-    if (equipment === null || equipInitRef.current) return
+    if (equipment === null || catalog === null || equipInitRef.current) return
     equipInitRef.current = true
-    const names = (category: EquipmentCategory) => equipment.filter(e => e.category === category).map(e => e.name)
+    const names = (category: EquipmentCategory) =>
+      Array.from(new Set([...(catalog[category] ?? []), ...equipment.filter(e => e.category === category).map(e => e.name)]))
     const def = (category: EquipmentCategory) => equipment.find(e => e.category === category && e.is_default)
     const drippers = names('brewer')
     const grinders = names('grinder')
@@ -441,7 +451,7 @@ function ChatBrewDraft({
       if (!parsedWater && def('water')?.name) return { choice: def('water')!.name, custom: '' }
       return cur
     })
-  }, [equipment, parsedDevice, parsedGrinder, parsedFilterMedia, parsedWater])
+  }, [equipment, catalog, parsedDevice, parsedGrinder, parsedFilterMedia, parsedWater])
 
   if (output.dismissed === true) {
     return (
@@ -474,8 +484,10 @@ function ChatBrewDraft({
 
   const beanOptions = (beans ?? []).map(b => ({ value: b.bean_id, label: b.name }))
   const uniq = (values: (string | null | undefined)[]) => [...new Set(values.filter(Boolean) as string[])]
-  const byCategory = (category: EquipmentCategory) => uniq((equipment ?? []).filter(e => e.category === category).map(e => e.name))
-    .map(v => ({ value: v, label: v }))
+  // 下拉选项 = 公共器具目录 ∪ 我的器具（去重）；用户仍可「自定义输入」兜底。
+  const byCategory = (category: EquipmentCategory) =>
+    uniq([...(catalog?.[category] ?? []), ...(equipment ?? []).filter(e => e.category === category).map(e => e.name)])
+      .map(v => ({ value: v, label: v }))
   const deviceOptions = byCategory('brewer')
   const grinderOptions = byCategory('grinder')
   const filterOptions = byCategory('filter_media')

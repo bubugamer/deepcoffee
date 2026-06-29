@@ -22,6 +22,7 @@ from app.services import bean_card_intake
 from app.services.ai_answer import answer_with_model
 from app.services.brew_coach import LOCAL_COACH_FALLBACK, coach_with_model
 from app.services.brew_parse_ai import parse_brew_with_model
+from app.services.entity_resolver import _bean_id, _bean_name, resolve_equipment, resolve_user_bean
 from app.services.image_understanding import understand_image
 from app.services.input_parser import assess_brew_draft, parse_brew_input
 from app.services.knowledge_service import KnowledgeService
@@ -693,6 +694,82 @@ async def _brew_draft_for_bean(
         },
         message=msg,
     )
+
+
+_EQUIPMENT_DRAFT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("device", "brewer"),
+    ("grinder", "grinder"),
+    ("filter_media", "filter_media"),
+    ("water", "water"),
+)
+
+
+async def resolve_brew_draft_entities(
+    session: Any,
+    results: list[ActionResult],
+    *,
+    beans: list[Any] | None = None,
+    active_bean: Any = None,
+) -> list[tuple[str, str]]:
+    """把冲煮草稿里的器具/豆名解析到系统已有实体（就地改写草稿为规范名 + 关联 bean_id）。
+
+    - 器具：对照公共器具目录（resolve_equipment，按规范名 + 全部别名），命中改写成规范名；
+      让前端下拉（含目录项）能直接选中，而不是当成新值要手输。
+    - 豆名：在用户自己的豆卡里按子串 + 活跃豆解析，命中改写成豆卡全名 + 带上 bean_id。
+    解析失败/无库（如目录未导入）一律保持原值不变——只做"能认就认"，绝不乱改。
+
+    返回**未命中目录的器具**清单 [(category, 原始值)]，供端点起后台"搜索确认"丰富目录（WS4）。
+    """
+    unmatched: list[tuple[str, str]] = []
+    for r in results:
+        if r.type != "brew_record_parse" or r.status != "done" or not isinstance(r.output, dict):
+            continue
+        draft_dict = r.output.get("draft")
+        if not isinstance(draft_dict, dict):
+            continue
+        draft = BrewDraft.model_validate(draft_dict)
+        old_summary = _brew_summary(draft)
+        changed = False
+
+        for field, category in _EQUIPMENT_DRAFT_FIELDS:
+            value = getattr(draft, field, None)
+            if not (value and str(value).strip()):
+                continue
+            try:
+                entity = await resolve_equipment(session, category=category, name=str(value))
+            except Exception as exc:  # noqa: BLE001 — 解析失败不打断,保持原值
+                logger.warning("resolve_equipment(%s, %r) failed: %s", category, value, exc)
+                entity = None
+            if entity is not None and entity.canonical_name:
+                if entity.canonical_name != value:
+                    setattr(draft, field, entity.canonical_name)
+                    changed = True
+            else:
+                unmatched.append((category, str(value).strip()))
+
+        bean = resolve_user_bean(draft.bean_name, beans=beans, active_bean=active_bean)
+        bean_id = _bean_id(bean) if bean is not None else None
+        if bean is not None:
+            canonical_bean = _bean_name(bean)
+            if canonical_bean and canonical_bean != (draft.bean_name or ""):
+                draft.bean_name = canonical_bean
+                changed = True
+
+        if not changed and not bean_id:
+            continue
+
+        new_output = dict(r.output)
+        new_output["draft"] = draft.model_dump(exclude_none=True)
+        if bean_id:
+            new_output["resolved_bean_id"] = bean_id  # 前端可优先据此直接选中豆卡
+        r.output = new_output
+
+        # 草稿改写后，把消息里那段「解析摘要」原地替换成新规范名（保留各自的消息风格）。
+        new_summary = _brew_summary(draft)
+        if isinstance(r.message, str) and old_summary and old_summary != new_summary:
+            r.message = r.message.replace(old_summary, new_summary)
+
+    return unmatched
 
 
 async def ensure_brew_draft_result(

@@ -3,7 +3,7 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Bean, BrewEvaluation, BrewEvaluationItem, BrewRecord, BrewRecordFormInput, BrewStep } from '@/types'
-import type { EquipmentCategory, EquipmentProfile } from '@/lib/api/equipment'
+import { getEquipmentCatalog, type EquipmentCategory, type EquipmentProfile } from '@/lib/api/equipment'
 
 const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
 const CUSTOM = '__custom__'
@@ -148,6 +148,7 @@ function EquipmentSelect({
   category,
   value,
   equipment,
+  catalogNames = [],
   onChange,
   optional = false,
 }: {
@@ -155,12 +156,14 @@ function EquipmentSelect({
   category: EquipmentCategory
   value: string
   equipment: EquipmentProfile[]
+  catalogNames?: string[]
   onChange: (value: string) => void
   optional?: boolean
 }) {
   const options = useMemo(
-    () => Array.from(new Set(equipment.filter((item) => item.category === category).map((item) => item.name).filter(Boolean))),
-    [category, equipment],
+    // 选项 = 公共器具目录 ∪ 我的器具（去重）；用户仍可「手动输入」兜底。
+    () => Array.from(new Set([...catalogNames, ...equipment.filter((item) => item.category === category).map((item) => item.name)].filter(Boolean))),
+    [category, equipment, catalogNames],
   )
   const isCustom = value.trim() !== '' && !options.includes(value)
   const selectValue = isCustom ? CUSTOM : value
@@ -241,10 +244,17 @@ export function BrewRecordForm({
   onSubmit: (value: BrewRecordFormSubmit) => void
 }) {
   const [draft, setDraft] = useState<DraftState>(() => initialState(record, beans, preferredBeanId))
+  const [catalog, setCatalog] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     setDraft(initialState(record, beans, preferredBeanId))
   }, [record, beans, preferredBeanId])
+
+  useEffect(() => {
+    let cancelled = false
+    getEquipmentCatalog().then(c => { if (!cancelled) setCatalog(c) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const selectedBean = beans.find((bean) => bean.bean_id === draft.beanCardId)
   const ratio = ratioText(draft.dose_g, draft.water_ml)
@@ -339,11 +349,11 @@ export function BrewRecordForm({
                 {BREW_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
             </label>
-            <EquipmentSelect label="冲煮器具" category="brewer" value={draft.device} equipment={equipment} onChange={(value) => set('device', value)} />
-            <EquipmentSelect label="磨豆机" category="grinder" value={draft.grinder} equipment={equipment} onChange={(value) => set('grinder', value)} />
+            <EquipmentSelect label="冲煮器具" category="brewer" value={draft.device} equipment={equipment} catalogNames={catalog.brewer ?? []} onChange={(value) => set('device', value)} />
+            <EquipmentSelect label="磨豆机" category="grinder" value={draft.grinder} equipment={equipment} catalogNames={catalog.grinder ?? []} onChange={(value) => set('grinder', value)} />
             <TextField label="研磨刻度" value={draft.grind_setting} onChange={(value) => set('grind_setting', value)} placeholder="例如：5.5" />
-            <EquipmentSelect label="过滤介质" category="filter_media" value={draft.filter_media} equipment={equipment} onChange={(value) => set('filter_media', value)} optional />
-            <EquipmentSelect label="用水" category="water" value={draft.water} equipment={equipment} onChange={(value) => set('water', value)} optional />
+            <EquipmentSelect label="过滤介质" category="filter_media" value={draft.filter_media} equipment={equipment} catalogNames={catalog.filter_media ?? []} onChange={(value) => set('filter_media', value)} optional />
+            <EquipmentSelect label="用水" category="water" value={draft.water} equipment={equipment} catalogNames={catalog.water ?? []} onChange={(value) => set('water', value)} optional />
             <TextField label="粉量 (g)" value={draft.dose_g} onChange={(value) => set('dose_g', value)} placeholder="20" />
             <TextField label="水量 (ml)" value={draft.water_ml} onChange={(value) => set('water_ml', value)} placeholder="340" />
             <TextField label="粉水比" value={ratio} readOnly />

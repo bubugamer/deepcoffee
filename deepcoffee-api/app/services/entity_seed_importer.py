@@ -64,6 +64,11 @@ SEED_ENTITY_TYPES = frozenset(
         "origin",
         "varietal",
         "process_method",
+        # 器具目录（可穷尽实体）：四类，无 typed 子表，全靠规范名 + 别名匹配。
+        "brewer",
+        "grinder",
+        "filter_media",
+        "water",
     }
 )
 
