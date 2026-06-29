@@ -198,9 +198,12 @@ export interface BeanDraft {
 export interface BeanRecommendedParams {
   record_id: string
   record_type?: string
+  brew_method?: string
   device?: string
   grinder?: string
   grind_setting?: string
+  filter_media?: string
+  water?: string
   dose_g?: number
   water_ml?: number
   water_temp_c?: number

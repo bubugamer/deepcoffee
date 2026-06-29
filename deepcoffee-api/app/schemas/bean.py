@@ -116,9 +116,12 @@ class BeanRecommendedParams(BaseModel):
 
     record_id: str | None = None
     record_type: str | None = None  # official_suggestion / ai_suggestion / user
+    brew_method: str | None = None
     device: str | None = None
     grinder: str | None = None
     grind_setting: str | None = None
+    filter_media: str | None = None
+    water: str | None = None
     dose_g: float | None = None
     water_ml: float | None = None
     water_temp_c: float | None = None
@@ -231,9 +234,12 @@ class RecommendParamsResponse(BaseModel):
 class ManualRecommendParams(BaseModel):
     """手动编辑的建议冲煮参数（豆卡详情页编辑模式）。全部可选，落成隐藏 user_suggestion 记录。"""
 
+    brew_method: str | None = Field(default=None, max_length=120)
     device: str | None = Field(default=None, max_length=120)
     grinder: str | None = Field(default=None, max_length=120)
     grind_setting: str | None = Field(default=None, max_length=120)
+    filter_media: str | None = Field(default=None, max_length=120)
+    water: str | None = Field(default=None, max_length=120)
     dose_g: float | None = Field(default=None, ge=0, le=200)
     water_ml: float | None = Field(default=None, ge=0, le=5000)
     water_temp_c: float | None = Field(default=None, ge=50, le=100)

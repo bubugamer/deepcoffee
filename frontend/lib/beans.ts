@@ -7,18 +7,22 @@ export function formatBrewSeconds(seconds?: number): string | undefined {
   return `${mins}:${secs}`
 }
 
+// 展示口径与「冲煮记录」对齐：同字段、同叫法、同顺序（冲煮方式 → 器具 → 研磨 → 过滤介质 → 用水 → 用量 → 粉水比 → 水温 → 时间）。
 export function recommendedParamRows(params?: BeanRecommendedParams | null): [string, string][] {
   if (!params) return []
   return [
-    ['滤杯', params.device],
+    ['冲煮方式', params.brew_method],
+    ['冲煮器具', params.device],
     ['研磨', params.grinder && params.grind_setting
       ? `${params.grinder} ${params.grind_setting}`
       : (params.grinder ?? params.grind_setting)],
+    ['过滤介质', params.filter_media],
+    ['用水', params.water],
     ['豆量', params.dose_g !== undefined ? `${params.dose_g} g` : undefined],
     ['水量', params.water_ml !== undefined ? `${params.water_ml} ml` : undefined],
-    ['水温', params.water_temp_c !== undefined ? `${params.water_temp_c}°C` : undefined],
     ['粉水比', params.ratio],
-    ['时间', formatBrewSeconds(params.brew_time_seconds)],
+    ['水温', params.water_temp_c !== undefined ? `${params.water_temp_c}°C` : undefined],
+    ['冲煮时间', formatBrewSeconds(params.brew_time_seconds)],
   ].filter(([, value]) => value) as [string, string][]
 }
 

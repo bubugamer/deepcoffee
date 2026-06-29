@@ -312,19 +312,27 @@ def test_manual_recommend_params_create_hidden_record() -> None:
         f"/v1/beans/{bean_id}/recommend-params",
         headers=HEADERS,
         json={"params": {
-            "device": "V60", "grinder": "ZP6S", "grind_setting": "4.5–5.5 圈",
+            "brew_method": "滤杯冲煮", "device": "V60", "grinder": "ZP6S", "grind_setting": "4.5–5.5 圈",
+            "filter_media": "布滤", "water": "农夫山泉",
             "dose_g": 15, "water_ml": 225, "water_temp_c": 92,
-            "ratio": "1:15", "brew_time_seconds": 150,
+            "brew_time_seconds": 150,
         }},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["recommended_params"]["device"] == "V60"
     assert body["recommended_params"]["record_type"] == "user_suggestion"
+    # 建议参数须与冲煮记录字段对齐：冲煮方式/过滤介质/用水也要带出来
+    assert body["recommended_params"]["brew_method"] == "滤杯冲煮"
+    assert body["recommended_params"]["filter_media"] == "布滤"
+    assert body["recommended_params"]["water"] == "农夫山泉"
+    # 粉水比由后端按豆量/水量自动换算（15g / 225ml → 1:15）
+    assert body["recommended_params"]["ratio"] == "1:15"
 
     # GET bean 读到手动参数；隐藏记录不进冲煮记录列表
     bean = client.get(f"/v1/beans/{bean_id}", headers=HEADERS).json()
     assert bean["recommended_params"]["grind_setting"] == "4.5–5.5 圈"
+    assert bean["recommended_params"]["filter_media"] == "布滤"
     assert bean["recommended_record_id"] == body["recommended_record_id"]
     records = client.get("/v1/brew/records", headers=HEADERS).json()
     assert all(r["id"] != body["recommended_record_id"] for r in records["items"])

@@ -39,9 +39,12 @@ def _record_to_params(row: BrewRecordORM) -> BeanRecommendedParams:
     return BeanRecommendedParams(
         record_id=row.id,
         record_type=row.record_type,
+        brew_method=row.brew_method,
         device=row.device,
         grinder=row.grinder,
         grind_setting=row.grind_setting,
+        filter_media=row.filter_media,
+        water=row.water,
         dose_g=row.dose_g,
         water_ml=row.water_ml,
         water_temp_c=row.water_temp_c,
