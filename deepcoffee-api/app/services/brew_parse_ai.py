@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _BREW_KEYS = [
     "bean_name", "origin", "roaster", "process", "varietal", "brew_method", "device", "grinder",
     "grind_setting", "filter_media", "water", "dose_g", "water_ml", "water_temp_c", "brew_time_seconds",
-    "evaluation", "notes",
+    "brew_steps", "evaluation", "notes",
 ]
 
 
@@ -35,7 +35,7 @@ async def parse_brew_with_model(
     try:
         data = await chat_json(
             gw, model=model, messages=messages,
-            temperature=0, max_tokens=700, allowed_keys=_BREW_KEYS,
+            temperature=0, max_tokens=1000, allowed_keys=_BREW_KEYS,
         )
         # 直接用 Pydantic 校验映射（含嵌套 evaluation）；非法值（如 dose_g<=0）会抛错 → 回退。
         return BrewDraft.model_validate(whitelist_keys(data, _BREW_KEYS))
