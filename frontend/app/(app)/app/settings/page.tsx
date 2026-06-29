@@ -8,11 +8,11 @@ import { planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from 
 import { supabase } from '@/lib/supabase'
 import type { BillingPlan, UserProfile, UserQuota } from '@/types'
 
-type Tab = 'profile' | 'plan' | 'prefs'
+type Tab = 'profile' | 'plan'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 type PasswordState = 'idle' | 'saving' | 'saved' | 'error'
 
-const TABS: Tab[] = ['profile', 'plan', 'prefs']
+const TABS: Tab[] = ['profile', 'plan']
 const planCardFeatures = {
   basic: ['基础 AI 用量', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
   pro: proPlanFeatures,
@@ -205,7 +205,7 @@ function SettingsContent() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-dc-subtle rounded-lg p-1 mb-8 w-full sm:w-fit overflow-x-auto">
-        {([['profile', '个人信息'], ['plan', '配额与会员'], ['prefs', '偏好设置']] as [Tab, string][]).map(([t, l]) => (
+        {([['profile', '个人设置'], ['plan', '配额与会员']] as [Tab, string][]).map(([t, l]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -253,16 +253,43 @@ function SettingsContent() {
                     onChange={(event) => setDisplayName(event.target.value)}
                     placeholder="请输入昵称"
                   />
-                  <div className="flex items-center justify-end gap-3 pt-3">
-                    {saveMessage && (
-                      <span className={`text-xs ${saveState === 'error' ? 'text-dc-red' : 'text-dc-green'}`}>
-                        {saveMessage}
-                      </span>
-                    )}
-                    <button className="btn-primary w-24 text-sm py-2 whitespace-nowrap" disabled={saveState === 'saving'}>
-                      {saveState === 'saving' ? '保存中…' : '保存修改'}
-                    </button>
+                </div>
+                <div>
+                  <label className="text-xs text-dc-text-3 mb-1.5 block">重量单位</label>
+                  <div className="flex gap-2">
+                    {(['metric', 'imperial'] as const).map((u) => (
+                      <button
+                        type="button"
+                        key={u}
+                        onClick={() => setUnitSystem(u)}
+                        className={`flex-1 py-2 text-sm rounded-lg border transition-colors ${
+                          unitSystem === u
+                            ? 'border-dc-accent bg-dc-accent-light text-dc-accent font-medium'
+                            : 'border-dc-border text-dc-text-2 bg-white'
+                        }`}
+                      >
+                        {u === 'metric' ? '克（g）' : '盎司（oz）'}
+                      </button>
+                    ))}
                   </div>
+                </div>
+                <div>
+                  <label className="text-xs text-dc-text-3 mb-1.5 block">时区</label>
+                  <select className="dc-input" value={timezone} onChange={(event) => setTimezone(event.target.value)}>
+                    <option value="Asia/Shanghai">Asia/Shanghai（UTC+8）</option>
+                    <option value="Asia/Tokyo">Asia/Tokyo（UTC+9）</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles（UTC-7）</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button className="btn-primary text-sm px-5 py-2" disabled={saveState === 'saving'}>
+                    {saveState === 'saving' ? '保存中…' : '保存修改'}
+                  </button>
+                  {saveMessage && (
+                    <span className={`text-xs ${saveState === 'error' ? 'text-dc-red' : 'text-dc-green'}`}>
+                      {saveMessage}
+                    </span>
+                  )}
                 </div>
                 <div className="pt-5 border-t border-dc-border flex items-center justify-between gap-4">
                   <div className="min-w-0">
@@ -437,49 +464,6 @@ function SettingsContent() {
                 })}
               </div>
             </div>
-          )}
-
-          {/* Preferences */}
-          {tab === 'prefs' && (
-            <form onSubmit={saveProfile} className="dc-card p-6 space-y-5 max-w-lg">
-              <div>
-                <label className="text-xs text-dc-text-3 mb-1.5 block">重量单位</label>
-                <div className="flex gap-2">
-                  {(['metric', 'imperial'] as const).map((u) => (
-                    <button
-                      type="button"
-                      key={u}
-                      onClick={() => setUnitSystem(u)}
-                      className={`flex-1 py-2 text-sm rounded-lg border transition-colors ${
-                        unitSystem === u
-                          ? 'border-dc-accent bg-dc-accent-light text-dc-accent font-medium'
-                          : 'border-dc-border text-dc-text-2 bg-white'
-                      }`}
-                    >
-                      {u === 'metric' ? '克（g）' : '盎司（oz）'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-dc-text-3 mb-1.5 block">时区</label>
-                <select className="dc-input" value={timezone} onChange={(event) => setTimezone(event.target.value)}>
-                  <option value="Asia/Shanghai">Asia/Shanghai（UTC+8）</option>
-                  <option value="Asia/Tokyo">Asia/Tokyo（UTC+9）</option>
-                  <option value="America/Los_Angeles">America/Los_Angeles（UTC-7）</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-3">
-                <button className="btn-primary text-sm px-5 py-2" disabled={saveState === 'saving'}>
-                  {saveState === 'saving' ? '保存中…' : '保存偏好'}
-                </button>
-                {saveMessage && (
-                  <span className={`text-xs ${saveState === 'error' ? 'text-dc-red' : 'text-dc-green'}`}>
-                    {saveMessage}
-                  </span>
-                )}
-              </div>
-            </form>
           )}
         </>
       )}
