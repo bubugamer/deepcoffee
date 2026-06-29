@@ -404,6 +404,22 @@ export async function recommendParamsTurn(
   }
 }
 
+// 把「生成建议参数」的模型回复带进主对话（追加为一条 assistant 消息，服务端持久化）。
+export async function recommendParamsToChat(
+  beanId: string,
+  message: string,
+  token?: string | null,
+): Promise<{ session_id: string }> {
+  if (isApiEnabled) {
+    return apiFetch<{ session_id: string }>(`/beans/${beanId}/recommend-params/to-chat`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ message }),
+    })
+  }
+  return { session_id: `mock-rec-${Date.now()}` }
+}
+
 // 把多轮返回的 recommendation 映射成豆卡展示用的 BeanRecommendedParams
 export function recommendationToBeanParams(
   rec: RecommendationParams,

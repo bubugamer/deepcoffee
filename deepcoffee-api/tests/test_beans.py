@@ -221,6 +221,46 @@ def test_recommend_params_needs_equipment_then_completes() -> None:
     assert detail.json()["recommended_params"]["water_temp_c"] is not None
 
 
+def test_recommend_params_to_chat_appends_reply_to_main_session() -> None:
+    # 「带到对话框」：把模型回复原文追加为主对话的一条 assistant 消息（纯写入，不调用模型）。
+    client = TestClient(create_app())
+    headers = _headers("reco-chat-user")
+    bean_id = _confirm_bean(client, name="危地马拉 薇薇特南果 水洗", headers=headers)
+
+    reply = "这支建议中度偏粗、稍低水温。\n\n你想从哪一项开始调整？"
+    resp = client.post(
+        f"/v1/beans/{bean_id}/recommend-params/to-chat",
+        headers=headers,
+        json={"message": reply},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["session_id"].startswith("sess_")
+
+    # 主对话历史末尾出现这条回复原文。
+    history = client.get("/v1/coffea/session", headers=headers)
+    assert history.status_code == 200
+    turns = history.json()["turns"]
+    assert turns, "session should have at least one turn"
+    assert turns[-1]["role"] == "assistant"
+    assert turns[-1]["text"] == reply
+
+    # 去空后为空 → 400。
+    blank = client.post(
+        f"/v1/beans/{bean_id}/recommend-params/to-chat",
+        headers=headers,
+        json={"message": "   "},
+    )
+    assert blank.status_code == 400, blank.text
+
+    # 不存在的豆子 → 404。
+    missing = client.post(
+        "/v1/beans/does-not-exist/recommend-params/to-chat",
+        headers=headers,
+        json={"message": reply},
+    )
+    assert missing.status_code == 404, missing.text
+
+
 def test_user_record_links_to_bean_and_can_be_set_as_recommended() -> None:
     client = TestClient(create_app())
     bean_id = _confirm_bean(client, name="云南 卡蒂姆 水洗")
