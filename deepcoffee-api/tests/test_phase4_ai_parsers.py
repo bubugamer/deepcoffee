@@ -100,6 +100,33 @@ def test_brew_parse_rejects_bad_value() -> None:
     assert asyncio.run(parse_brew_with_model("x", model="m", gateway=_FakeGateway(payload))) is None
 
 
+def test_brew_parse_extracts_pour_stages_into_brew_steps() -> None:
+    # 分段注水方案应解析进 brew_steps（冲煮阶段），不被塞进 notes（感官记录）。
+    payload = json.dumps(
+        {
+            "bean_name": "苏丹汝魅",
+            "device": "V60",
+            "dose_g": 15,
+            "water_ml": 240,
+            "water_temp_c": 92,
+            "brew_time_seconds": 150,
+            "brew_steps": [
+                {"time_seconds": 35, "action": "闷蒸，绕圈浸湿所有粉", "water_ml": 30, "note": None},
+                {"time_seconds": 60, "action": "中心绕圈注水", "water_ml": 100, "note": "累计130ml"},
+                {"time_seconds": 100, "action": "中心小绕圈注水", "water_ml": 110, "note": "累计240ml"},
+            ],
+            "notes": None,
+        }
+    )
+    draft = asyncio.run(parse_brew_with_model("...", model="m", gateway=_FakeGateway(payload)))
+    assert isinstance(draft, BrewDraft)
+    assert len(draft.brew_steps) == 3
+    assert draft.brew_steps[0].time_seconds == 35
+    assert draft.brew_steps[1].water_ml == 100
+    assert draft.brew_steps[2].action == "中心小绕圈注水"
+    assert draft.notes is None  # 步骤没被塞进 notes
+
+
 # --- brew_recap ------------------------------------------------------------
 
 _DRAFT = BrewDraft(bean_name="耶加雪菲", device="V60", dose_g=15, water_ml=240, water_temp_c=92, brew_time_seconds=150)
