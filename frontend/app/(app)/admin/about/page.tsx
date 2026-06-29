@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Database, Info, Loader2 } from 'lucide-react'
 import { getAdminStats, type AdminStats } from '@/lib/api/admin'
 
-const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '0.33.0'
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '0.33.1'
 
 export default function AdminAboutPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)

@@ -5,6 +5,7 @@ import { Coffee, Loader2, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import {
   createEquipment,
   deleteEquipment,
+  getEquipmentCatalog,
   listEquipment,
   setDefaultEquipment,
   updateEquipment,
@@ -21,6 +22,7 @@ const CATEGORY_META: Record<EquipmentCategory, { label: string; placeholder: str
 }
 
 const CATEGORIES = Object.keys(CATEGORY_META) as EquipmentCategory[]
+const CUSTOM = '__custom__'
 
 function EquipmentForm({
   initial, saving, onSubmit, onCancel,
@@ -31,8 +33,22 @@ function EquipmentForm({
   onCancel: () => void
 }) {
   const [values, setValues] = useState<EquipmentInput>({ category: 'brewer', ...initial })
+  const [catalog, setCatalog] = useState<Record<string, string[]>>({})
+  const [customMode, setCustomMode] = useState(false)
   const category = values.category ?? 'brewer'
   const hasName = !!values.name?.trim()
+
+  useEffect(() => {
+    let cancelled = false
+    getEquipmentCatalog().then(c => { if (!cancelled) setCatalog(c) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // 名称 = 公共器具目录（按所选类别）；用户也可「自定义输入」兜底。
+  const nameValue = values.name ?? ''
+  const nameOptions = catalog[category] ?? []
+  const isCustomName = nameValue.trim() !== '' && !nameOptions.includes(nameValue)
+  const showNameInput = customMode || isCustomName
 
   return (
     <form
@@ -51,13 +67,32 @@ function EquipmentForm({
       </label>
       <label className="block">
         <span className="text-xs text-dc-text-3 mb-1 block">名称</span>
-        <input
+        <select
           className="dc-input text-sm"
-          value={values.name ?? ''}
-          placeholder={CATEGORY_META[category].placeholder}
-          maxLength={120}
-          onChange={e => setValues(cur => ({ ...cur, name: e.target.value }))}
-        />
+          value={showNameInput ? CUSTOM : nameValue}
+          onChange={e => {
+            const v = e.target.value
+            if (v === CUSTOM) {
+              setCustomMode(true)
+            } else {
+              setCustomMode(false)
+              setValues(cur => ({ ...cur, name: v }))
+            }
+          }}
+        >
+          <option value="">未选择</option>
+          {nameOptions.map(n => <option key={n} value={n}>{n}</option>)}
+          <option value={CUSTOM}>自定义输入…</option>
+        </select>
+        {showNameInput && (
+          <input
+            className="dc-input text-sm mt-1.5"
+            value={nameValue}
+            placeholder={CATEGORY_META[category].placeholder}
+            maxLength={120}
+            onChange={e => setValues(cur => ({ ...cur, name: e.target.value }))}
+          />
+        )}
       </label>
       <label className="block">
         <span className="text-xs text-dc-text-3 mb-1 block">备注</span>
