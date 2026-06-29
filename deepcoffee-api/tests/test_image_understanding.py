@@ -26,7 +26,10 @@ _VALID = json.dumps(
     {
         "image_type": "bean_card",
         "ocr_text": ["巴拿马 瑰夏 日晒"],
-        "bean_fields": {"name": "巴拿马 瑰夏 日晒", "process_name": "日晒"},
+        "bean_fields": {
+            "name": "巴拿马 瑰夏 日晒",
+            "bean_components": [{"origin_name": "巴拿马", "process_name": "日晒", "varietal_names": ["瑰夏"]}],
+        },
         "brew_photo_assessment": None,
         "equipment_fields": None,
         "confidence": 0.8,
@@ -86,7 +89,7 @@ def test_parses_valid_payload() -> None:
     data = _call()
     assert data is not None
     assert data["image_type"] == "bean_card"
-    assert data["bean_fields"]["process_name"] == "日晒"
+    assert data["bean_fields"]["bean_components"][0]["process_name"] == "日晒"
 
 
 def test_sends_multimodal_image_url() -> None:

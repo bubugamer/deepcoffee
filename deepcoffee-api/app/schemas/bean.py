@@ -57,17 +57,11 @@ class BeanComponent(BaseModel):
 
 
 class BeanDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, max_length=160)
     roaster_name: str | None = Field(default=None, max_length=120)
     roaster_product_name: str | None = Field(default=None, max_length=160)
-    coffee_source_name: str | None = Field(default=None, max_length=160)
-    green_bean_merchant_name: str | None = Field(default=None, max_length=120)
-    green_bean_product_name: str | None = Field(default=None, max_length=160)
-    origin_name: str | None = Field(default=None, max_length=120)
-    process_name: str | None = Field(default=None, max_length=120)
-    varietal_names: list[str] = Field(default_factory=list)
-    altitude_text: str | None = Field(default=None, max_length=120)
-    harvest_date_text: str | None = Field(default=None, max_length=120)
     roast_date_text: str | None = Field(default=None, max_length=120)
     net_weight_text: str | None = Field(default=None, max_length=80)
     bean_components: list[BeanComponent] = Field(default_factory=list)
@@ -108,14 +102,6 @@ class BeanUpdateRequest(BaseModel):
 
     roaster_name: str | None = Field(default=None, max_length=120)
     roaster_product_name: str | None = Field(default=None, max_length=160)
-    coffee_source_name: str | None = Field(default=None, max_length=160)
-    green_bean_merchant_name: str | None = Field(default=None, max_length=120)
-    green_bean_product_name: str | None = Field(default=None, max_length=160)
-    origin_name: str | None = Field(default=None, max_length=120)
-    process_name: str | None = Field(default=None, max_length=120)
-    varietal_names: list[str] | None = None
-    altitude_text: str | None = Field(default=None, max_length=120)
-    harvest_date_text: str | None = Field(default=None, max_length=120)
     roast_date_text: str | None = Field(default=None, max_length=120)
     net_weight_text: str | None = Field(default=None, max_length=80)
     bean_components: list[BeanComponent] | None = None

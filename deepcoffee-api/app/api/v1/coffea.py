@@ -289,11 +289,22 @@ async def _autosave_bean_card(
         draft = BeanDraft(**output["draft"])
         summary = summarize_draft(draft)
         name = (draft.name or draft.roaster_product_name or "").strip()
+        valid_component = next(
+            (
+                component
+                for component in draft.bean_components
+                if isinstance(component.origin_name, str)
+                and component.origin_name.strip()
+                and isinstance(component.process_name, str)
+                and component.process_name.strip()
+            ),
+            None,
+        )
         missing_required = [
             label for label, value in [
                 ("烘焙商", draft.roaster_name),
-                ("产地", draft.origin_name),
-                ("处理法", draft.process_name),
+                ("产地", valid_component.origin_name if valid_component else None),
+                ("处理法", valid_component.process_name if valid_component else None),
             ]
             if not (isinstance(value, str) and value.strip())
         ]

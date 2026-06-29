@@ -27,9 +27,9 @@ def _confirm_test_bean(client: TestClient, headers: dict[str, str], name: str = 
             "draft": {
                 "name": name,
                 "roaster_name": "测试烘焙",
-                "origin_name": "巴拿马",
-                "process_name": "水洗",
-                "varietal_names": ["瑰夏"],
+                "bean_components": [
+                    {"origin_name": "巴拿马", "process_name": "水洗", "varietal_names": ["瑰夏"]}
+                ],
             }
         },
     )

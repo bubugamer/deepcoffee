@@ -9,10 +9,12 @@ import {
   listEquipment,
   setDefaultEquipment,
   updateEquipment,
+  type EquipmentCatalogItem,
   type EquipmentCategory,
   type EquipmentInput,
   type EquipmentProfile,
 } from '@/lib/api/equipment'
+import { Combobox, type ComboOption } from '@/components/Combobox'
 
 const CATEGORY_META: Record<EquipmentCategory, { label: string; placeholder: string }> = {
   brewer: { label: '冲煮器具', placeholder: '如：V60 01 / 法压壶 / 爱乐压' },
@@ -22,7 +24,6 @@ const CATEGORY_META: Record<EquipmentCategory, { label: string; placeholder: str
 }
 
 const CATEGORIES = Object.keys(CATEGORY_META) as EquipmentCategory[]
-const CUSTOM = '__custom__'
 
 function EquipmentForm({
   initial, saving, onSubmit, onCancel,
@@ -33,8 +34,7 @@ function EquipmentForm({
   onCancel: () => void
 }) {
   const [values, setValues] = useState<EquipmentInput>({ category: 'brewer', ...initial })
-  const [catalog, setCatalog] = useState<Record<string, string[]>>({})
-  const [customMode, setCustomMode] = useState(false)
+  const [catalog, setCatalog] = useState<Record<string, EquipmentCatalogItem[]>>({})
   const category = values.category ?? 'brewer'
   const hasName = !!values.name?.trim()
 
@@ -44,11 +44,12 @@ function EquipmentForm({
     return () => { cancelled = true }
   }, [])
 
-  // 名称 = 公共器具目录（按所选类别）；用户也可「自定义输入」兜底。
+  // 名称 = 公共器具目录（按所选类别，带别名供模糊搜索）；用户也可自由输入兜底。
   const nameValue = values.name ?? ''
-  const nameOptions = catalog[category] ?? []
-  const isCustomName = nameValue.trim() !== '' && !nameOptions.includes(nameValue)
-  const showNameInput = customMode || isCustomName
+  const nameOptions = useMemo<ComboOption[]>(
+    () => (catalog[category] ?? []).map(c => ({ value: c.name, label: c.name, aliases: c.aliases })),
+    [catalog, category],
+  )
 
   return (
     <form
@@ -66,46 +67,15 @@ function EquipmentForm({
         </select>
       </label>
       <div className="block">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-dc-text-3">名称</span>
-          {showNameInput && nameOptions.length > 0 && (
-            <button
-              type="button"
-              onClick={() => { setCustomMode(false); setValues(cur => ({ ...cur, name: '' })) }}
-              className="text-xs text-dc-accent hover:underline"
-            >
-              从列表选择
-            </button>
-          )}
-        </div>
-        {showNameInput ? (
-          <input
-            className="dc-input text-sm"
-            value={nameValue}
-            placeholder={CATEGORY_META[category].placeholder}
-            maxLength={120}
-            autoFocus={customMode}
-            onChange={e => setValues(cur => ({ ...cur, name: e.target.value }))}
-          />
-        ) : (
-          <select
-            className="dc-input text-sm"
-            value={nameValue}
-            onChange={e => {
-              const v = e.target.value
-              if (v === CUSTOM) {
-                setCustomMode(true)
-              } else {
-                setCustomMode(false)
-                setValues(cur => ({ ...cur, name: v }))
-              }
-            }}
-          >
-            <option value="">未选择</option>
-            {nameOptions.map(n => <option key={n} value={n}>{n}</option>)}
-            <option value={CUSTOM}>自定义输入…</option>
-          </select>
-        )}
+        <span className="text-xs text-dc-text-3 mb-1 block">名称</span>
+        <Combobox
+          options={nameOptions}
+          value={nameValue}
+          placeholder={CATEGORY_META[category].placeholder}
+          maxLength={120}
+          onInput={v => setValues(cur => ({ ...cur, name: v }))}
+          onSelect={v => setValues(cur => ({ ...cur, name: v }))}
+        />
       </div>
       <label className="block">
         <span className="text-xs text-dc-text-3 mb-1 block">备注</span>

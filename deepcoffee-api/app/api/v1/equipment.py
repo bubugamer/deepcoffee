@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_member
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
-from app.models.tables import UserEquipmentItem
+from app.models.tables import EntityAlias, UserEquipmentItem
 from app.repositories.entities import entity_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.equipment import _clean, _norm, equipment_repository
@@ -22,15 +23,29 @@ router = APIRouter(prefix="/equipment", tags=["equipment"], dependencies=[Depend
 @router.get("/catalog")
 async def equipment_catalog(
     session: AsyncSession = Depends(get_session),
-) -> dict[str, list[str]]:
-    """公共器具目录（可穷尽实体的规范名），按类别给前端下拉直接选。
+) -> dict[str, list[dict[str, object]]]:
+    """公共器具目录（可穷尽实体的规范名 + 别名），按类别给前端下拉直接选 / 模糊搜索。
 
-    与「我的器具」合并展示（目录 ∪ 用户已存）；用户输入别名/简写时由后端解析归一到这些规范名。
+    与「我的器具」合并展示（目录 ∪ 用户已存）；前端按 name + aliases 做模糊匹配，
+    用户输入别名/简写（如 V60 02、锥形、Pulsar）也能搜到对应规范名。
     """
-    out: dict[str, list[str]] = {}
+    out: dict[str, list[dict[str, object]]] = {}
     for category in EQUIPMENT_CATEGORIES:
         items = await entity_repository.list(session, entity_type=category, status="active")
-        out[category] = sorted({e.canonical_name for e in items if e.canonical_name})
+        entities = [e for e in items if e.canonical_name]
+        aliases_by_entity: dict[str, list[str]] = {}
+        ids = [e.id for e in entities]
+        if ids:
+            rows = await session.execute(
+                select(EntityAlias.entity_id, EntityAlias.alias).where(EntityAlias.entity_id.in_(ids))
+            )
+            for entity_id, alias in rows.all():
+                if alias:
+                    aliases_by_entity.setdefault(entity_id, []).append(alias)
+        out[category] = [
+            {"name": e.canonical_name, "aliases": sorted(set(aliases_by_entity.get(e.id, [])))}
+            for e in sorted(entities, key=lambda x: x.canonical_name or "")
+        ]
     return out
 
 

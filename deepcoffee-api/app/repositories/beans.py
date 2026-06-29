@@ -69,22 +69,8 @@ def _clean_text(value: str | None) -> str | None:
 
 
 def _draft_components(draft: BeanDraft) -> list[dict]:
-    """归一豆源：优先用 draft.bean_components；否则把顶层 per-bean 字段折成 1 条；都空则 []。"""
-    if draft.bean_components:
-        return [c.model_dump(exclude_none=True) for c in draft.bean_components]
-    top = {
-        "origin_name": _clean_text(draft.origin_name),
-        "coffee_source_name": _clean_text(draft.coffee_source_name),
-        "green_bean_merchant_name": _clean_text(draft.green_bean_merchant_name),
-        "green_bean_product_name": _clean_text(draft.green_bean_product_name),
-        "process_name": _clean_text(draft.process_name),
-        "varietal_names": list(draft.varietal_names or []),
-        "altitude_text": _clean_text(draft.altitude_text),
-        "harvest_date_text": _clean_text(draft.harvest_date_text),
-    }
-    if not any(top.values()):
-        return []
-    return [{k: v for k, v in top.items() if v}]
+    """归一豆源：单豆卡也是 bean_components 里的 1 条。"""
+    return [c.model_dump(exclude_none=True) for c in draft.bean_components]
 
 
 def _product_type(components: list) -> str:
@@ -148,7 +134,6 @@ def _card_name(draft: BeanDraft) -> str:
     return (
         _clean_text(draft.name)
         or _clean_text(draft.roaster_product_name)
-        or _clean_text(draft.coffee_source_name)
         or source_origin
         or "未命名豆子"
     )
@@ -675,34 +660,10 @@ class BeanRepository:
         if "rating" in updates and payload.rating is not None:
             updates["rating"] = payload.rating.model_dump()
 
-        # 豆子相关字段已归一到豆源:优先用 bean_components;否则把顶层 per-bean 字段(老客户端)折成 1 条。
-        legacy_keys = (
-            "origin_name",
-            "process_name",
-            "varietal_names",
-            "coffee_source_name",
-            "green_bean_merchant_name",
-            "green_bean_product_name",
-            "altitude_text",
-            "harvest_date_text",
-        )
-        legacy = {k: updates.pop(k, None) for k in legacy_keys if k in updates}
         if "bean_components" in updates:
             updates["bean_components"] = [
                 c.model_dump(exclude_none=True) for c in (payload.bean_components or [])
             ]
-        elif legacy:
-            folded = {
-                "origin_name": _clean_text(legacy.get("origin_name")),
-                "coffee_source_name": _clean_text(legacy.get("coffee_source_name")),
-                "green_bean_merchant_name": _clean_text(legacy.get("green_bean_merchant_name")),
-                "green_bean_product_name": _clean_text(legacy.get("green_bean_product_name")),
-                "process_name": _clean_text(legacy.get("process_name")),
-                "varietal_names": list(legacy.get("varietal_names") or []),
-                "altitude_text": _clean_text(legacy.get("altitude_text")),
-                "harvest_date_text": _clean_text(legacy.get("harvest_date_text")),
-            }
-            updates["bean_components"] = [{k: v for k, v in folded.items() if v}] if any(folded.values()) else []
 
         for key, value in updates.items():
             setattr(card, key, value)

@@ -187,14 +187,6 @@ export interface BeanDraft {
   name?: string
   roaster_name?: string
   roaster_product_name?: string
-  coffee_source_name?: string
-  green_bean_merchant_name?: string
-  green_bean_product_name?: string
-  origin_name?: string
-  process_name?: string
-  varietal_names?: string[]
-  altitude_text?: string | null
-  harvest_date_text?: string | null
   roast_date_text?: string | null
   net_weight_text?: string | null
   bean_components?: BeanComponent[]

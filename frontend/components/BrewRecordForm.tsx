@@ -3,10 +3,11 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Bean, BrewEvaluation, BrewEvaluationItem, BrewRecord, BrewRecordFormInput, BrewStep } from '@/types'
-import { getEquipmentCatalog, type EquipmentCategory, type EquipmentProfile } from '@/lib/api/equipment'
+import { getEquipmentCatalog, type EquipmentCatalogItem, type EquipmentCategory, type EquipmentProfile } from '@/lib/api/equipment'
+import { Combobox, type ComboOption } from './Combobox'
+import { softValidate, type FieldKind } from '@/lib/validate'
 
 const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
-const CUSTOM = '__custom__'
 
 const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
   { key: 'overall', label: '总评' },
@@ -17,13 +18,6 @@ const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
   { key: 'body', label: '触感' },
   { key: 'balance', label: '平衡度' },
 ]
-
-const EQUIPMENT_LABELS: Record<EquipmentCategory, string> = {
-  brewer: '冲煮器具',
-  grinder: '磨豆机',
-  filter_media: '过滤介质',
-  water: '用水',
-}
 
 export interface BrewRecordFormSubmit {
   payload: BrewRecordFormInput
@@ -148,7 +142,7 @@ function EquipmentSelect({
   category,
   value,
   equipment,
-  catalogNames = [],
+  catalogItems = [],
   onChange,
   optional = false,
 }: {
@@ -156,60 +150,36 @@ function EquipmentSelect({
   category: EquipmentCategory
   value: string
   equipment: EquipmentProfile[]
-  catalogNames?: string[]
+  catalogItems?: EquipmentCatalogItem[]
   onChange: (value: string) => void
   optional?: boolean
 }) {
-  const [customMode, setCustomMode] = useState(false)
-  const options = useMemo(
-    // 选项 = 公共器具目录 ∪ 我的器具（去重）；用户仍可「手动输入」兜底。
-    () => Array.from(new Set([...catalogNames, ...equipment.filter((item) => item.category === category).map((item) => item.name)].filter(Boolean))),
-    [category, equipment, catalogNames],
-  )
-  // 已填了目录里没有的值，或主动点了「手动输入」，都就地切成输入框（不堆叠多一行）。
-  const isCustomValue = value.trim() !== '' && !options.includes(value)
-  const showInput = customMode || isCustomValue
+  // 选项 = 公共器具目录（带别名）∪ 我的器具（去重）；可搜索 + 自由输入兜底（值即名字）。
+  const options = useMemo<ComboOption[]>(() => {
+    const seen = new Set<string>()
+    const out: ComboOption[] = []
+    for (const item of catalogItems) {
+      if (item.name && !seen.has(item.name)) { seen.add(item.name); out.push({ value: item.name, label: item.name, aliases: item.aliases }) }
+    }
+    for (const item of equipment) {
+      if (item.category === category && item.name && !seen.has(item.name)) { seen.add(item.name); out.push({ value: item.name, label: item.name }) }
+    }
+    return out
+  }, [category, equipment, catalogItems])
   return (
     <div className="block">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-dc-text-3">
           {label}{optional && <span className="ml-1">可选</span>}
         </span>
-        {showInput && options.length > 0 && (
-          <button
-            type="button"
-            onClick={() => { setCustomMode(false); onChange('') }}
-            className="text-xs text-dc-accent hover:underline"
-          >
-            从列表选择
-          </button>
-        )}
       </div>
-      {showInput ? (
-        <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="dc-input text-sm py-1.5"
-          placeholder={`输入${label}`}
-          autoFocus={customMode}
-        />
-      ) : (
-        <select
-          value={value}
-          onChange={(event) => {
-            const v = event.target.value
-            if (v === CUSTOM) setCustomMode(true)
-            else { setCustomMode(false); onChange(v) }
-          }}
-          className="dc-input text-sm py-1.5"
-        >
-          <option value="">未选择</option>
-          {options.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-          <option value={CUSTOM}>手动输入新{EQUIPMENT_LABELS[category]}</option>
-        </select>
-      )}
+      <Combobox
+        options={options}
+        value={value}
+        placeholder={`输入或搜索${label}`}
+        onInput={onChange}
+        onSelect={onChange}
+      />
     </div>
   )
 }
@@ -220,13 +190,16 @@ function TextField({
   onChange,
   placeholder,
   readOnly = false,
+  kind,
 }: {
   label: string
   value: string
   onChange?: (value: string) => void
   placeholder?: string
   readOnly?: boolean
+  kind?: FieldKind
 }) {
+  const warning = readOnly ? null : softValidate(kind, value)
   return (
     <label className="block">
       <span className="text-xs text-dc-text-3 mb-1 block">{label}</span>
@@ -235,8 +208,9 @@ function TextField({
         readOnly={readOnly}
         onChange={(event) => onChange?.(event.target.value)}
         placeholder={placeholder}
-        className={`dc-input text-sm py-1.5 ${readOnly ? 'bg-dc-subtle text-dc-text-2' : ''}`}
+        className={`dc-input text-sm py-1.5 ${readOnly ? 'bg-dc-subtle text-dc-text-2' : ''} ${warning ? 'border-dc-yellow' : ''}`}
       />
+      {warning && <p className="text-xs text-dc-yellow mt-1">{warning}</p>}
     </label>
   )
 }
@@ -263,7 +237,7 @@ export function BrewRecordForm({
   onSubmit: (value: BrewRecordFormSubmit) => void
 }) {
   const [draft, setDraft] = useState<DraftState>(() => initialState(record, beans, preferredBeanId))
-  const [catalog, setCatalog] = useState<Record<string, string[]>>({})
+  const [catalog, setCatalog] = useState<Record<string, EquipmentCatalogItem[]>>({})
 
   useEffect(() => {
     setDraft(initialState(record, beans, preferredBeanId))
@@ -368,16 +342,16 @@ export function BrewRecordForm({
                 {BREW_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
             </label>
-            <EquipmentSelect label="冲煮器具" category="brewer" value={draft.device} equipment={equipment} catalogNames={catalog.brewer ?? []} onChange={(value) => set('device', value)} />
-            <EquipmentSelect label="磨豆机" category="grinder" value={draft.grinder} equipment={equipment} catalogNames={catalog.grinder ?? []} onChange={(value) => set('grinder', value)} />
+            <EquipmentSelect label="冲煮器具" category="brewer" value={draft.device} equipment={equipment} catalogItems={catalog.brewer ?? []} onChange={(value) => set('device', value)} />
+            <EquipmentSelect label="磨豆机" category="grinder" value={draft.grinder} equipment={equipment} catalogItems={catalog.grinder ?? []} onChange={(value) => set('grinder', value)} />
             <TextField label="研磨刻度" value={draft.grind_setting} onChange={(value) => set('grind_setting', value)} placeholder="例如：5.5" />
-            <EquipmentSelect label="过滤介质" category="filter_media" value={draft.filter_media} equipment={equipment} catalogNames={catalog.filter_media ?? []} onChange={(value) => set('filter_media', value)} optional />
-            <EquipmentSelect label="用水" category="water" value={draft.water} equipment={equipment} catalogNames={catalog.water ?? []} onChange={(value) => set('water', value)} optional />
-            <TextField label="粉量 (g)" value={draft.dose_g} onChange={(value) => set('dose_g', value)} placeholder="20" />
-            <TextField label="水量 (ml)" value={draft.water_ml} onChange={(value) => set('water_ml', value)} placeholder="340" />
+            <EquipmentSelect label="过滤介质" category="filter_media" value={draft.filter_media} equipment={equipment} catalogItems={catalog.filter_media ?? []} onChange={(value) => set('filter_media', value)} optional />
+            <EquipmentSelect label="用水" category="water" value={draft.water} equipment={equipment} catalogItems={catalog.water ?? []} onChange={(value) => set('water', value)} optional />
+            <TextField label="粉量 (g)" kind="number" value={draft.dose_g} onChange={(value) => set('dose_g', value)} placeholder="20" />
+            <TextField label="水量 (ml)" kind="number" value={draft.water_ml} onChange={(value) => set('water_ml', value)} placeholder="340" />
             <TextField label="粉水比" value={ratio} readOnly />
-            <TextField label="水温 (°C)" value={draft.water_temp_c} onChange={(value) => set('water_temp_c', value)} placeholder="93" />
-            <TextField label="冲煮时间" value={draft.brew_time_seconds} onChange={(value) => set('brew_time_seconds', value)} placeholder="5:00 或 300" />
+            <TextField label="水温 (°C)" kind="number" value={draft.water_temp_c} onChange={(value) => set('water_temp_c', value)} placeholder="93" />
+            <TextField label="冲煮时间" kind="time" value={draft.brew_time_seconds} onChange={(value) => set('brew_time_seconds', value)} placeholder="5:00 或 300" />
           </div>
         </section>
 
@@ -405,37 +379,54 @@ export function BrewRecordForm({
           <div className="space-y-2">
             {draft.brew_steps.length === 0 ? (
               <p className="text-sm text-dc-text-3">暂无冲煮阶段，可按需添加。</p>
-            ) : draft.brew_steps.map((step, index) => (
-              <div key={index} className="grid grid-cols-[44px_1fr_1fr_auto] sm:grid-cols-[48px_120px_120px_1fr_auto] gap-2 items-center">
-                <div className="text-xs text-dc-text-3">#{index + 1}</div>
-                <input
-                  value={step.time_seconds ? fmtSeconds(step.time_seconds) : ''}
-                  onChange={(event) => updateStep(index, { time_seconds: parseTime(event.target.value) ?? 0 })}
-                  className="dc-input text-sm py-1.5"
-                  placeholder="用时"
-                />
-                <input
-                  value={step.water_ml ?? ''}
-                  onChange={(event) => updateStep(index, { water_ml: optionalNumber(event.target.value) ?? undefined })}
-                  className="dc-input text-sm py-1.5"
-                  placeholder="水量"
-                />
-                <input
-                  value={step.action}
-                  onChange={(event) => updateStep(index, { action: event.target.value })}
-                  className="dc-input text-sm py-1.5 col-span-3 sm:col-span-1"
-                  placeholder="手法"
-                />
-                <button
-                  type="button"
-                  onClick={() => set('brew_steps', draft.brew_steps.filter((_, i) => i !== index))}
-                  className="p-2 text-dc-text-3 hover:text-dc-red"
-                  aria-label="删除阶段"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+            ) : (
+              <>
+                {/* 标题行：注明各列单位（用时固定秒、水量固定毫升）。移动端窄屏隐藏，靠 placeholder 兜底。 */}
+                <div className="hidden sm:grid sm:grid-cols-[48px_120px_120px_1fr_auto] gap-2 items-center">
+                  <div />
+                  <span className="text-xs text-dc-text-3">用时（秒）</span>
+                  <span className="text-xs text-dc-text-3">水量（ml）</span>
+                  <span className="text-xs text-dc-text-3">手法</span>
+                  <div />
+                </div>
+                {draft.brew_steps.map((step, index) => (
+                  <div key={index} className="grid grid-cols-[44px_1fr_1fr_auto] sm:grid-cols-[48px_120px_120px_1fr_auto] gap-2 items-center">
+                    <div className="text-xs text-dc-text-3">#{index + 1}</div>
+                    <input
+                      value={step.time_seconds || ''}
+                      onChange={(event) => {
+                        const n = Number(event.target.value)
+                        updateStep(index, { time_seconds: Number.isFinite(n) && n > 0 ? Math.round(n) : 0 })
+                      }}
+                      inputMode="numeric"
+                      className="dc-input text-sm py-1.5"
+                      placeholder="用时（秒）"
+                    />
+                    <input
+                      value={step.water_ml ?? ''}
+                      onChange={(event) => updateStep(index, { water_ml: optionalNumber(event.target.value) ?? undefined })}
+                      inputMode="numeric"
+                      className="dc-input text-sm py-1.5"
+                      placeholder="水量（ml）"
+                    />
+                    <input
+                      value={step.action}
+                      onChange={(event) => updateStep(index, { action: event.target.value })}
+                      className="dc-input text-sm py-1.5 col-span-3 sm:col-span-1"
+                      placeholder="手法"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => set('brew_steps', draft.brew_steps.filter((_, i) => i !== index))}
+                      className="p-2 text-dc-text-3 hover:text-dc-red"
+                      aria-label="删除阶段"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </section>
 

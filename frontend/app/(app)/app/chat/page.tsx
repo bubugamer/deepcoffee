@@ -11,9 +11,12 @@ import {
   createEquipment,
   getEquipmentCatalog,
   listEquipment,
+  type EquipmentCatalogItem,
   type EquipmentCategory,
   type EquipmentProfile,
 } from '@/lib/api/equipment'
+import { Combobox, type ComboOption } from '@/components/Combobox'
+import { softValidate, type FieldKind } from '@/lib/validate'
 import { confirmBrew } from '@/lib/api/records'
 import {
   sendCoffeaMessage,
@@ -42,6 +45,28 @@ const BEAN_GUIDE_HINTS = [
   '新入手：光合烘焙翡翠庄园瑰夏，水洗处理，巴拿马，还没开袋',
   '刚拿到千峰庄园帕卡马拉 CM 日晒，想先建个档案',
 ]
+
+function beanComponentHasContent(component: BeanComponent): boolean {
+  return Boolean(
+    component.origin_name?.trim()
+      || component.coffee_source_name?.trim()
+      || component.green_bean_merchant_name?.trim()
+      || component.green_bean_product_name?.trim()
+      || component.process_name?.trim()
+      || component.altitude_text?.trim()
+      || component.harvest_date_text?.trim()
+      || component.share_text?.trim()
+      || component.notes?.trim()
+      || (component.varietal_names ?? []).some(item => item.trim()),
+  )
+}
+
+function sanitizeBeanDraft(draft: BeanDraft): BeanDraft {
+  return {
+    ...draft,
+    bean_components: (draft.bean_components ?? []).filter(beanComponentHasContent),
+  }
+}
 
 // ── Shared sub-components ─────────────────────────────────
 function TypingDots() {
@@ -248,7 +273,7 @@ function ChatBeanDraft({
     setError('')
     try {
       const rawInput = typeof output.raw_input === 'string' ? output.raw_input : undefined
-      const res = await confirmBean(draft, rawInput, getToken(), 'image')
+      const res = await confirmBean(sanitizeBeanDraft(draft), rawInput, getToken(), 'image')
       await onPatch({ saved_bean_id: res.bean_id }, '已保存到豆仓。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
@@ -274,13 +299,13 @@ function ChatBeanDraft({
 }
 
 // ── 聊天内冲煮草稿确认（brew_record_parse 解析出参数后）──
-const BREW_TEXT_FIELDS: { key: string; label: string; placeholder: string }[] = [
+const BREW_TEXT_FIELDS: { key: string; label: string; placeholder: string; kind?: FieldKind }[] = [
   { key: 'grind_setting', label: '研磨刻度', placeholder: '例如：4.8 圈' },
-  { key: 'dose_g', label: '粉量 (g)', placeholder: '15' },
-  { key: 'water_ml', label: '水量 (ml)', placeholder: '270' },
-  { key: 'water_temp_c', label: '水温 (°C)', placeholder: '96' },
+  { key: 'dose_g', label: '粉量 (g)', placeholder: '15', kind: 'number' },
+  { key: 'water_ml', label: '水量 (ml)', placeholder: '270', kind: 'number' },
+  { key: 'water_temp_c', label: '水温 (°C)', placeholder: '96', kind: 'number' },
   { key: 'ratio', label: '粉水比', placeholder: '1:18' },
-  { key: 'time', label: '时间', placeholder: '2:30 或 150（秒）' },
+  { key: 'time', label: '时间', placeholder: '2:30 或 150（秒）', kind: 'time' },
 ]
 
 const CUSTOM = '__custom__'
@@ -292,59 +317,39 @@ const EQUIPMENT_CATEGORY_LABEL: Record<EquipmentCategory, string> = {
   water: '用水',
 }
 
-// 下拉（来源：豆仓 / 我的器具）+「自定义输入」的组合字段；选「自定义输入…」时就地切换为输入框，不堆叠。
+// 可搜索下拉（来源：豆仓 / 我的器具 / 公共器具目录，按 label + 别名模糊匹配）+ 自由输入兜底。
+// choice 存已选项的 value（豆子是 bean_id、器具是名字）或 CUSTOM；custom 存自由输入文本。
 function ComboField({
   label, missing, options, choice, custom, placeholder, onChoice, onCustom,
 }: {
   label: string
   missing: boolean
-  options: { value: string; label: string }[]
+  options: ComboOption[]
   choice: string
   custom: string
   placeholder: string
   onChoice: (v: string) => void
   onCustom: (v: string) => void
 }) {
-  const [autofocus, setAutofocus] = useState(false)
   const isCustom = choice === CUSTOM
+  const displayValue = isCustom ? custom : (options.find(o => o.value === choice)?.label ?? '')
   const empty = choice === '' || (isCustom && !custom.trim())
   const highlight = missing && empty
-  const fieldCls = `dc-input text-sm py-1.5 ${highlight ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`
   return (
     <div className="block">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-dc-text-3">
           {label}{highlight && <span className="text-dc-yellow ml-1">待补充</span>}
         </span>
-        {isCustom && options.length > 0 && (
-          <button
-            type="button"
-            onClick={() => { onCustom(''); onChoice('') }}
-            className="text-xs text-dc-accent hover:underline"
-          >
-            从列表选择
-          </button>
-        )}
       </div>
-      {isCustom ? (
-        <input
-          value={custom}
-          onChange={e => onCustom(e.target.value)}
-          placeholder={placeholder}
-          autoFocus={autofocus}
-          className={fieldCls}
-        />
-      ) : (
-        <select
-          value={choice}
-          onChange={e => { if (e.target.value === CUSTOM) setAutofocus(true); onChoice(e.target.value) }}
-          className={fieldCls}
-        >
-          <option value="">未选择</option>
-          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          <option value={CUSTOM}>自定义输入…</option>
-        </select>
-      )}
+      <Combobox
+        options={options}
+        value={displayValue}
+        placeholder={placeholder}
+        highlight={highlight}
+        onInput={t => { onChoice(CUSTOM); onCustom(t) }}
+        onSelect={v => { onChoice(v); onCustom('') }}
+      />
     </div>
   )
 }
@@ -383,7 +388,7 @@ function ChatBrewDraft({
   // 下拉数据源：豆仓 + 我的器具 + 公共器具目录；拉取失败回退为纯手输（空选项 + 自定义）
   const [beans, setBeans] = useState<Bean[] | null>(null)
   const [equipment, setEquipment] = useState<EquipmentProfile[] | null>(null)
-  const [catalog, setCatalog] = useState<Record<string, string[]> | null>(null)
+  const [catalog, setCatalog] = useState<Record<string, EquipmentCatalogItem[]> | null>(null)
   const resolvedBeanId = typeof output.resolved_bean_id === 'string' ? output.resolved_bean_id : null
   const [beanChoice, setBeanChoice] = useState(parsedBeanName ? CUSTOM : '')
   const [beanCustom, setBeanCustom] = useState(parsedBeanName)
@@ -441,7 +446,7 @@ function ChatBrewDraft({
     if (equipment === null || catalog === null || equipInitRef.current) return
     equipInitRef.current = true
     const names = (category: EquipmentCategory) =>
-      Array.from(new Set([...(catalog[category] ?? []), ...equipment.filter(e => e.category === category).map(e => e.name)]))
+      Array.from(new Set([...(catalog[category] ?? []).map(c => c.name), ...equipment.filter(e => e.category === category).map(e => e.name)]))
     const def = (category: EquipmentCategory) => equipment.find(e => e.category === category && e.is_default)
     const drippers = names('brewer')
     const grinders = names('grinder')
@@ -500,10 +505,13 @@ function ChatBrewDraft({
 
   const beanOptions = (beans ?? []).map(b => ({ value: b.bean_id, label: b.name }))
   const uniq = (values: (string | null | undefined)[]) => [...new Set(values.filter(Boolean) as string[])]
-  // 下拉选项 = 公共器具目录 ∪ 我的器具（去重）；用户仍可「自定义输入」兜底。
-  const byCategory = (category: EquipmentCategory) =>
-    uniq([...(catalog?.[category] ?? []), ...(equipment ?? []).filter(e => e.category === category).map(e => e.name)])
-      .map(v => ({ value: v, label: v }))
+  // 下拉选项 = 公共器具目录（带别名）∪ 我的器具（去重）；可搜索 + 自由输入兜底。
+  const byCategory = (category: EquipmentCategory): ComboOption[] => {
+    const catItems = catalog?.[category] ?? []
+    const aliasOf = new Map(catItems.map(c => [c.name, c.aliases]))
+    return uniq([...catItems.map(c => c.name), ...(equipment ?? []).filter(e => e.category === category).map(e => e.name)])
+      .map(v => ({ value: v, label: v, aliases: aliasOf.get(v) }))
+  }
   const deviceOptions = byCategory('brewer')
   const grinderOptions = byCategory('grinder')
   const filterOptions = byCategory('filter_media')
@@ -534,15 +542,17 @@ function ChatBrewDraft({
         if (match) {
           beanCardId = match.bean_id
         } else {
-          // 无匹配豆卡 → 用已知字段自动建一张最简卡（缺烘焙商/产地/处理法也建，豆名缺失由后端兜底命名）。
-          const draftBean = {
+          // 无匹配豆卡 → 用冲煮草稿里已知的豆卡字段建档；缺必要字段时由后端拦截并提示用户补齐。
+          const draftBean: BeanDraft = {
             name: typedName || undefined,
             roaster_name: typeof baseDraft.roaster === 'string' ? baseDraft.roaster : undefined,
-            origin_name: typeof baseDraft.origin === 'string' ? baseDraft.origin : undefined,
-            process_name: typeof baseDraft.process === 'string' ? baseDraft.process : undefined,
-            varietal_names: typeof baseDraft.varietal === 'string' ? [baseDraft.varietal] : [],
+            bean_components: [{
+              origin_name: typeof baseDraft.origin === 'string' ? baseDraft.origin : undefined,
+              process_name: typeof baseDraft.process === 'string' ? baseDraft.process : undefined,
+              varietal_names: typeof baseDraft.varietal === 'string' ? [baseDraft.varietal] : [],
+            }],
           }
-          const created = await confirmBean(draftBean, rawInput, token)
+          const created = await confirmBean(sanitizeBeanDraft(draftBean), rawInput, token)
           beanCardId = created.bean_id
           createdBeanId = created.bean_id
         }
@@ -627,8 +637,8 @@ function ChatBrewDraft({
           choice={device.choice}
           custom={device.custom}
           placeholder="例如：V60"
-          onChoice={v => setDevice({ choice: v, custom: device.custom })}
-          onCustom={v => setDevice({ choice: device.choice, custom: v })}
+          onChoice={v => setDevice(cur => ({ ...cur, choice: v }))}
+          onCustom={v => setDevice(cur => ({ ...cur, custom: v }))}
         />
         <ComboField
           label="磨豆机"
@@ -637,8 +647,8 @@ function ChatBrewDraft({
           choice={grinder.choice}
           custom={grinder.custom}
           placeholder="例如：ZP6S"
-          onChoice={v => setGrinder({ choice: v, custom: grinder.custom })}
-          onCustom={v => setGrinder({ choice: grinder.choice, custom: v })}
+          onChoice={v => setGrinder(cur => ({ ...cur, choice: v }))}
+          onCustom={v => setGrinder(cur => ({ ...cur, custom: v }))}
         />
         <ComboField
           label="过滤介质"
@@ -647,8 +657,8 @@ function ChatBrewDraft({
           choice={filterMedia.choice}
           custom={filterMedia.custom}
           placeholder="例如：纸滤"
-          onChoice={v => setFilterMedia({ choice: v, custom: filterMedia.custom })}
-          onCustom={v => setFilterMedia({ choice: filterMedia.choice, custom: v })}
+          onChoice={v => setFilterMedia(cur => ({ ...cur, choice: v }))}
+          onCustom={v => setFilterMedia(cur => ({ ...cur, custom: v }))}
         />
         <ComboField
           label="用水"
@@ -657,12 +667,13 @@ function ChatBrewDraft({
           choice={water.choice}
           custom={water.custom}
           placeholder="例如：农夫山泉"
-          onChoice={v => setWater({ choice: v, custom: water.custom })}
-          onCustom={v => setWater({ choice: water.choice, custom: v })}
+          onChoice={v => setWater(cur => ({ ...cur, choice: v }))}
+          onCustom={v => setWater(cur => ({ ...cur, custom: v }))}
         />
-        {BREW_TEXT_FIELDS.map(({ key, label, placeholder }) => {
+        {BREW_TEXT_FIELDS.map(({ key, label, placeholder, kind }) => {
           const isMissing = (key === 'time' ? missing.includes('brew_time_seconds') : missing.includes(key))
             && !fields[key].trim()
+          const warning = softValidate(kind, fields[key])
           return (
             <label key={key} className="block">
               <span className="text-xs text-dc-text-3 mb-1 block">
@@ -672,8 +683,9 @@ function ChatBrewDraft({
                 value={fields[key]}
                 onChange={e => setFields(cur => ({ ...cur, [key]: e.target.value }))}
                 placeholder={placeholder}
-                className={`dc-input text-sm py-1.5 ${isMissing ? 'border-dc-yellow bg-dc-yellow-bg/50' : ''}`}
+                className={`dc-input text-sm py-1.5 ${isMissing ? 'border-dc-yellow bg-dc-yellow-bg/50' : warning ? 'border-dc-yellow' : ''}`}
               />
+              {warning && <p className="text-xs text-dc-yellow mt-1">{warning}</p>}
             </label>
           )
         })}
@@ -1409,37 +1421,8 @@ function BeanDraftCard({
   const setField = <K extends keyof BeanDraft>(key: K, value: BeanDraft[K]) => {
     onChange({ ...draft, [key]: value })
   }
-  // 豆子信息统一在「豆源」里。AI 解析单豆时填在顶层 → 这里折成 1 条豆源用于编辑；编辑时写回豆源并清空顶层。
-  const seedFromTop: BeanComponent[] = (() => {
-    const c: BeanComponent = {
-      origin_name: draft.origin_name,
-      coffee_source_name: draft.coffee_source_name,
-      green_bean_merchant_name: draft.green_bean_merchant_name,
-      green_bean_product_name: draft.green_bean_product_name,
-      process_name: draft.process_name,
-      varietal_names: draft.varietal_names ?? [],
-      altitude_text: draft.altitude_text,
-      harvest_date_text: draft.harvest_date_text,
-    }
-    const has = Boolean(
-      c.origin_name || c.coffee_source_name || c.green_bean_merchant_name || c.green_bean_product_name
-      || c.process_name || c.altitude_text || c.harvest_date_text || (c.varietal_names?.length ?? 0),
-    )
-    return has ? [c] : []
-  })()
-  const components = draft.bean_components?.length ? draft.bean_components : seedFromTop
-  const writeComponents = (next: BeanComponent[]) => onChange({
-    ...draft,
-    bean_components: next,
-    origin_name: undefined,
-    coffee_source_name: undefined,
-    green_bean_merchant_name: undefined,
-    green_bean_product_name: undefined,
-    process_name: undefined,
-    varietal_names: undefined,
-    altitude_text: undefined,
-    harvest_date_text: undefined,
-  })
+  const components = draft.bean_components?.length ? draft.bean_components : []
+  const writeComponents = (next: BeanComponent[]) => onChange({ ...draft, bean_components: next })
   const setComponent = (index: number, patch: Partial<BeanComponent>) => {
     writeComponents(components.map((component, i) => i === index ? { ...component, ...patch } : component))
   }
@@ -1451,12 +1434,12 @@ function BeanDraftCard({
     },
   ])
   const removeComponent = (index: number) => writeComponents(components.filter((_, i) => i !== index))
-  const firstComp = components[0]
+  const activeComponents = components.filter(beanComponentHasContent)
   const canSave = Boolean(
     (draft.name?.trim() || draft.roaster_product_name?.trim())
     && draft.roaster_name?.trim()
-    && firstComp?.origin_name?.trim()
-    && firstComp?.process_name?.trim(),
+    && activeComponents.length > 0
+    && activeComponents.every(component => component.origin_name?.trim() && component.process_name?.trim()),
   )
 
   return (
@@ -1616,7 +1599,7 @@ function BeanCreateChat() {
     setSavingBean(true)
     setBeanError('')
     try {
-      const res = await confirmBean(beanDraft, beanRawInput, getToken())
+      const res = await confirmBean(sanitizeBeanDraft(beanDraft), beanRawInput, getToken())
       setSavedBeanId(res.bean_id)
       setFlow('saved')
     } catch (err) {

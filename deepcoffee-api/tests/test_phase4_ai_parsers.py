@@ -34,17 +34,17 @@ def test_bean_parse_maps_fields_and_flavor() -> None:
         {
             "name": "巴拿马 瑰夏 日晒",
             "roaster_name": "千峰",
-            "origin_name": "巴拿马",
-            "process_name": "日晒",
-            "varietal_names": ["瑰夏"],
+            "bean_components": [
+                {"origin_name": "巴拿马", "process_name": "日晒", "varietal_names": ["瑰夏"]}
+            ],
             "flavor_notes": ["茉莉花香", "柑橘"],
             "evil_key": "drop me",
         }
     )
     draft = asyncio.run(parse_bean_with_model("...", model="m", gateway=_FakeGateway(payload)))
     assert draft is not None
-    assert draft.origin_name == "巴拿马"
-    assert draft.varietal_names == ["瑰夏"]
+    assert draft.bean_components[0].origin_name == "巴拿马"
+    assert draft.bean_components[0].varietal_names == ["瑰夏"]
     assert draft.flavor.source == "user"
     assert "茉莉花香" in draft.flavor.notes
 

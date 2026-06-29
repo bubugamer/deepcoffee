@@ -55,9 +55,9 @@ def test_bean_confirm_generates_candidate_facts_for_public_entities() -> None:
             "draft": {
                 "name": "花魁 5.0",
                 "roaster_name": "鹰集",
-                "origin_name": "埃塞俄比亚",
-                "process_name": "日晒",
-                "varietal_names": ["原生种"],
+                "bean_components": [
+                    {"origin_name": "埃塞俄比亚", "process_name": "日晒", "varietal_names": ["原生种"]}
+                ],
                 "private_notes": "我觉得这支适合中度烘焙，个人很爱（主观，不应成为候选）",
             }
         },
@@ -87,9 +87,9 @@ def test_candidate_promote_to_proposal_then_into_entity_library() -> None:
             "draft": {
                 "name": "瑰夏红标",
                 "roaster_name": "翡翠庄园",
-                "origin_name": "巴拿马",
-                "process_name": "水洗",
-                "varietal_names": ["瑰夏"],
+                "bean_components": [
+                    {"origin_name": "巴拿马", "process_name": "水洗", "varietal_names": ["瑰夏"]}
+                ],
             }
         },
     )
@@ -133,7 +133,13 @@ def test_existing_entity_suppresses_duplicate_candidate() -> None:
     client.post(
         "/v1/beans/confirm",
         headers=USER,
-        json={"draft": {"name": "水洗测试豆", "roaster_name": "测试烘焙", "origin_name": "巴拿马", "process_name": "水洗"}},
+        json={
+            "draft": {
+                "name": "水洗测试豆",
+                "roaster_name": "测试烘焙",
+                "bean_components": [{"origin_name": "巴拿马", "process_name": "水洗"}],
+            }
+        },
     )
     process_candidates = client.get(
         "/v1/admin/candidates", headers=ADMIN, params={"entity_type": "process_method"}
@@ -146,7 +152,13 @@ def test_candidate_reject() -> None:
     client.post(
         "/v1/beans/confirm",
         headers=USER,
-        json={"draft": {"name": "拒绝测试豆", "roaster_name": "某不知名烘焙商X", "origin_name": "巴拿马", "process_name": "水洗"}},
+        json={
+            "draft": {
+                "name": "拒绝测试豆",
+                "roaster_name": "某不知名烘焙商X",
+                "bean_components": [{"origin_name": "巴拿马", "process_name": "水洗"}],
+            }
+        },
     )
     candidates = client.get("/v1/admin/candidates", headers=ADMIN, params={"entity_type": "roaster"})
     target = next(c for c in candidates.json() if c["title"] == "某不知名烘焙商X")

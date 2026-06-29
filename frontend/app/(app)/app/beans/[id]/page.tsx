@@ -9,13 +9,14 @@ import { getToken } from '@/lib/auth'
 import { flavorEmoji, formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
 import { RecommendParamsChat } from '@/components/RecommendParamsChat'
 import type { Bean, BeanComponent, BeanDraft, BrewEvaluation, BrewEvaluationItem, FlavorAxis } from '@/types'
+import { softValidate, type FieldKind } from '@/lib/validate'
 
 // 产品级字段（顶层）。豆子相关信息（产地/庄园/生豆商/处理法/品种/海拔/采收期）在「豆源」里逐条编辑。
-const FIELD_DEFS: { draftKey: keyof BeanDraft & string; beanKey: keyof Bean & string; label: string; required?: boolean }[] = [
+const FIELD_DEFS: { draftKey: keyof BeanDraft & string; beanKey: keyof Bean & string; label: string; required?: boolean; unit?: string; kind?: FieldKind; placeholder?: string }[] = [
   { draftKey: 'roaster_name', beanKey: 'roaster', label: '烘焙商', required: true },
   { draftKey: 'roaster_product_name', beanKey: 'roaster_product', label: '烘焙商产品 / 批次名' },
-  { draftKey: 'roast_date_text', beanKey: 'roast_date_text', label: '烘焙日期' },
-  { draftKey: 'net_weight_text', beanKey: 'net_weight_text', label: '净含量' },
+  { draftKey: 'roast_date_text', beanKey: 'roast_date_text', label: '烘焙日期', kind: 'date', placeholder: '如 2026/05/18' },
+  { draftKey: 'net_weight_text', beanKey: 'net_weight_text', label: '净含量', unit: '克', kind: 'number', placeholder: '如 250' },
 ]
 
 const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
@@ -28,15 +29,15 @@ const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
   { key: 'balance', label: '平衡度' },
 ]
 
-const PARAM_FIELDS: { key: string; label: string; placeholder: string }[] = [
+const PARAM_FIELDS: { key: string; label: string; placeholder: string; kind?: FieldKind }[] = [
   { key: 'device', label: '滤杯', placeholder: '例如 V60' },
   { key: 'grinder', label: '磨豆机', placeholder: '例如 ZP6S' },
   { key: 'grind_setting', label: '研磨刻度', placeholder: '例如 4.5-5.5 圈' },
-  { key: 'dose_g', label: '豆量 (g)', placeholder: '15' },
-  { key: 'water_ml', label: '水量 (ml)', placeholder: '225' },
-  { key: 'water_temp_c', label: '水温 (°C)', placeholder: '92' },
+  { key: 'dose_g', label: '豆量 (g)', placeholder: '15', kind: 'number' },
+  { key: 'water_ml', label: '水量 (ml)', placeholder: '225', kind: 'number' },
+  { key: 'water_temp_c', label: '水温 (°C)', placeholder: '92', kind: 'number' },
   { key: 'ratio', label: '粉水比', placeholder: '1:15' },
-  { key: 'time', label: '时间', placeholder: '2:30 或 150（秒）' },
+  { key: 'time', label: '时间', placeholder: '2:30 或 150（秒）', kind: 'time' },
 ]
 
 interface ComponentDraft {
@@ -157,6 +158,50 @@ function splitList(text: string): string[] {
   return text.split(/[，,]/).map(s => s.trim()).filter(Boolean)
 }
 
+function componentHasContent(component: ComponentDraft): boolean {
+  return [
+    component.origin_name,
+    component.coffee_source_name,
+    component.green_bean_merchant_name,
+    component.green_bean_product_name,
+    component.process_name,
+    component.varietalsText,
+    component.altitude_text,
+    component.harvest_date_text,
+    component.share_text,
+    component.notes,
+  ].some((value) => value.trim().length > 0)
+}
+
+function normalizedComponentsForSave(components: ComponentDraft[]): ComponentDraft[] {
+  return components.filter(componentHasContent)
+}
+
+function validateComponentsForSave(components: ComponentDraft[]): string | null {
+  const active = normalizedComponentsForSave(components)
+  if (active.length === 0) return '请在「豆源」里至少填写一条产地和处理法。'
+  const invalid = components.findIndex(component =>
+    componentHasContent(component) && (!component.origin_name.trim() || !component.process_name.trim()),
+  )
+  if (invalid >= 0) {
+    const component = components[invalid]
+    const missing = [
+      !component.origin_name.trim() ? '产地' : '',
+      !component.process_name.trim() ? '处理法' : '',
+    ].filter(Boolean).join('、')
+    return `请补全豆源 ${invalid + 1} 的${missing}。`
+  }
+  return null
+}
+
+function formatBeanSaveError(err: unknown): string {
+  const message = err instanceof Error ? err.message : '保存失败，请稍后重试。'
+  if (message.includes('烘焙商、产地和处理法')) {
+    return '请填写烘焙商，并在「豆源」里填写产地和处理法。'
+  }
+  return message
+}
+
 function hasText(value?: string | null): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
@@ -193,24 +238,28 @@ function FieldView({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
-function FieldInput({ label, value, onChange, required, placeholder }: {
+function FieldInput({ label, value, onChange, required, placeholder, unit, kind }: {
   label: string
   value: string
   onChange: (v: string) => void
   required?: boolean
   placeholder?: string
+  unit?: string
+  kind?: FieldKind
 }) {
+  const warning = softValidate(kind, value)
   return (
     <label className="block">
       <span className="text-xs text-dc-text-3 mb-1 block">
-        {label}{required && <span className="text-dc-red"> *</span>}
+        {label}{unit && `（${unit}）`}{required && <span className="text-dc-red"> *</span>}
       </span>
       <input
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder ?? '未填写'}
-        className="dc-input text-sm py-1.5"
+        className={`dc-input text-sm py-1.5 ${warning ? 'border-dc-yellow' : ''}`}
       />
+      {warning && <p className="text-xs text-dc-yellow mt-1">{warning}</p>}
     </label>
   )
 }
@@ -284,10 +333,9 @@ export default function BeanDetailPage() {
       setSaveError(`请填写：${requiredMissing.join('、')}`)
       return
     }
-    // 至少要有一条带产地 + 处理法的豆源（单豆 1 条、拼配多条）。
-    const firstSource = edit.components[0]
-    if (!firstSource?.origin_name.trim() || !firstSource?.process_name.trim()) {
-      setSaveError('请在「豆源」里至少填写产地与处理法。')
+    const componentError = validateComponentsForSave(edit.components)
+    if (componentError) {
+      setSaveError(componentError)
       return
     }
 
@@ -296,6 +344,8 @@ export default function BeanDetailPage() {
     try {
       const token = getToken()
       const initial = JSON.parse(initialEditRef.current) as EditState
+      const componentsForSave = normalizedComponentsForSave(edit.components)
+      const initialComponents = normalizedComponentsForSave(initial.components)
       const patch: Record<string, unknown> = {}
 
       for (const { draftKey } of FIELD_DEFS) {
@@ -305,8 +355,8 @@ export default function BeanDetailPage() {
       }
       if (edit.privateNotes !== initial.privateNotes) patch.private_notes = edit.privateNotes.trim() || null
       if (edit.publicComment !== initial.publicComment) patch.public_comment = edit.publicComment.trim() || null
-      if (JSON.stringify(edit.components) !== JSON.stringify(initial.components)) {
-        patch.bean_components = edit.components.map(draftToComponent)
+      if (JSON.stringify(componentsForSave) !== JSON.stringify(initialComponents)) {
+        patch.bean_components = componentsForSave.map(draftToComponent)
       }
       const flavorDirty = edit.flavorNotesText !== initial.flavorNotesText
         || JSON.stringify(edit.axes) !== JSON.stringify(initial.axes)
@@ -344,7 +394,7 @@ export default function BeanDetailPage() {
       setEditing(false)
       setEdit(null)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
+      setSaveError(formatBeanSaveError(err))
     } finally {
       setSaving(false)
     }
@@ -438,11 +488,14 @@ export default function BeanDetailPage() {
         <div className="max-w-3xl space-y-5">
           <Section title="豆卡信息">
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
-              {FIELD_DEFS.map(({ draftKey, label, required }) => (
+              {FIELD_DEFS.map(({ draftKey, label, required, unit, kind, placeholder }) => (
                 <FieldInput
                   key={draftKey}
                   label={label}
                   required={required}
+                  unit={unit}
+                  kind={kind}
+                  placeholder={placeholder}
                   value={edit.fields[draftKey]}
                   onChange={value => setField(draftKey, value)}
                 />
@@ -471,14 +524,14 @@ export default function BeanDetailPage() {
                       )}
                     </div>
                     <div className="grid sm:grid-cols-2 gap-3">
-                      <FieldInput label="产地" value={component.origin_name} onChange={value => setComponent(index, { origin_name: value })} />
+                      <FieldInput label="产地" required value={component.origin_name} onChange={value => setComponent(index, { origin_name: value })} />
                       <FieldInput label="生产者 / 庄园 / 处理站" value={component.coffee_source_name} onChange={value => setComponent(index, { coffee_source_name: value })} />
-                      <FieldInput label="处理法" value={component.process_name} onChange={value => setComponent(index, { process_name: value })} />
+                      <FieldInput label="处理法" required value={component.process_name} onChange={value => setComponent(index, { process_name: value })} />
                       <FieldInput label="品种" value={component.varietalsText} onChange={value => setComponent(index, { varietalsText: value })} />
                       <FieldInput label="生豆商 / 进口商" value={component.green_bean_merchant_name} onChange={value => setComponent(index, { green_bean_merchant_name: value })} />
                       <FieldInput label="生豆商产品" value={component.green_bean_product_name} onChange={value => setComponent(index, { green_bean_product_name: value })} />
-                      <FieldInput label="海拔" value={component.altitude_text} onChange={value => setComponent(index, { altitude_text: value })} />
-                      <FieldInput label="采收期" value={component.harvest_date_text} onChange={value => setComponent(index, { harvest_date_text: value })} />
+                      <FieldInput label="海拔" unit="米" kind="number" placeholder="如 1800" value={component.altitude_text} onChange={value => setComponent(index, { altitude_text: value })} />
+                      <FieldInput label="采收期" unit="年" kind="year" placeholder="如 2024 或 2023-2024" value={component.harvest_date_text} onChange={value => setComponent(index, { harvest_date_text: value })} />
                       <FieldInput label="占比 / 说明" value={component.share_text} onChange={value => setComponent(index, { share_text: value })} />
                     </div>
                     <label className="block mt-3">
@@ -564,17 +617,16 @@ export default function BeanDetailPage() {
           </Section>
 
           <Section title="建议冲煮参数">
-            <div className="space-y-2.5">
-              {PARAM_FIELDS.map(({ key, label, placeholder }) => (
-                <div key={key} className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-dc-text-3 flex-shrink-0 w-20">{label}</span>
-                  <input
-                    value={edit.params[key]}
-                    onChange={event => setEdit({ ...edit, params: { ...edit.params, [key]: event.target.value } })}
-                    placeholder={placeholder}
-                    className="dc-input text-sm py-1.5 text-right flex-1 min-w-0"
-                  />
-                </div>
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
+              {PARAM_FIELDS.map(({ key, label, placeholder, kind }) => (
+                <FieldInput
+                  key={key}
+                  label={label}
+                  kind={kind}
+                  value={edit.params[key]}
+                  onChange={value => setEdit({ ...edit, params: { ...edit.params, [key]: value } })}
+                  placeholder={placeholder}
+                />
               ))}
             </div>
           </Section>

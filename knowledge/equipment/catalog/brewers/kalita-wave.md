@@ -8,9 +8,9 @@ status: active
 aliases:
 - Kalita
 - 蛋糕杯
-- Wave 155
-- Wave 185
 - 卡丽塔
+- Kalita 蛋糕杯
+- Wave dripper
 ---
 
-Kalita Wave 平底蛋糕滤杯，三孔出水，萃取均匀稳定。
+Kalita Wave 平底蛋糕滤杯，三孔出水，萃取均匀稳定；不指定尺寸时的通用项，具体尺寸见 155 / 185 款。

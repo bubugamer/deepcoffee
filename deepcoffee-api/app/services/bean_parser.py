@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from app.schemas.bean import BeanDraft, BeanFlavor, default_flavor
+from app.schemas.bean import BeanComponent, BeanDraft, BeanFlavor, default_flavor
 
 # 处理法词表（含中英与常见别名）。
 _PROCESS_PATTERNS: list[tuple[str, str]] = [
@@ -165,11 +165,12 @@ def build_flavor(notes: list[str], note_emojis: dict[str, str] | None = None) ->
 
 def assess_bean_draft(draft: BeanDraft) -> tuple[float, list[str], str | None]:
     """按必填字段完整度算 confidence / low_confidence / clarification。模型与本地共用。"""
+    first_component = draft.bean_components[0] if draft.bean_components else None
     important = {
         "name": draft.name,
         "roaster_name": draft.roaster_name,
-        "origin_name": draft.origin_name,
-        "process_name": draft.process_name,
+        "bean_components.0.origin_name": first_component.origin_name if first_component else None,
+        "bean_components.0.process_name": first_component.process_name if first_component else None,
     }
     low_confidence = [field for field, value in important.items() if not value]
     confidence = round((len(important) - len(low_confidence)) / len(important), 2)
@@ -190,9 +191,13 @@ def parse_bean_input(text: str) -> tuple[BeanDraft, float, list[str], str | None
     draft = BeanDraft(
         name=name,
         roaster_name=roaster,
-        origin_name=origin,
-        process_name=process,
-        varietal_names=varietals,
+        bean_components=[
+            BeanComponent(
+                origin_name=origin,
+                process_name=process,
+                varietal_names=varietals,
+            )
+        ],
         flavor=build_flavor(notes),
         private_notes=None,
     )

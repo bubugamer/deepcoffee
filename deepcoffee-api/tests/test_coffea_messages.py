@@ -104,9 +104,9 @@ def test_message_hydrates_user_context_without_error() -> None:
             "draft": {
                 "name": "千峰庄园 瑰夏 日晒",
                 "roaster_name": "千峰",
-                "origin_name": "巴拿马",
-                "process_name": "日晒",
-                "varietal_names": ["瑰夏"],
+                "bean_components": [
+                    {"origin_name": "巴拿马", "process_name": "日晒", "varietal_names": ["瑰夏"]}
+                ],
             }
         },
     )
@@ -143,9 +143,9 @@ def _fake_vision(monkeypatch, data):  # noqa: ANN001
 _FULL_BEAN_FIELDS = {
     "name": "自动录入测试豆",
     "roaster_name": "Coffeebuff",
-    "origin_name": "巴拿马",
-    "process_name": "CM 日晒",
-    "varietal_names": ["帕卡马拉"],
+    "bean_components": [
+        {"origin_name": "巴拿马", "process_name": "CM 日晒", "varietal_names": ["帕卡马拉"]}
+    ],
 }
 _IMG_ATTACH = {"attachments": [{"type": "image", "ref": "img_1"}]}
 

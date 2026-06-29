@@ -182,10 +182,12 @@ function fallbackDraft(input: string): BeanDraft {
     name: nameParts.length ? nameParts.join(' ') : input.slice(0, 24),
     roaster_name: roaster,
     roaster_product_name: nameParts.length ? nameParts.join(' ') : undefined,
-    coffee_source_name: source,
-    origin_name: origin,
-    process_name: process,
-    varietal_names: varietal ? [varietal] : [],
+    bean_components: [{
+      origin_name: origin,
+      coffee_source_name: source,
+      process_name: process,
+      varietal_names: varietal ? [varietal] : [],
+    }],
     flavor: DEFAULT_FLAVOR,
     private_notes: input,
     public_comment: undefined,
@@ -280,8 +282,10 @@ export async function parseBeanInput(input: string, token?: string | null): Prom
   return {
     draft: fallbackDraft(input),
     confidence: 0.72,
-    low_confidence_fields: ['roaster_name', 'coffee_source_name'].filter((field) => {
+    low_confidence_fields: ['roaster_name', 'bean_components.0.origin_name', 'bean_components.0.process_name'].filter((field) => {
       const draft = fallbackDraft(input)
+      if (field === 'bean_components.0.origin_name') return !draft.bean_components?.[0]?.origin_name
+      if (field === 'bean_components.0.process_name') return !draft.bean_components?.[0]?.process_name
       return !draft[field as keyof BeanDraft]
     }),
     clarification: null,
@@ -322,21 +326,23 @@ export async function updateBean(beanId: string, draft: BeanUpdateInput, token?:
   }
   const existing = await getBean(beanId, token)
   if (!existing) throw new ApiError(404, 'not_found', '豆卡不存在')
+  const nextComponents = draft.bean_components ?? existing.bean_components
+  const singleSource = nextComponents.length === 1 ? nextComponents[0] : null
   return {
     ...existing,
     roaster: draft.roaster_name ?? existing.roaster,
     roaster_product: draft.roaster_product_name ?? existing.roaster_product,
-    coffee_source: draft.coffee_source_name ?? existing.coffee_source,
-    green_bean_merchant: draft.green_bean_merchant_name ?? existing.green_bean_merchant,
-    green_bean_product: draft.green_bean_product_name ?? existing.green_bean_product,
-    origin: draft.origin_name ?? existing.origin,
-    process: draft.process_name ?? existing.process,
-    varietal: draft.varietal_names ?? existing.varietal,
-    altitude_text: draft.altitude_text ?? existing.altitude_text,
-    harvest_date_text: draft.harvest_date_text ?? existing.harvest_date_text,
+    coffee_source: draft.bean_components ? singleSource?.coffee_source_name ?? null : existing.coffee_source,
+    green_bean_merchant: draft.bean_components ? singleSource?.green_bean_merchant_name ?? null : existing.green_bean_merchant,
+    green_bean_product: draft.bean_components ? singleSource?.green_bean_product_name ?? null : existing.green_bean_product,
+    origin: draft.bean_components ? singleSource?.origin_name ?? null : existing.origin,
+    process: draft.bean_components ? singleSource?.process_name ?? null : existing.process,
+    varietal: draft.bean_components ? singleSource?.varietal_names ?? [] : existing.varietal,
+    altitude_text: draft.bean_components ? singleSource?.altitude_text ?? null : existing.altitude_text,
+    harvest_date_text: draft.bean_components ? singleSource?.harvest_date_text ?? null : existing.harvest_date_text,
     roast_date_text: draft.roast_date_text ?? existing.roast_date_text,
     net_weight_text: draft.net_weight_text ?? existing.net_weight_text,
-    bean_components: draft.bean_components ?? existing.bean_components,
+    bean_components: nextComponents,
     flavor: draft.flavor ?? existing.flavor,
     rating: Object.prototype.hasOwnProperty.call(draft, 'rating') ? draft.rating ?? null : existing.rating,
     private_notes: draft.private_notes ?? existing.private_notes,

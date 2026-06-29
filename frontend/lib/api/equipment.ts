@@ -24,8 +24,14 @@ export function listEquipment(): Promise<EquipmentProfile[]> {
   return apiFetch('/equipment')
 }
 
-// 公共器具目录（可穷尽实体的规范名），按类别给下拉直接选；与「我的器具」合并展示。
-export function getEquipmentCatalog(): Promise<Record<EquipmentCategory, string[]>> {
+// 公共器具目录的一条：规范名 + 别名（别名供前端模糊搜索匹配，如 V60 02 / 锥形 / Pulsar）。
+export interface EquipmentCatalogItem {
+  name: string
+  aliases: string[]
+}
+
+// 公共器具目录（规范名 + 别名），按类别给下拉直接选 / 模糊搜索；与「我的器具」合并展示。
+export function getEquipmentCatalog(): Promise<Record<EquipmentCategory, EquipmentCatalogItem[]>> {
   return apiFetch('/equipment/catalog')
 }
 

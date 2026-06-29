@@ -163,9 +163,9 @@ def test_bean_card_high_confidence_marks_auto_save() -> None:
         "bean_fields": {
             "name": "千峰庄园 帕卡马拉",
             "roaster_name": "Coffeebuff",
-            "origin_name": "巴拿马",
-            "process_name": "CM 日晒",
-            "varietal_names": ["帕卡马拉"],
+            "bean_components": [
+                {"origin_name": "巴拿马", "process_name": "CM 日晒", "varietal_names": ["帕卡马拉"]}
+            ],
         },
     })
     plan = DispatchPlan(
