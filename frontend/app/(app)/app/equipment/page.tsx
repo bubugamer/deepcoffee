@@ -65,35 +65,48 @@ function EquipmentForm({
           {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_META[c].label}</option>)}
         </select>
       </label>
-      <label className="block">
-        <span className="text-xs text-dc-text-3 mb-1 block">名称</span>
-        <select
-          className="dc-input text-sm"
-          value={showNameInput ? CUSTOM : nameValue}
-          onChange={e => {
-            const v = e.target.value
-            if (v === CUSTOM) {
-              setCustomMode(true)
-            } else {
-              setCustomMode(false)
-              setValues(cur => ({ ...cur, name: v }))
-            }
-          }}
-        >
-          <option value="">未选择</option>
-          {nameOptions.map(n => <option key={n} value={n}>{n}</option>)}
-          <option value={CUSTOM}>自定义输入…</option>
-        </select>
-        {showNameInput && (
+      <div className="block">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-dc-text-3">名称</span>
+          {showNameInput && nameOptions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setCustomMode(false); setValues(cur => ({ ...cur, name: '' })) }}
+              className="text-xs text-dc-accent hover:underline"
+            >
+              从列表选择
+            </button>
+          )}
+        </div>
+        {showNameInput ? (
           <input
-            className="dc-input text-sm mt-1.5"
+            className="dc-input text-sm"
             value={nameValue}
             placeholder={CATEGORY_META[category].placeholder}
             maxLength={120}
+            autoFocus={customMode}
             onChange={e => setValues(cur => ({ ...cur, name: e.target.value }))}
           />
+        ) : (
+          <select
+            className="dc-input text-sm"
+            value={nameValue}
+            onChange={e => {
+              const v = e.target.value
+              if (v === CUSTOM) {
+                setCustomMode(true)
+              } else {
+                setCustomMode(false)
+                setValues(cur => ({ ...cur, name: v }))
+              }
+            }}
+          >
+            <option value="">未选择</option>
+            {nameOptions.map(n => <option key={n} value={n}>{n}</option>)}
+            <option value={CUSTOM}>自定义输入…</option>
+          </select>
         )}
-      </label>
+      </div>
       <label className="block">
         <span className="text-xs text-dc-text-3 mb-1 block">备注</span>
         <input
