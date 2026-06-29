@@ -303,3 +303,13 @@ class RecommendParamsTurnResponse(BaseModel):
     recommended_record_id: str | None = None  # completed 时指向落库的隐藏 ai_suggestion 记录
     source: Literal["model", "local"] = "model"
     trace_id: str
+
+
+class RecommendToChatRequest(BaseModel):
+    """把「生成建议参数」的模型回复带进主对话，供用户继续追问。"""
+
+    message: str = Field(min_length=1, max_length=8000)
+
+
+class RecommendToChatResponse(BaseModel):
+    session_id: str

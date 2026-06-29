@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
@@ -34,6 +35,8 @@ from app.schemas.bean import (
     RecommendParamsRequest,
     RecommendParamsResponse,
     RecommendParamsTurnResponse,
+    RecommendToChatRequest,
+    RecommendToChatResponse,
     SetRecommendParamsRequest,
 )
 from app.schemas.brew import BrewDraft
@@ -421,6 +424,36 @@ async def recommend_params(
         source=turn.source,
         trace_id=trace_id,
     )
+
+
+@router.post("/{bean_id}/recommend-params/to-chat", response_model=RecommendToChatResponse)
+async def recommend_params_to_chat(
+    bean_id: str,
+    payload: RecommendToChatRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> RecommendToChatResponse:
+    """把「生成建议参数」的模型回复带进用户主对话，供其继续追问。
+
+    纯写入：把这条回复作为一条 assistant 消息追加到该用户的永久对话（与 GET /coffea/session
+    读到的是同一条），不调用模型、不计 AI 额度。建议参数本身已是隐藏 ai_suggestion 记录，
+    且该多轮流程本就跑在这条会话上，上下文（state）天然都在。
+    """
+    bean = await bean_repository.get(session, user_id=user.id, bean_id=bean_id)
+    if bean is None:
+        raise AppError(404, "bean_not_found", "Bean not found.")
+
+    message = payload.message.strip()
+    if not message:
+        raise AppError(400, "empty_message", "Message is required.")
+
+    await profile_repository.get_or_create(session, user.id, user.email)
+    cs = await coffea_session_repository.get_or_create_user_session(session, user_id=user.id)
+    coffea_session_repository.append_turn(
+        cs, role="assistant", content=message, at=int(time.time() * 1000)
+    )
+    await session.flush()
+    return RecommendToChatResponse(session_id=cs.session_id)
 
 
 @router.put("/{bean_id}/recommend-params", response_model=RecommendParamsResponse)

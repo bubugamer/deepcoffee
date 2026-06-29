@@ -977,6 +977,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
   const [sending, setSending] = useState(false)
   const msgsRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   // restoredRef 置 true 后才开始写盘，避免「先用空数组覆盖了已存的历史」
   const restoredRef = useRef(false)
@@ -1031,6 +1032,14 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
   useEffect(() => {
     msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
+
+  // 输入框随内容自动撑高：先归零再按 scrollHeight 设高（发送清空后自动缩回单行；到 max-h 后内部滚动）
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${ta.scrollHeight}px`
+  }, [input])
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
@@ -1218,7 +1227,7 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
                   </div>
                 )}
                 {m.text && (
-                  <div className="bg-dc-accent text-white text-sm px-4 py-3 rounded-2xl rounded-br-sm">
+                  <div className="bg-dc-accent text-white text-sm px-4 py-3 rounded-2xl rounded-br-sm whitespace-pre-wrap break-words">
                     {m.text}
                   </div>
                 )}
@@ -1333,12 +1342,13 @@ function CoffeaChat({ newMode, linkedBeanId }: { newMode: string | null; linkedB
             <ImagePlus size={18} />
           </button>
           <textarea
+            ref={taRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             disabled={sending}
             rows={1}
-            className="dc-input flex-1 resize-none max-h-28 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+            className="dc-input flex-1 resize-none max-h-28 overflow-y-auto leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
             placeholder={sending ? 'Coffea 思考中…' : preparingImages ? '图片处理中…' : ''}
           />
           {sending ? (
