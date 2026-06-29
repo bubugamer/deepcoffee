@@ -415,6 +415,7 @@ export function recommendationToBeanParams(
     device: rec.device ?? undefined,
     grinder: rec.grinder ?? undefined,
     grind_setting: rec.grind_setting ?? undefined,
+    filter_media: rec.filter ?? undefined,
     dose_g: rec.dose_g ?? undefined,
     water_ml: rec.water_ml ?? undefined,
     water_temp_c: rec.water_temp_c ?? undefined,
@@ -425,13 +426,16 @@ export function recommendationToBeanParams(
 
 // 手动编辑的建议参数（豆卡详情页编辑模式）；后端落成隐藏 user_suggestion 记录
 export interface ManualRecommendParams {
+  brew_method?: string
   device?: string
   grinder?: string
   grind_setting?: string
+  filter_media?: string
+  water?: string
   dose_g?: number
   water_ml?: number
   water_temp_c?: number
-  ratio?: string
+  // 粉水比由后端按豆量/水量自动换算（与冲煮记录一致），前端不再手填提交。
   brew_time_seconds?: number
   notes?: string
 }

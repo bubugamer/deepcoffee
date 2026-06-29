@@ -8,6 +8,8 @@ import { getBean, updateBean, setManualRecommendParams, type BeanUpdateInput, ty
 import { getToken } from '@/lib/auth'
 import { flavorEmoji, formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
 import { RecommendParamsChat } from '@/components/RecommendParamsChat'
+import { BREW_METHODS, EquipmentSelect, TextField as BrewTextField, TimeField, maskTime, ratioText } from '@/components/BrewRecordForm'
+import { listEquipment, getEquipmentCatalog, type EquipmentCatalogItem, type EquipmentProfile } from '@/lib/api/equipment'
 import type { Bean, BeanComponent, BeanDraft, BrewEvaluation, BrewEvaluationItem, FlavorAxis } from '@/types'
 import { softValidate, type FieldKind } from '@/lib/validate'
 
@@ -27,17 +29,6 @@ const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
   { key: 'acidity', label: '酸质' },
   { key: 'body', label: '触感' },
   { key: 'balance', label: '平衡度' },
-]
-
-const PARAM_FIELDS: { key: string; label: string; placeholder: string; kind?: FieldKind }[] = [
-  { key: 'device', label: '滤杯', placeholder: '例如 V60' },
-  { key: 'grinder', label: '磨豆机', placeholder: '例如 ZP6S' },
-  { key: 'grind_setting', label: '研磨刻度', placeholder: '例如 4.5-5.5 圈' },
-  { key: 'dose_g', label: '豆量 (g)', placeholder: '15', kind: 'number' },
-  { key: 'water_ml', label: '水量 (ml)', placeholder: '225', kind: 'number' },
-  { key: 'water_temp_c', label: '水温 (°C)', placeholder: '92', kind: 'number' },
-  { key: 'ratio', label: '粉水比', placeholder: '1:15' },
-  { key: 'time', label: '时间', placeholder: '2:30 或 150（秒）', kind: 'time' },
 ]
 
 interface ComponentDraft {
@@ -116,14 +107,16 @@ function beanToEdit(bean: Bean): EditState {
       ? bean.bean_components.map(componentToDraft)
       : [{ ...EMPTY_COMPONENT_DRAFT }],
     params: {
+      brew_method: p?.brew_method ?? '',
       device: p?.device ?? '',
       grinder: p?.grinder ?? '',
       grind_setting: p?.grind_setting ?? '',
+      filter_media: p?.filter_media ?? '',
+      water: p?.water ?? '',
       dose_g: p?.dose_g != null ? String(p.dose_g) : '',
       water_ml: p?.water_ml != null ? String(p.water_ml) : '',
       water_temp_c: p?.water_temp_c != null ? String(p.water_temp_c) : '',
-      ratio: p?.ratio ?? '',
-      time: formatBrewSeconds(p?.brew_time_seconds) ?? '',
+      time: maskTime(formatBrewSeconds(p?.brew_time_seconds) ?? ''),
     },
   }
 }
@@ -149,9 +142,12 @@ function parseTimeText(text: string): number | undefined {
   const t = text.trim()
   if (!t) return undefined
   const m = t.match(/^(\d+)[:：](\d{1,2})$/)
-  if (m) return Number(m[1]) * 60 + Number(m[2])
+  if (m) {
+    const total = Number(m[1]) * 60 + Number(m[2])
+    return total > 0 ? total : undefined
+  }
   const n = Number(t)
-  return Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : undefined
 }
 
 function splitList(text: string): string[] {
@@ -284,6 +280,9 @@ export default function BeanDetailPage() {
   const initialEditRef = useRef<string>('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  // 建议参数表单与「冲煮记录」对齐：器具下拉同样吃公共目录 + 我的器具。
+  const [catalog, setCatalog] = useState<Record<string, EquipmentCatalogItem[]>>({})
+  const [equipment, setEquipment] = useState<EquipmentProfile[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -295,6 +294,13 @@ export default function BeanDetailPage() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [id])
+
+  useEffect(() => {
+    let cancelled = false
+    getEquipmentCatalog().then(c => { if (!cancelled) setCatalog(c) }).catch(() => {})
+    listEquipment().then(e => { if (!cancelled) setEquipment(e) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   function enterEdit() {
     if (!bean) return
@@ -375,13 +381,16 @@ export default function BeanDetailPage() {
 
       const paramsDirty = JSON.stringify(edit.params) !== JSON.stringify(initial.params)
       const paramValues: ManualRecommendParams = {
+        brew_method: edit.params.brew_method.trim() || undefined,
         device: edit.params.device.trim() || undefined,
         grinder: edit.params.grinder.trim() || undefined,
         grind_setting: edit.params.grind_setting.trim() || undefined,
+        filter_media: edit.params.filter_media.trim() || undefined,
+        water: edit.params.water.trim() || undefined,
         dose_g: edit.params.dose_g.trim() ? Number(edit.params.dose_g) : undefined,
         water_ml: edit.params.water_ml.trim() ? Number(edit.params.water_ml) : undefined,
         water_temp_c: edit.params.water_temp_c.trim() ? Number(edit.params.water_temp_c) : undefined,
-        ratio: edit.params.ratio.trim() || undefined,
+        // 粉水比由后端按豆量/水量换算，不再手填提交。
         brew_time_seconds: parseTimeText(edit.params.time),
       }
       const hasParamValue = Object.values(paramValues).some(v => v !== undefined)
@@ -617,17 +626,29 @@ export default function BeanDetailPage() {
           </Section>
 
           <Section title="建议冲煮参数">
+            <p className="text-xs text-dc-text-3 mb-3">字段与「冲煮记录」保持一致；粉水比按豆量、水量自动换算。</p>
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
-              {PARAM_FIELDS.map(({ key, label, placeholder, kind }) => (
-                <FieldInput
-                  key={key}
-                  label={label}
-                  kind={kind}
-                  value={edit.params[key]}
-                  onChange={value => setEdit({ ...edit, params: { ...edit.params, [key]: value } })}
-                  placeholder={placeholder}
-                />
-              ))}
+              <label className="block">
+                <span className="text-xs text-dc-text-3 mb-1 block">冲煮方式</span>
+                <select
+                  value={edit.params.brew_method}
+                  onChange={e => setEdit({ ...edit, params: { ...edit.params, brew_method: e.target.value } })}
+                  className="dc-input text-sm py-1.5"
+                >
+                  <option value="">未选择</option>
+                  {BREW_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
+                </select>
+              </label>
+              <EquipmentSelect label="冲煮器具" category="brewer" value={edit.params.device} equipment={equipment} catalogItems={catalog.brewer ?? []} onChange={value => setEdit({ ...edit, params: { ...edit.params, device: value } })} />
+              <EquipmentSelect label="磨豆机" category="grinder" value={edit.params.grinder} equipment={equipment} catalogItems={catalog.grinder ?? []} onChange={value => setEdit({ ...edit, params: { ...edit.params, grinder: value } })} />
+              <BrewTextField label="研磨刻度" value={edit.params.grind_setting} onChange={value => setEdit({ ...edit, params: { ...edit.params, grind_setting: value } })} placeholder="例如：5.5" />
+              <EquipmentSelect label="过滤介质" category="filter_media" value={edit.params.filter_media} equipment={equipment} catalogItems={catalog.filter_media ?? []} onChange={value => setEdit({ ...edit, params: { ...edit.params, filter_media: value } })} optional />
+              <EquipmentSelect label="用水" category="water" value={edit.params.water} equipment={equipment} catalogItems={catalog.water ?? []} onChange={value => setEdit({ ...edit, params: { ...edit.params, water: value } })} optional />
+              <BrewTextField label="豆量 (g)" kind="number" value={edit.params.dose_g} onChange={value => setEdit({ ...edit, params: { ...edit.params, dose_g: value } })} placeholder="15" />
+              <BrewTextField label="水量 (ml)" kind="number" value={edit.params.water_ml} onChange={value => setEdit({ ...edit, params: { ...edit.params, water_ml: value } })} placeholder="225" />
+              <BrewTextField label="粉水比" value={ratioText(edit.params.dose_g, edit.params.water_ml)} readOnly />
+              <BrewTextField label="水温 (°C)" kind="number" value={edit.params.water_temp_c} onChange={value => setEdit({ ...edit, params: { ...edit.params, water_temp_c: value } })} placeholder="92" />
+              <TimeField label="冲煮时间" value={edit.params.time} onChange={value => setEdit({ ...edit, params: { ...edit.params, time: value } })} />
             </div>
           </Section>
 

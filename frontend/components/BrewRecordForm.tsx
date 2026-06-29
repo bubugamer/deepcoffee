@@ -7,7 +7,7 @@ import { getEquipmentCatalog, type EquipmentCatalogItem, type EquipmentCategory,
 import { Combobox, type ComboOption } from './Combobox'
 import { softValidate, type FieldKind } from '@/lib/validate'
 
-const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
+export const BREW_METHODS = ['滤杯冲煮', '意式', '法压壶', '爱乐压', '浸泡式', '摩卡壶', '虹吸壶', '冷萃']
 
 const RATING_FIELDS: { key: keyof BrewEvaluation; label: string }[] = [
   { key: 'overall', label: '总评' },
@@ -47,11 +47,24 @@ function fmtSeconds(seconds?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
+// 时间输入蒙版：只取数字、从右往左填（最后两位＝秒、其余＝分），始终输出补零的「分:秒」。
+// 这样输入框结构上不可能产生非法格式，等于对时间做了强校验，同时格式一目了然。
+export function maskTime(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(-4)
+  if (!digits) return ''
+  const ss = digits.slice(-2).padStart(2, '0')
+  const mm = (digits.slice(0, -2) || '0').padStart(2, '0')
+  return `${mm}:${ss}`
+}
+
 function parseTime(text: string): number | null {
   const value = text.trim()
   if (!value) return null
   const matched = value.match(/^(\d+)[:：](\d{1,2})$/)
-  if (matched) return Number(matched[1]) * 60 + Number(matched[2])
+  if (matched) {
+    const total = Number(matched[1]) * 60 + Number(matched[2])
+    return total > 0 ? total : null
+  }
   const number = Number(value)
   return Number.isFinite(number) && number > 0 ? Math.round(number) : null
 }
@@ -68,7 +81,7 @@ function optionalNumber(value: string): number | null {
   return Number.isFinite(number) && number > 0 ? number : null
 }
 
-function ratioText(dose: string, water: string) {
+export function ratioText(dose: string, water: string) {
   const doseNumber = optionalNumber(dose)
   const waterNumber = optionalNumber(water)
   if (!doseNumber || !waterNumber) return '自动计算'
@@ -90,7 +103,7 @@ function initialState(record: BrewRecord | null, beans: Bean[], preferredBeanId?
     dose_g: record?.dose_g != null ? String(record.dose_g) : '',
     water_ml: record?.water_ml != null ? String(record.water_ml) : '',
     water_temp_c: record?.water_temp_c != null ? String(record.water_temp_c) : '',
-    brew_time_seconds: fmtSeconds(record?.brew_time_seconds),
+    brew_time_seconds: maskTime(fmtSeconds(record?.brew_time_seconds)),
     notes: record?.notes ?? '',
     brew_score: record?.brew_score ?? null,
     bean_rating: record?.bean_rating ?? bean?.rating ?? null,
@@ -137,7 +150,7 @@ function setRatingScore(rating: BrewEvaluation | null, key: keyof BrewEvaluation
   return Object.keys(next).length > 0 ? next : null
 }
 
-function EquipmentSelect({
+export function EquipmentSelect({
   label,
   category,
   value,
@@ -184,7 +197,7 @@ function EquipmentSelect({
   )
 }
 
-function TextField({
+export function TextField({
   label,
   value,
   onChange,
@@ -211,6 +224,31 @@ function TextField({
         className={`dc-input text-sm py-1.5 ${readOnly ? 'bg-dc-subtle text-dc-text-2' : ''} ${warning ? 'border-dc-yellow' : ''}`}
       />
       {warning && <p className="text-xs text-dc-yellow mt-1">{warning}</p>}
+    </label>
+  )
+}
+
+// 时间字段：用「分:秒」蒙版输入（始终合法格式 + 占位提示 00:00）。值/回调都用蒙版后的字符串，
+// 父级 initialState 也要先经 maskTime 归一，确保受控输入显示一致。
+export function TimeField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs text-dc-text-3 mb-1 block">{label}（分:秒）</span>
+      <input
+        value={value}
+        inputMode="numeric"
+        onChange={(event) => onChange(maskTime(event.target.value))}
+        placeholder="00:00"
+        className="dc-input text-sm py-1.5"
+      />
     </label>
   )
 }
@@ -351,7 +389,7 @@ export function BrewRecordForm({
             <TextField label="水量 (ml)" kind="number" value={draft.water_ml} onChange={(value) => set('water_ml', value)} placeholder="340" />
             <TextField label="粉水比" value={ratio} readOnly />
             <TextField label="水温 (°C)" kind="number" value={draft.water_temp_c} onChange={(value) => set('water_temp_c', value)} placeholder="93" />
-            <TextField label="冲煮时间" kind="time" value={draft.brew_time_seconds} onChange={(value) => set('brew_time_seconds', value)} placeholder="5:00 或 300" />
+            <TimeField label="冲煮时间" value={draft.brew_time_seconds} onChange={(value) => set('brew_time_seconds', value)} />
           </div>
         </section>
 

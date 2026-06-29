@@ -40,7 +40,7 @@ from app.schemas.brew import BrewDraft
 from app.services.bean_parse_ai import parse_bean_with_model
 from app.services.bean_parser import assess_bean_draft, parse_bean_input
 from app.services.bean_recommend_service import evaluate_turn
-from app.services.brew_validation import complete_brew_parameters
+from app.services.brew_validation import complete_brew_parameters, format_ratio
 from app.services.candidate_service import candidate_service
 from app.services.entitlements import is_admin_user, require_bean_square
 from app.services.langfuse_client import langfuse_tracer
@@ -439,14 +439,24 @@ async def set_recommend_params(
         # 手动路径：创建隐藏建议记录并把豆卡指过去（与 AI 生成共用同一指针机制）。
         trace_id = f"bean_manual_params_{uuid4().hex[:12]}"
         p = payload.params
+        # 粉水比与冲煮记录一致：豆量、水量都在时由后端自动换算，不取用户手填。
+        ratio_value: float | None = None
+        ratio_text: str | None = None
+        if p.dose_g and p.water_ml:
+            ratio_value = round(p.water_ml / p.dose_g, 2)
+            ratio_text = format_ratio(ratio_value)
         draft = BrewDraft(
+            brew_method=p.brew_method,
             device=p.device,
             grinder=p.grinder,
             grind_setting=p.grind_setting,
+            filter_media=p.filter_media,
+            water=p.water,
             dose_g=p.dose_g,
             water_ml=p.water_ml,
             water_temp_c=p.water_temp_c,
-            ratio=p.ratio,
+            ratio=ratio_text,
+            ratio_value=ratio_value,
             brew_time_seconds=p.brew_time_seconds,
             notes=p.notes,
         )
