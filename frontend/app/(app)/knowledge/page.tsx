@@ -19,6 +19,7 @@ function groupByCategory(articles: Article[]): { cat: string; items: Article[] }
 export default function KnowledgePage() {
   const [articles, setArticles] = useState<Article[]>([])
   const [filterCategories, setFilterCategories] = useState<string[]>(['全部'])
+  const [activeCategory, setActiveCategory] = useState('全部')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [upgrade, setUpgrade] = useState(false)
@@ -49,7 +50,11 @@ export default function KnowledgePage() {
     return () => { cancelled = true }
   }, [])
 
-  const groups = groupByCategory(articles)
+  // 分类标签与文章的 cat 字段同源（都是后端 CATEGORY_LABELS 的 label），故客户端按 cat 筛选即可。
+  const visibleArticles = activeCategory === '全部'
+    ? articles
+    : articles.filter((a) => a.cat === activeCategory)
+  const groups = groupByCategory(visibleArticles)
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -72,11 +77,13 @@ export default function KnowledgePage() {
           </div>
 
           <div className="flex gap-2 flex-wrap mb-6">
-            {filterCategories.map((c, i) => (
+            {filterCategories.map((c) => (
               <button
                 key={c}
+                type="button"
+                onClick={() => setActiveCategory(c)}
                 className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                  i === 0
+                  c === activeCategory
                     ? 'bg-dc-accent text-white border-dc-accent'
                     : 'border-dc-border text-dc-text-2 bg-white hover:border-dc-accent-hi'
                 }`}
