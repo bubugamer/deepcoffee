@@ -6,7 +6,7 @@ category: index
 scope: public
 status: active
 created: '2026-06-03'
-last_updated: '2026-06-03'
+last_updated: '2026-06-30'
 visibility: public
 indexable: true
 aliases:
@@ -39,6 +39,12 @@ sources:
 ## 冲煮与器具
 
 - [V60 手冲冲煮指南](brewing/V60手冲冲煮指南.md)：适合理解圆锥滤杯、注水、研磨和均匀萃取。
+- [冰手冲咖啡指南](brewing/冰手冲咖啡指南.md)：用热水萃取、冰块快速降温，适合保留花香和清爽感。
+- [冷萃咖啡指南](brewing/冷萃咖啡指南.md)：用低温长时间浸泡，适合低酸、顺滑和提前制作。
+- [摩卡壶冲煮指南](brewing/摩卡壶冲煮指南.md)：适合理解家用浓郁咖啡和奶咖基底。
+- [法压壶冲煮指南](brewing/法压壶冲煮指南.md)：适合理解浸泡式萃取、厚重口感和多人分享。
+- [挂耳咖啡冲泡指南](brewing/挂耳咖啡冲泡指南.md)：适合理解挂耳、速溶和手冲之间的区别。
+- [意式饮品基础](brewing/意式饮品基础.md)：理解 Espresso、Ristretto、美式、拿铁、澳白和摩卡壶的关系。
 - [爱乐压冲煮指南](brewing/爱乐压冲煮指南.md)：适合快速、便携、容错高的冲煮方式。
 - [虹吸壶冲煮指南](brewing/虹吸壶冲煮指南.md)：适合理解浸泡、加热和风味稳定性。
 - [手冲用水科学](brewing/手冲用水科学.md)：理解硬度、碱度和水质对杯中表现的影响。
@@ -51,3 +57,4 @@ sources:
 - [SCA Coffee Standards](standards/sca-coffee-standards.md)：咖啡标准、杯测、设备和术语的基础来源。
 - [Cup of Excellence（COE）](competitions/cup-of-excellence.md)：了解产地竞赛、获奖批次和精品咖啡拍卖。
 - [Best of Panama（BOP）](competitions/best-of-panama.md)：理解巴拿马瑰夏、高端庄园和拍卖体系。
+- [咖啡烘焙反应基础](brewing/咖啡烘焙反应基础.md)：读懂豆袋和烘焙描述里的“一爆”“发展”“焦苦”“涩感”。

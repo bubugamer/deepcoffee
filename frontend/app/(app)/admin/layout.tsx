@@ -11,6 +11,7 @@ const adminNav = [
   { label: '概览',   href: '/admin' },
   { label: '邀请码', href: '/admin/invites' },
   { label: '用户',   href: '/admin/users' },
+  { label: '支付',   href: '/admin/payments' },
   { label: '审核',   href: '/admin/review' },
   { label: '知识库', href: '/admin/knowledge' },
   { label: '关于',   href: '/admin/about' },

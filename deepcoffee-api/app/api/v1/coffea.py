@@ -22,6 +22,7 @@ from app.models.tables import UserEquipmentItem
 from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
 from app.repositories.coffea_sessions import coffea_session_repository
+from app.repositories.entities import disambig_key
 from app.repositories.equipment import equipment_repository
 from app.repositories.knowledge_grants import knowledge_grant_repository
 from app.repositories.profiles import profile_repository
@@ -251,6 +252,59 @@ def _default_equipment_context(equipment: list[UserEquipmentItem]) -> dict[str, 
     return context
 
 
+def _entity_inventory(
+    beans: list[Bean],
+    brews: list,
+    equipment: list[UserEquipmentItem],
+    *,
+    message: str,
+    active_bean: Bean | None = None,
+    limit: int = 15,
+) -> dict[str, list[dict]]:
+    """喂给冲煮教练的「用户已存实体」紧凑清单（豆卡 / 近期冲煮记录 / 器具）。
+
+    作用：让模型回溯对话后能**对照清单**认出 TA 用名字或代词提到的是哪一支豆 / 哪条记录 /
+    哪件器具，而不是默认就是上一轮聚焦的那支（即 bong bong 被张冠李戴的根因）。
+    只放识别用最小字段，体量小、可常驻每轮注入。
+
+    确定性兜底：本轮消息里若按形态归一（disambig_key）子串命中某些豆名，给这些豆打
+    `referenced_now` 并排到最前，给模型一个不依赖纯推理的强信号。
+    """
+    msg_key = disambig_key(message or "")
+
+    def _referenced(name: str | None) -> bool:
+        bk = disambig_key(name or "")
+        return bool(bk) and len(bk) >= 2 and bk in msg_key
+
+    ordered = list(beans)
+    if active_bean is not None and all(b.bean_id != active_bean.bean_id for b in ordered[:limit]):
+        ordered = [active_bean, *(b for b in ordered if b.bean_id != active_bean.bean_id)]
+    bean_items: list[dict] = []
+    seen: set[str] = set()
+    for b in ordered[:limit]:
+        if b.bean_id in seen:
+            continue
+        seen.add(b.bean_id)
+        item: dict = {"id": b.bean_id, "name": b.name, "roaster": b.roaster_canonical or b.roaster}
+        if _referenced(b.name):
+            item["referenced_now"] = True
+        bean_items.append(item)
+    bean_items.sort(key=lambda x: 0 if x.get("referenced_now") else 1)  # 本轮被点名的豆排最前
+
+    brew_items = [
+        {
+            "id": r.id,
+            "bean": r.bean_name,
+            "method": r.brew_method or r.device,
+            "date": r.created_at.date().isoformat() if r.created_at else None,
+        }
+        for r in brews
+        if getattr(r, "is_user_visible", True)
+    ]
+    equip_items = [{"category": e.category, "name": e.name} for e in equipment]
+    return {"beans": bean_items, "brews": brew_items, "equipment": equip_items}
+
+
 def _brew_record_offer(bean_name: str | None) -> ActionResult:
     """追问卡（追问体系）：豆卡刚录入后，问用户要不要顺手记一次冲煮。
     点「记录一次冲煮」前端发该 message → 下一轮为活跃豆建冲煮草稿；「暂不」前端本地关闭。"""
@@ -381,6 +435,9 @@ async def post_message(
         "recipe": active_recipe.model_dump(mode="json") if active_recipe else None,
         "equipment": _default_equipment_context(equipment),
         "equipment_items": [_equipment_dict(e) for e in equipment],
+        # 全部豆卡 / 近期冲煮记录 / 器具的紧凑清单：供冲煮教练回溯对话后对照识别用户提到的实体，
+        # 避免把代词/名字默认套到 active 豆上（bong bong 被认成另一支的根因）。
+        "inventory": _entity_inventory(beans, brews, equipment, message=payload.message, active_bean=active_bean),
     }
 
     # 记忆注入层：把最近对话（L1）+ 用户画像（L3）汇总成可注入形态，一次构造、分发给调度器与各能力。

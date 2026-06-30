@@ -81,6 +81,29 @@ def test_answer_with_model_sends_images_to_vision_model() -> None:
     assert any(p.get("type") == "image_url" and p["image_url"]["url"] == _IMG for p in user_msg["content"])
 
 
+def test_answer_with_model_includes_model_notes_as_hidden_context() -> None:
+    gw = _FakeGateway("不要直接等同 Geisha。")
+    result = asyncio.run(
+        answer_with_model(
+            "SL9 和 Geisha 一样吗？",
+            [
+                GroundingDoc(
+                    slug="varietals__sl9",
+                    title="SL9",
+                    content="SL9 是少见品系。",
+                    model_notes=["Gesha Inca 不能自动归并为 Geisha。"],
+                )
+            ],
+            model="deepseek-chat",
+            gateway=gw,
+        )
+    )
+    assert result == "不要直接等同 Geisha。"
+    user_text = gw.last_kwargs["messages"][-1]["content"]
+    assert "Gesha Inca 不能自动归并为 Geisha" in user_text
+    assert "不要把它们列为来源" in user_text
+
+
 class _QuotaExhaustedGateway:
     enabled = True
     vision_enabled = False

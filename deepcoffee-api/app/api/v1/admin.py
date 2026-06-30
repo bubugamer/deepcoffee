@@ -28,6 +28,7 @@ from app.schemas.auth import (
     InviteCodeInfo,
     InviteCreateRequest,
 )
+from app.schemas.billing import AdminPaymentOrderInfo
 from app.schemas.candidate import (
     CandidateFact,
     CandidateMergeRequest,
@@ -46,6 +47,7 @@ from app.schemas.proposal import Proposal, ProposalMarkAppliedRequest, ProposalR
 from app.services.candidate_service import candidate_service
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
 from app.services.proposal_service import proposal_service
+from app.services.billing_service import billing_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -154,6 +156,8 @@ async def update_user(
     if payload.plan is not None and payload.plan != profile.plan:
         changes.append(("plan_change", profile.plan, payload.plan))
         profile.plan = payload.plan
+        profile.plan_source = "manual"
+        profile.plan_expires_at = None
     if payload.role is not None and payload.role != profile.role:
         changes.append(("role_change", profile.role, payload.role))
         profile.role = payload.role
@@ -265,6 +269,16 @@ async def list_user_audit(
         )
         for event, actor_email in rows
     ]
+
+
+@router.get("/payments", response_model=list[AdminPaymentOrderInfo])
+async def list_payments(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    _admin: AuthenticatedUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[AdminPaymentOrderInfo]:
+    return await billing_service.list_admin_payments(session, page=page, page_size=page_size)
 
 
 @router.get("/proposals", response_model=list[Proposal])

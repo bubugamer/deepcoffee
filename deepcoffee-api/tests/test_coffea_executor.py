@@ -15,6 +15,7 @@ from app.services.coffea_executor import (
     assemble_reply,
     ensure_brew_draft_result,
     ensure_equipment_capture_for_brew,
+    ensure_equipment_capture_result,
     execute_plan,
 )
 
@@ -386,6 +387,112 @@ def test_equipment_capture_dedupes_known_items() -> None:
     assert r.type == "equipment_capture"
     assert r.output is None
     assert "已经" in r.message
+
+
+def test_coach_receives_entity_inventory() -> None:
+    # 用户全部豆卡 / 记录 / 器具的紧凑清单应进 coach 的 user 消息，供其回溯对话后对照识别
+    # 用户用名字/代词提到的是哪一支（修「bong bong 被认成另一支」的核心）。
+    captured: dict = {}
+
+    class _CaptureGW:
+        enabled = True
+        vision_enabled = True
+
+        async def chat(self, **kwargs):  # noqa: ANN003
+            captured["user"] = kwargs["messages"][-1]["content"]
+            return SimpleNamespace(content="教练回复", model="fake")
+
+    plan = DispatchPlan(primary_intent="direct_answer", actions=[{"type": "direct_answer"}])
+    active_context = {
+        "bean": {"name": "圣洁庄园 苏丹汝魅"},  # 活跃豆是另一支
+        "inventory": {
+            "beans": [
+                {"id": "bean_a36", "name": "Bong Bong", "roaster": "coffee buff", "referenced_now": True},
+                {"id": "bean_be7", "name": "圣洁庄园 苏丹汝魅 厌氧日晒 家族典藏系列", "roaster": None},
+            ],
+            "brews": [],
+            "equipment": [],
+        },
+    }
+    results = _run(plan, message="你存的 bong bong 呢", gateway=_CaptureGW(), active_context=active_context)
+    assert results[0].status == "done"
+    user = captured["user"]
+    user = user if isinstance(user, str) else json.dumps(user, ensure_ascii=False)
+    assert "Bong Bong" in user  # 清单里的 Bong Bong 确实喂给了模型
+    assert "referenced_now" in user  # 本轮被点名的强信号也在
+
+
+def test_equipment_capture_not_triggered_by_bean_recall() -> None:
+    # 纯回忆问话「你忘记了我让你存 bong bong 豆卡」——本轮没点任何器具，
+    # 即便历史里聊过 V60/ZP6S，也不该凭空冒器具草稿（问题 3 的核心修复）。
+    results: list[ActionResult] = []
+    asyncio.run(
+        ensure_equipment_capture_result(
+            results,
+            message="你忘记了我让你存bong bong豆卡这个内容了吗？",
+            model="m",
+            gateway=None,
+            history=[{"role": "assistant", "content": "之前聊过 V60 三段式、ZP6S 4.2 圈"}],
+            active_context={"equipment_items": []},
+        )
+    )
+    assert not any(r.type == "equipment_capture" for r in results)
+
+
+def test_equipment_capture_triggered_by_explicit_equipment_in_message() -> None:
+    # 本轮消息确实点到了器具 + 有保存意图 → 正常补器具草稿。
+    results: list[ActionResult] = []
+    asyncio.run(
+        ensure_equipment_capture_result(
+            results,
+            message="我新买了 V60，也在用 ZP6S",
+            model="m",
+            gateway=None,
+            history=None,
+            active_context={"equipment_items": []},
+        )
+    )
+    eq = [r for r in results if r.type == "equipment_capture"]
+    assert eq and eq[0].output
+    items = eq[0].output["items"]
+    assert {"category": "brewer", "name": "V60"} in items
+    assert {"category": "grinder", "name": "ZP6S"} in items
+
+
+def test_equipment_capture_ignores_history_equipment() -> None:
+    # 本轮只提了法压壶 → 只抽法压壶；历史里的 V60/ZP6S 不被翻出来。
+    results: list[ActionResult] = []
+    asyncio.run(
+        ensure_equipment_capture_result(
+            results,
+            message="我新买了一个法压壶",
+            model="m",
+            gateway=None,
+            history=[{"role": "user", "content": "我之前用 V60 和 ZP6S"}],
+            active_context={"equipment_items": []},
+        )
+    )
+    eq = [r for r in results if r.type == "equipment_capture"]
+    assert eq and eq[0].output
+    names = {i["name"] for i in eq[0].output["items"]}
+    assert "法压壶" in names
+    assert "V60" not in names and "ZP6S" not in names
+
+
+def test_entity_inventory_marks_referenced_bean() -> None:
+    # 本轮消息按形态归一子串命中的豆名应被标 referenced_now 并排到最前（确定性强信号）。
+    from app.api.v1.coffea import _entity_inventory
+
+    def _bean(bean_id: str, name: str, roaster: str | None = None) -> SimpleNamespace:
+        return SimpleNamespace(bean_id=bean_id, name=name, roaster=roaster, roaster_canonical=None)
+
+    beans = [
+        _bean("bean_be7", "圣洁庄园 苏丹汝魅 厌氧日晒 家族典藏系列"),
+        _bean("bean_a36", "Bong Bong", "coffee buff"),
+    ]
+    inv = _entity_inventory(beans, [], [], message="你忘记了我让你存bong bong豆卡", active_bean=beans[0])
+    assert inv["beans"][0]["name"] == "Bong Bong"
+    assert inv["beans"][0]["referenced_now"] is True
 
 
 def test_brew_draft_can_append_unsaved_equipment_capture() -> None:

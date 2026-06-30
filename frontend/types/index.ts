@@ -399,6 +399,8 @@ export interface UserProfile {
   email?: string
   display_name?: string
   plan: string
+  plan_source?: string
+  plan_expires_at?: string | null
   role?: string          // 'user' | 'admin' — 管理后台入口与守卫依据
   status?: string        // 'active' | 'disabled'
   invite_bound?: boolean // false 时弹「补填邀请码」（后端门禁 invite_required 的前置提示）
@@ -427,6 +429,56 @@ export interface BillingPlan {
   request_limit: number | null
   period: string
   features: string[]
+  prices?: Record<string, {
+    amount: number
+    currency: string
+    interval: 'monthly' | 'yearly'
+    display: string
+  }>
+}
+
+export type BillingInterval = 'monthly' | 'yearly'
+export type PaidPlan = 'pro' | 'max'
+
+export interface BillingOrderStatus {
+  id: string
+  provider: 'alipay' | 'stripe'
+  plan: string
+  interval: BillingInterval
+  amount: number
+  currency: string
+  status: string
+  qr_code?: string | null
+  checkout_url?: string | null
+  expires_at?: string | null
+  paid_at?: string | null
+  period_end?: string | null
+}
+
+export interface AlipayOrderResponse extends BillingOrderStatus {
+  provider: 'alipay'
+  plan: PaidPlan
+  qr_code: string
+  expires_at: string
+}
+
+export interface StripeCheckoutResponse {
+  id: string
+  provider: 'stripe'
+  plan: PaidPlan
+  interval: BillingInterval
+  status: string
+  checkout_url: string
+}
+
+export interface BillingStatus {
+  plan: string
+  plan_source: string
+  plan_expires_at?: string | null
+  active_subscription_status?: string | null
+  active_subscription_interval?: string | null
+  active_subscription_provider?: string | null
+  active_subscription_renews_at?: string | null
 }
 
 // ── AI Chat ────────────────────────────────────────────────────────────────

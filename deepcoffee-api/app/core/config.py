@@ -15,7 +15,7 @@ def default_repo_root() -> Path:
 
 class Settings(BaseSettings):
     app_name: str = "DeepCoffee API"
-    app_version: str = "0.35.2"
+    app_version: str = "0.36.0"
     app_env: str = Field(default="local", validation_alias=AliasChoices("DEEPCOFFEE_APP_ENV", "APP_ENV"))
     api_prefix: str = "/v1"
     docs_enabled: bool = True
@@ -141,6 +141,67 @@ class Settings(BaseSettings):
     ai_quota_basic: int = Field(default=99, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_BASIC", "AI_QUOTA_BASIC"))
     ai_quota_pro: int = Field(default=500, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_PRO", "AI_QUOTA_PRO"))
     ai_quota_max: int = Field(default=1000, validation_alias=AliasChoices("DEEPCOFFEE_AI_QUOTA_MAX", "AI_QUOTA_MAX"))
+
+    # Payment integration. Provider secrets are optional so the app can deploy
+    # before the merchant accounts are fully configured; payment routes return a
+    # clear 501 until the required values are present.
+    frontend_public_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("DEEPCOFFEE_FRONTEND_PUBLIC_URL", "FRONTEND_PUBLIC_URL"),
+    )
+    backend_public_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_BACKEND_PUBLIC_URL", "BACKEND_PUBLIC_URL"),
+    )
+    alipay_gateway_url: str = Field(
+        default="https://openapi.alipay.com/gateway.do",
+        validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_GATEWAY_URL", "ALIPAY_GATEWAY_URL"),
+    )
+    alipay_app_id: str | None = Field(default=None, validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_APP_ID", "ALIPAY_APP_ID"))
+    alipay_app_private_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_APP_PRIVATE_KEY", "ALIPAY_APP_PRIVATE_KEY"),
+    )
+    alipay_public_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_PUBLIC_KEY", "ALIPAY_PUBLIC_KEY"),
+    )
+    alipay_seller_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_SELLER_ID", "ALIPAY_SELLER_ID"),
+    )
+    alipay_notify_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_NOTIFY_URL", "ALIPAY_NOTIFY_URL"),
+    )
+    alipay_order_ttl_minutes: int = Field(
+        default=15,
+        validation_alias=AliasChoices("DEEPCOFFEE_ALIPAY_ORDER_TTL_MINUTES", "ALIPAY_ORDER_TTL_MINUTES"),
+    )
+    stripe_secret_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"),
+    )
+    stripe_webhook_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET"),
+    )
+    stripe_price_pro_monthly: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_STRIPE_PRICE_PRO_MONTHLY", "STRIPE_PRICE_PRO_MONTHLY"),
+    )
+    stripe_price_pro_yearly: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_STRIPE_PRICE_PRO_YEARLY", "STRIPE_PRICE_PRO_YEARLY"),
+    )
+    stripe_price_max_monthly: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_STRIPE_PRICE_MAX_MONTHLY", "STRIPE_PRICE_MAX_MONTHLY"),
+    )
+    stripe_price_max_yearly: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEEPCOFFEE_STRIPE_PRICE_MAX_YEARLY", "STRIPE_PRICE_MAX_YEARLY"),
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

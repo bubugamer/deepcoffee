@@ -10,6 +10,7 @@ from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.models.tables import InviteCode, UserProfile
 from app.repositories.profiles import profile_repository
+from app.services.billing_service import billing_service
 
 
 async def require_member(
@@ -22,6 +23,8 @@ async def require_member(
     挂在业务 router 的 dependencies 上。invite_required 是前端「补填邀请码」界面的触发信号；
     未建档用户（profile 缺失）同样走 invite_required——补码流程里 redeem 会先建档。
     """
+    profile = await session.get(UserProfile, user.id)
+    await billing_service.sync_expired_membership(session, user.id)
     profile = await session.get(UserProfile, user.id)
     if profile is not None and profile.status == "disabled":
         raise AppError(403, "account_disabled", "账号已被禁用，如有疑问请联系管理员。")
@@ -49,4 +52,5 @@ async def require_ai_quota(
     挂在路由装饰器的 dependencies 里即可，handler 函数签名/函数体无需改动。FastAPI 在单个
     请求内复用同一 get_session 依赖结果，门禁与 handler 用同一 session，计数一致。
     """
+    await billing_service.sync_expired_membership(session, user.id)
     await profile_repository.assert_ai_quota(session, user.id, settings=settings)

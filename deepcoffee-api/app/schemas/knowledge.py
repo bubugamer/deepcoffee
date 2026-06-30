@@ -82,6 +82,7 @@ class GroundingDoc(BaseModel):
     slug: str
     title: str
     content: str
+    model_notes: list[str] = Field(default_factory=list)
 
 
 class KnowledgeAskResponse(BaseModel):
