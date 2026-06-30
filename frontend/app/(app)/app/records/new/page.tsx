@@ -80,7 +80,7 @@ export default function NewBrewRecordPage() {
         <div className="dc-card p-6">
           <h2 className="text-sm font-semibold text-dc-text-1 mb-2">需要先有一张豆卡</h2>
           <p className="text-sm text-dc-text-3 mb-4">冲煮记录必须关联豆仓中的一款豆子。</p>
-          <Link href="/app/chat?new=1" className="btn-primary text-sm py-2 inline-flex">去建豆卡</Link>
+          <Link href="/app/beans/new" className="btn-primary text-sm py-2 inline-flex">去建豆卡</Link>
         </div>
       ) : (
         <div className="max-w-3xl">

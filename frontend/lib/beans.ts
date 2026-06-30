@@ -1,4 +1,4 @@
-import type { BeanRecommendedParams, BrewEvaluation } from '@/types'
+import type { Bean, BeanComponent, BeanRecommendedParams, BrewEvaluation } from '@/types'
 
 export function formatBrewSeconds(seconds?: number): string | undefined {
   if (seconds === undefined || seconds === null) return undefined
@@ -138,6 +138,120 @@ export function flavorEmoji(note: string, noteEmojis?: Record<string, string> | 
     if (keywords.some((kw) => n.includes(kw))) return emoji
   }
   return null
+}
+
+// ── 豆源（component）编辑草稿 + 与后端 BeanComponent 互转 ─────────────
+// 表单里每条豆源用字符串草稿编辑（品种用逗号分隔），保存时转回 BeanComponent。
+// 新建页与详情页编辑共用，避免两套逻辑漂移。
+export interface ComponentDraft {
+  origin_name: string
+  coffee_source_name: string
+  green_bean_merchant_name: string
+  green_bean_product_name: string
+  process_name: string
+  varietalsText: string
+  altitude_text: string
+  harvest_date_text: string
+  share_text: string
+  notes: string
+}
+
+export const EMPTY_COMPONENT_DRAFT: ComponentDraft = {
+  origin_name: '', coffee_source_name: '', green_bean_merchant_name: '', green_bean_product_name: '',
+  process_name: '', varietalsText: '', altitude_text: '', harvest_date_text: '', share_text: '', notes: '',
+}
+
+function trimOrNull(text: string): string | null {
+  const t = text.trim()
+  return t ? t : null
+}
+
+export function splitVarietals(text: string): string[] {
+  return text.split(/[，,]/).map((s) => s.trim()).filter(Boolean)
+}
+
+export function componentToDraft(c: BeanComponent): ComponentDraft {
+  return {
+    origin_name: c.origin_name ?? '',
+    coffee_source_name: c.coffee_source_name ?? '',
+    green_bean_merchant_name: c.green_bean_merchant_name ?? '',
+    green_bean_product_name: c.green_bean_product_name ?? '',
+    process_name: c.process_name ?? '',
+    varietalsText: (c.varietal_names ?? []).join('，'),
+    altitude_text: c.altitude_text ?? '',
+    harvest_date_text: c.harvest_date_text ?? '',
+    share_text: c.share_text ?? '',
+    notes: c.notes ?? '',
+  }
+}
+
+export function draftToComponent(c: ComponentDraft): BeanComponent {
+  return {
+    origin_name: trimOrNull(c.origin_name),
+    coffee_source_name: trimOrNull(c.coffee_source_name),
+    green_bean_merchant_name: trimOrNull(c.green_bean_merchant_name),
+    green_bean_product_name: trimOrNull(c.green_bean_product_name),
+    process_name: trimOrNull(c.process_name),
+    varietal_names: splitVarietals(c.varietalsText),
+    altitude_text: trimOrNull(c.altitude_text),
+    harvest_date_text: trimOrNull(c.harvest_date_text),
+    share_text: trimOrNull(c.share_text),
+    notes: trimOrNull(c.notes),
+  }
+}
+
+export function componentHasContent(c: ComponentDraft): boolean {
+  return [
+    c.origin_name, c.coffee_source_name, c.green_bean_merchant_name, c.green_bean_product_name,
+    c.process_name, c.varietalsText, c.altitude_text, c.harvest_date_text, c.share_text, c.notes,
+  ].some((v) => v.trim().length > 0)
+}
+
+export function normalizedComponentsForSave(components: ComponentDraft[]): ComponentDraft[] {
+  return components.filter(componentHasContent)
+}
+
+// 至少一条有效豆源；填了内容的豆源必须有产地 + 处理法。返回错误文案或 null。
+export function validateComponentsForSave(components: ComponentDraft[]): string | null {
+  const active = normalizedComponentsForSave(components)
+  if (active.length === 0) return '请在「豆源」里至少填写一条产地和处理法。'
+  const invalid = components.findIndex((c) => componentHasContent(c) && (!c.origin_name.trim() || !c.process_name.trim()))
+  if (invalid >= 0) {
+    const c = components[invalid]
+    const missing = [!c.origin_name.trim() ? '产地' : '', !c.process_name.trim() ? '处理法' : ''].filter(Boolean).join('、')
+    return `请补全豆源 ${invalid + 1} 的${missing}。`
+  }
+  return null
+}
+
+// ── 处理法常见值 + 从已有豆卡抽下拉建议 ───────────────────────────────
+export const COMMON_PROCESSES = [
+  '水洗', '日晒', '蜜处理', '红蜜', '黄蜜', '白蜜', '半水洗', '湿刨',
+  '厌氧日晒', '厌氧水洗', '厌氧蜜处理', '二氧化碳浸渍', '热冲击', '酒香处理', '双重发酵',
+]
+
+export interface BeanFieldSuggestions {
+  processes: string[]
+  origins: string[]
+  varietals: string[]
+}
+
+// 下拉/输入建议 = 常见处理法 ∪ 用户已有豆卡里出现过的处理法/产地/品种（去重）。
+export function beanFieldSuggestions(beans: Bean[]): BeanFieldSuggestions {
+  const processes = new Set<string>(COMMON_PROCESSES)
+  const origins = new Set<string>()
+  const varietals = new Set<string>()
+  for (const bean of beans) {
+    for (const c of bean.bean_components ?? []) {
+      if (c.process_name) processes.add(c.process_name)
+      if (c.origin_name) origins.add(c.origin_name)
+      for (const v of c.varietal_names ?? []) if (v) varietals.add(v)
+    }
+    if (bean.process) processes.add(bean.process)
+    if (bean.origin) origins.add(bean.origin)
+    for (const v of bean.varietal ?? []) if (v) varietals.add(v)
+  }
+  return { processes: [...processes], origins: [...origins], varietals: [...varietals] }
 }
 
 // ── 评分维度标签（背面卡「用户评价」用）──────────────────────────────

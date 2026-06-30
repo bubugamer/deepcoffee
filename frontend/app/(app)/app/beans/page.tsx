@@ -278,7 +278,7 @@ export default function BeansPage() {
     <div className="p-4 sm:p-8 max-w-content mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-dc-text-1">我的豆仓</h1>
-        <Link href="/app/chat?new=bean" className="btn-primary text-sm flex items-center gap-1.5 px-4 py-2">
+        <Link href="/app/beans/new" className="btn-primary text-sm flex items-center gap-1.5 px-4 py-2">
           <Plus size={14} /> 新建豆卡
         </Link>
       </div>
