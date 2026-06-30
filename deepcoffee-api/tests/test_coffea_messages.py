@@ -486,7 +486,9 @@ def test_session_result_patch_preserves_saved_card_state() -> None:
     assert not (repeated_brew[0].get("output") or {}).get("draft")
 
 
-def test_equipment_capture_uses_recent_dialog_when_user_only_says_save() -> None:
+def test_equipment_capture_not_triggered_by_bare_save_without_equipment_in_message() -> None:
+    # 旧行为：只说「要存」会从历史里翻出器具凑草稿——正是「纯回忆/无关消息凭空冒器具草稿」的病灶，已移除。
+    # 新行为：器具草稿只看当前这句是否真的点到具体器具；只说「要存」（本句无器具名）一律不触发，即便历史里聊过器具。
     headers = {"Authorization": "Bearer dev:eq-context-save-1:eq-context-save-1@example.com"}
     client = TestClient(create_app())
     first = client.post(
@@ -503,11 +505,7 @@ def test_equipment_capture_uses_recent_dialog_when_user_only_says_save() -> None
         json={"message": "要存", "session_id": sid},
     )
     assert second.status_code == 200, second.text
-    equipment = _result(second.json(), "equipment_capture")
-    assert equipment
-    items = equipment[0]["output"]["items"]
-    assert {"category": "grinder", "name": "ZP6S"} in items
-    assert {"category": "water", "name": "农夫山泉"} in items
+    assert not _result(second.json(), "equipment_capture")
 
 
 def test_equipment_capture_only_when_user_owns_or_saves() -> None:
