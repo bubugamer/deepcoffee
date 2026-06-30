@@ -301,7 +301,9 @@ function SettingsContent() {
     ? '银行卡订阅'
     : billingStatus?.plan_source === 'alipay'
       ? '支付宝购买'
-      : '手动开通'
+      : billingStatus?.plan_source === 'invite'
+        ? '邀请赠送'
+        : '手动开通'
   const selectedIntervalLabel = billingInterval === 'monthly' ? '月付' : '年付'
   const paidPlans = useMemo(() => ([
     { id: 'pro' as const, title: 'Pro', fallbackMonthly: 59, fallbackYearly: 568, features: planCardFeatures.pro },

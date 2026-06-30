@@ -70,6 +70,8 @@ function AuthInner() {
   const [error, setError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [inviteState, setInviteState] = useState<InviteState>('idle')
+  // 校验通过时该码赠送的会员（供注册页预览）
+  const [inviteGift, setInviteGift] = useState<{ plan: string; months: number | null } | null>(null)
   const [revalidateTick, setRevalidateTick] = useState(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 校验请求序号：快速连续输入时丢弃过期响应，避免旧结果覆盖新状态
@@ -84,6 +86,7 @@ function AuthInner() {
   useEffect(() => {
     if (!inviteCode.trim() || !isApiEnabled) {
       setInviteState('idle')
+      setInviteGift(null)
       return
     }
     setInviteState('checking')
@@ -92,9 +95,12 @@ function AuthInner() {
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await validateInviteCode(inviteCode.trim().toUpperCase())
-        if (seq === validateSeqRef.current) setInviteState(res.valid ? 'valid' : 'invalid')
+        if (seq === validateSeqRef.current) {
+          setInviteState(res.valid ? 'valid' : 'invalid')
+          setInviteGift(res.valid && res.gift_plan ? { plan: res.gift_plan, months: res.gift_duration_months ?? null } : null)
+        }
       } catch {
-        if (seq === validateSeqRef.current) setInviteState('error')
+        if (seq === validateSeqRef.current) { setInviteState('error'); setInviteGift(null) }
       }
     }, 600)
     return () => {
@@ -143,8 +149,7 @@ function AuthInner() {
     if (!email || !password) { setError('请填写邮箱和密码'); return }
     if (password !== confirmPassword) { setError('两次密码不一致'); return }
     if (password.length < 8) { setError('密码至少 8 位'); return }
-    // 防御性兜底：正常情况下按钮在非 valid 状态下不可点，到不了这里
-    if (isApiEnabled && inviteState !== 'valid') { setError('请输入有效的邀请码'); return }
+    // 公测：邀请码可选。无码也能注册（basic）；有码则首登后核销并发放赠送会员。
     setLoading(true)
     try {
       const { data, error: authError } = await supabase.auth.signUp({ email, password })
@@ -201,15 +206,6 @@ function AuthInner() {
     setToken('dev:u1:dev@deepcoffee.local')
     router.push('/app')
   }
-
-  // 注册按钮置灰逻辑：邀请码非 valid 一律不可点，并显示原因
-  const inviteGateBlocked = isApiEnabled && inviteState !== 'valid'
-  const inviteGateReason: string | null = !isApiEnabled ? null : (
-    inviteState === 'idle' ? '请输入邀请码' :
-    inviteState === 'checking' ? '正在校验邀请码…' :
-    inviteState === 'invalid' ? '邀请码无效' :
-    inviteState === 'error' ? '邀请码校验失败，请重试' : null
-  )
 
   return (
     <div className="min-h-dvh bg-dc-bg flex flex-col items-center justify-center px-4">
@@ -373,7 +369,7 @@ function AuthInner() {
             </div>
             <div>
               <label className="text-xs text-dc-text-3 mb-1.5 block">
-                邀请码 <span className="text-dc-red text-xs">*</span>
+                邀请码 <span className="text-dc-text-3 text-xs">（可选，有码可领赠送会员）</span>
               </label>
               <div className="relative">
                 <input
@@ -385,7 +381,7 @@ function AuthInner() {
                       : ''
                   }`}
                   type="text"
-                  placeholder="输入邀请码"
+                  placeholder="有邀请码就填，没有可留空"
                   value={inviteCode}
                   onChange={e => setInviteCode(e.target.value)}
                   autoCapitalize="characters"
@@ -410,20 +406,21 @@ function AuthInner() {
                 </button>
               )}
               {inviteState === 'valid' && (
-                <p className="text-xs text-dc-green mt-1">邀请码有效</p>
+                <p className="text-xs text-dc-green mt-1">
+                  {inviteGift
+                    ? `邀请码有效，注册后可领 ${inviteGift.plan === 'max' ? 'Max' : 'Pro'} 会员${inviteGift.months ? ` ${inviteGift.months} 个月` : ''}`
+                    : '邀请码有效'}
+                </p>
               )}
             </div>
             <button
               type="submit"
-              disabled={loading || inviteGateBlocked}
+              disabled={loading}
               className="btn-primary w-full py-3 text-sm mt-2 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {(loading || inviteState === 'checking') && <Loader2 size={14} className="animate-spin" />}
+              {loading && <Loader2 size={14} className="animate-spin" />}
               创建账户
             </button>
-            {inviteGateBlocked && inviteGateReason && (
-              <p className="text-center text-xs text-dc-text-3">{inviteGateReason}</p>
-            )}
             <p className="text-center text-xs text-dc-text-3 leading-relaxed">
               注册即表示你同意我们的
               <span className="text-dc-accent cursor-pointer hover:underline mx-1">隐私协议</span>

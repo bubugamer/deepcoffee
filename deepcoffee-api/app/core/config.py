@@ -15,7 +15,7 @@ def default_repo_root() -> Path:
 
 class Settings(BaseSettings):
     app_name: str = "DeepCoffee API"
-    app_version: str = "0.36.0"
+    app_version: str = "0.37.0"
     app_env: str = Field(default="local", validation_alias=AliasChoices("DEEPCOFFEE_APP_ENV", "APP_ENV"))
     api_prefix: str = "/v1"
     docs_enabled: bool = True
@@ -128,9 +128,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEEPCOFFEE_BOOTSTRAP_INVITE_CODE", "BOOTSTRAP_INVITE_CODE"),
     )
     # 后端强制邀请门禁：业务接口要求用户已消费过邀请码（或为 admin），否则 403 invite_required。
-    # 本地用 dev token 调业务接口时可临时关掉（false），生产保持 true。
+    # 公测放开注册后默认关闭（注册不再需要邀请码）；如需重新设门禁可显式设为 true。
     enforce_invite_gate: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("DEEPCOFFEE_ENFORCE_INVITE_GATE", "ENFORCE_INVITE_GATE"),
     )
     # 邀请码注册制：默认不预置任何「万能码」。所有邀请码须经 POST /v1/admin/invites 生成，

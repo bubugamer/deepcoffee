@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+GiftPlan = Literal["pro", "max"]
+GiftDurationMonths = Literal[1, 3, 6, 12]
 
 
 class InviteValidateRequest(BaseModel):
@@ -12,6 +16,9 @@ class InviteValidateRequest(BaseModel):
 class InviteValidateResponse(BaseModel):
     valid: bool
     message: str
+    # 该码兑换后赠送的会员等级与时长（供注册页预览；无赠送则为 None）。
+    gift_plan: str | None = None
+    gift_duration_months: int | None = None
 
 
 class InviteRedeemRequest(BaseModel):
@@ -30,6 +37,8 @@ class InviteCodeInfo(BaseModel):
     status: str
     expires_at: datetime | None = None
     note: str | None = None
+    gift_plan: str | None = None
+    gift_duration_months: int | None = None
     used_by: str | None = None
     used_by_email: str | None = None
     used_at: datetime | None = None
@@ -40,6 +49,9 @@ class InviteCreateRequest(BaseModel):
     count: int = Field(default=1, ge=1, le=100)
     expires_at: datetime | None = None
     note: str | None = Field(default=None, max_length=200)
+    # 公测：每个邀请码即一张会员赠送券，生成时必须指定赠什么 + 赠多久。
+    gift_plan: GiftPlan = "pro"
+    gift_duration_months: GiftDurationMonths = 1
 
 
 class UserProfile(BaseModel):

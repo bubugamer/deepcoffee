@@ -20,6 +20,13 @@ const statusBadge: Record<string, string> = {
   revoked: 'bg-red-50 text-dc-red',
 }
 
+// 赠送展示：'pro' + 3 → 「Pro · 3 个月」；无赠送则 '—'。
+function giftLabel(plan?: string | null, months?: number | null): string {
+  if (!plan) return '—'
+  const name = plan === 'max' ? 'Max' : plan === 'pro' ? 'Pro' : plan
+  return months ? `${name} · ${months} 个月` : name
+}
+
 export default function AdminInvitesPage() {
   const [items, setItems] = useState<InviteCodeInfo[] | null>(null)
   const [filter, setFilter] = useState('')
@@ -30,6 +37,8 @@ export default function AdminInvitesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [count, setCount] = useState(5)
   const [note, setNote] = useState('')
+  const [giftPlan, setGiftPlan] = useState<'pro' | 'max'>('pro')
+  const [giftMonths, setGiftMonths] = useState<1 | 3 | 6 | 12>(1)
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<InviteCodeInfo[] | null>(null)
 
@@ -46,7 +55,12 @@ export default function AdminInvitesPage() {
     e.preventDefault()
     setCreating(true)
     try {
-      const rows = await createInvites({ count, note: note.trim() || undefined })
+      const rows = await createInvites({
+        count,
+        note: note.trim() || undefined,
+        gift_plan: giftPlan,
+        gift_duration_months: giftMonths,
+      })
       setCreated(rows)
       refresh()
     } catch (err) {
@@ -107,6 +121,7 @@ export default function AdminInvitesPage() {
             <tr className="text-left text-xs text-dc-text-3 border-b border-dc-border">
               <th className="px-4 py-3 font-medium">邀请码</th>
               <th className="px-4 py-3 font-medium">状态</th>
+              <th className="px-4 py-3 font-medium">赠送</th>
               <th className="px-4 py-3 font-medium">使用者</th>
               <th className="px-4 py-3 font-medium">备注</th>
               <th className="px-4 py-3 font-medium">创建时间</th>
@@ -115,12 +130,12 @@ export default function AdminInvitesPage() {
           </thead>
           <tbody className="divide-y divide-dc-border">
             {items === null && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-dc-text-3">
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-dc-text-3">
                 <Loader2 size={15} className="animate-spin inline mr-2" />加载中…
               </td></tr>
             )}
             {items?.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-dc-text-3">暂无邀请码</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-dc-text-3">暂无邀请码</td></tr>
             )}
             {items?.map(row => (
               <tr key={row.code}>
@@ -130,6 +145,7 @@ export default function AdminInvitesPage() {
                     {row.status}
                   </span>
                 </td>
+                <td className="px-4 py-3 text-xs text-dc-text-2 whitespace-nowrap">{giftLabel(row.gift_plan, row.gift_duration_months)}</td>
                 <td className="px-4 py-3 text-dc-text-2">{row.used_by_email ?? '—'}</td>
                 <td className="px-4 py-3 text-dc-text-3 max-w-40 truncate">{row.note ?? '—'}</td>
                 <td className="px-4 py-3 text-xs text-dc-text-3">{new Date(row.created_at).toLocaleString('zh-CN')}</td>
@@ -190,6 +206,32 @@ export default function AdminInvitesPage() {
                     className="dc-input" type="number" min={1} max={100} value={count}
                     onChange={e => setCount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-dc-text-3 mb-1.5 block">赠送等级</label>
+                    <select
+                      className="dc-input"
+                      value={giftPlan}
+                      onChange={e => setGiftPlan(e.target.value as 'pro' | 'max')}
+                    >
+                      <option value="pro">Pro</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-dc-text-3 mb-1.5 block">赠送时长</label>
+                    <select
+                      className="dc-input"
+                      value={giftMonths}
+                      onChange={e => setGiftMonths(Number(e.target.value) as 1 | 3 | 6 | 12)}
+                    >
+                      <option value={1}>1 个月</option>
+                      <option value={3}>3 个月</option>
+                      <option value={6}>6 个月</option>
+                      <option value={12}>12 个月</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs text-dc-text-3 mb-1.5 block">备注（可选）</label>

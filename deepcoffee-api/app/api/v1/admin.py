@@ -82,7 +82,12 @@ async def create_invites(
 ) -> list[InviteCodeInfo]:
     repository = InviteRepository(default_codes=set())
     return await repository.create_codes(
-        session, count=payload.count, expires_at=payload.expires_at, note=payload.note
+        session,
+        count=payload.count,
+        expires_at=payload.expires_at,
+        note=payload.note,
+        gift_plan=payload.gift_plan,
+        gift_duration_months=payload.gift_duration_months,
     )
 
 
