@@ -107,6 +107,9 @@ class InviteCode(Base):
     status: Mapped[str] = mapped_column(String, default="active", server_default="active", nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(Text)
+    # 赠送会员凭证：兑换该码即开通对应等级（pro/max）+ 时长（月）。null = 不赠（如 bootstrap 码）。
+    gift_plan: Mapped[str | None] = mapped_column(String)
+    gift_duration_months: Mapped[int | None] = mapped_column(Integer)
     used_by: Mapped[str | None] = mapped_column(String, ForeignKey("user_profiles.id"))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

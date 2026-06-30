@@ -82,6 +82,15 @@ def _add_interval(start: datetime, interval: str) -> datetime:
     return start.replace(year=year, month=month, day=day)
 
 
+def _add_months(start: datetime, months: int) -> datetime:
+    """在 start 上加 N 个自然月，跨年进位，目标月没有该日则夹到月末（如 1/31 + 1 月 → 2/28）。"""
+    total = start.month - 1 + months
+    year = start.year + total // 12
+    month = total % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return start.replace(year=year, month=month, day=day)
+
+
 def _validate_paid_plan(plan: str, interval: str) -> tuple[str, str]:
     normalized = normalize_plan(plan)
     if normalized not in VALID_PAID_PLANS:
@@ -486,6 +495,24 @@ class BillingService:
         row.period_start = period_start
         row.period_end = period_end
         await self._activate_membership(session, row.user_id, row.plan, row.provider, period_end)
+
+    async def grant_membership(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        *,
+        plan: str,
+        months: int,
+        source: str = "invite",
+    ) -> datetime:
+        """按「等级 + 月数」开通会员（邀请码赠送等场景复用）。
+
+        plan_source 非 'manual'，故 sync_expired_membership 会在 plan_expires_at 到期后自动回落 basic。
+        返回开通到期时间。
+        """
+        expires_at = _add_months(_now(), max(1, months))
+        await self._activate_membership(session, user_id, normalize_plan(plan), source, expires_at)
+        return expires_at
 
     async def _activate_membership(self, session: AsyncSession, user_id: str, plan: str, source: str, expires_at: datetime) -> None:
         profile = await session.get(UserProfile, user_id)

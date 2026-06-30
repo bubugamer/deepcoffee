@@ -17,6 +17,8 @@ export interface InviteCodeInfo {
   status: string // active | used | revoked
   expires_at?: string | null
   note?: string | null
+  gift_plan?: string | null // 'pro' | 'max' | null
+  gift_duration_months?: number | null // 1 | 3 | 6 | 12
   used_by?: string | null
   used_by_email?: string | null
   used_at?: string | null
@@ -164,7 +166,13 @@ export function listInvites(status?: string): Promise<InviteCodeInfo[]> {
   return apiFetch(`/admin/invites${q}`)
 }
 
-export function createInvites(body: { count: number; note?: string; expires_at?: string }): Promise<InviteCodeInfo[]> {
+export function createInvites(body: {
+  count: number
+  note?: string
+  expires_at?: string
+  gift_plan?: 'pro' | 'max'
+  gift_duration_months?: 1 | 3 | 6 | 12
+}): Promise<InviteCodeInfo[]> {
   return apiFetch('/admin/invites', { method: 'POST', body: JSON.stringify(body) })
 }
 

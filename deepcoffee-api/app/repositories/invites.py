@@ -71,10 +71,18 @@ class InviteRepository:
         count: int,
         expires_at: datetime | None = None,
         note: str | None = None,
+        gift_plan: str | None = None,
+        gift_duration_months: int | None = None,
     ) -> list[InviteCodeInfo]:
         rows: list[InviteCode] = []
         for _ in range(count):
-            row = InviteCode(code=_generate_code(), expires_at=expires_at, note=note)
+            row = InviteCode(
+                code=_generate_code(),
+                expires_at=expires_at,
+                note=note,
+                gift_plan=gift_plan,
+                gift_duration_months=gift_duration_months,
+            )
             session.add(row)
             rows.append(row)
         await session.flush()

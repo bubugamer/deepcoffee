@@ -104,7 +104,9 @@ export async function getBillingPlans(): Promise<BillingPlan[]> {
 }
 
 // POST /v1/invites/validate（公开，无需 token）
-export async function validateInviteCode(code: string): Promise<{ valid: boolean; message: string }> {
+export async function validateInviteCode(
+  code: string,
+): Promise<{ valid: boolean; message: string; gift_plan?: string | null; gift_duration_months?: number | null }> {
   return apiFetch('/invites/validate', {
     method: 'POST',
     body: JSON.stringify({ code }),

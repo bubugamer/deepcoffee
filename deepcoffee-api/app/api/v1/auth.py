@@ -38,9 +38,19 @@ async def validate_invite(
     session: AsyncSession = Depends(get_session),
 ) -> InviteValidateResponse:
     valid = await repository.validate(session, payload.code)
+    gift_plan: str | None = None
+    gift_duration_months: int | None = None
+    if valid:
+        # 命中库内邀请码时带上赠送信息，供注册页预览「该码可领 Pro 会员 3 个月」。
+        row = await session.get(InviteCode, payload.code.strip().upper())
+        if row is not None:
+            gift_plan = row.gift_plan
+            gift_duration_months = row.gift_duration_months
     return InviteValidateResponse(
         valid=valid,
         message="Invite code is valid." if valid else "Invite code is invalid or already used.",
+        gift_plan=gift_plan,
+        gift_duration_months=gift_duration_months,
     )
 
 
@@ -56,10 +66,21 @@ async def redeem_invite(
     redeemed = await repository.consume(session, payload.code, user.id)
     if not redeemed:
         raise AppError(400, "invite_invalid", "邀请码无效或已被使用。")
+    normalized = payload.code.strip().upper()
     # 初始化邀请码：消费它的注册者自动成为管理员（码本身一次性，且仅在系统
     # 尚无管理员时才会入库，见 services/bootstrap.py）。
-    if payload.code.strip().upper() == normalized_bootstrap_code(settings):
+    if normalized == normalized_bootstrap_code(settings):
         await profile_repository.set_role(session, user.id, "admin")
+    # 赠送会员券：消费成功后取回该码，按其赠送等级 + 时长开通会员（bootstrap 等无 gift 的码不影响 plan）。
+    row = await session.get(InviteCode, normalized)
+    if row is not None and row.gift_plan:
+        await billing_service.grant_membership(
+            session,
+            user.id,
+            plan=row.gift_plan,
+            months=row.gift_duration_months or 1,
+            source="invite",
+        )
     return InviteRedeemResponse(redeemed=True, message="邀请码已使用。")
 
 
