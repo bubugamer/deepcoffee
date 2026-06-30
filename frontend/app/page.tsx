@@ -77,7 +77,7 @@ export default async function LandingPage() {
     },
   ]
   return (
-    <div className="bg-dc-bg min-h-screen">
+    <div className="bg-dc-bg min-h-dvh">
       <PublicNav />
 
       {/* ── Hero ─────────────────────────────── */}
