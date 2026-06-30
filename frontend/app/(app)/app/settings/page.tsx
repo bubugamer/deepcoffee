@@ -620,7 +620,7 @@ function SettingsContent() {
                           </li>
                         ))}
                       </ul>
-                      {canBuy ? (
+                      {canBuy && (
                         <div className="space-y-2">
                           <button
                             type="button"
@@ -640,10 +640,6 @@ function SettingsContent() {
                             {paying === `stripe:${plan.id}` ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
                             国际银行卡订阅
                           </button>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-dc-border bg-dc-subtle px-3 py-3 text-xs text-dc-text-3">
-                          {active ? '当前套餐已生效。' : 'Max 已包含该套餐权益。'}
                         </div>
                       )}
                     </div>
