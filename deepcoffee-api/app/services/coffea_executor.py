@@ -902,6 +902,19 @@ def _contains_equipment_capture_hint(message: str) -> bool:
     return any(hint in (message or "") for hint in _EQUIPMENT_CAPTURE_HINTS)
 
 
+def _message_mentions_equipment(message: str) -> bool:
+    """本轮消息里是否点到了具体器具（滤杯 / 磨豆机 / 滤材 / 水）。
+
+    用于把「凭空冒器具草稿」挡在门外：光有「存 / 记录 / 我的」这类动词、却没点到任何器具
+    （如「你忘记了我让你存 bong bong 豆卡」），不算要存器具。
+    """
+    text = message or ""
+    return any(
+        _first_pattern(text, patterns) is not None
+        for patterns in (_BREWER_PATTERNS, _GRINDER_PATTERNS, _FILTER_PATTERNS, _WATER_PATTERNS)
+    )
+
+
 async def _run_equipment_capture(
     message: str,
     *,
@@ -910,13 +923,14 @@ async def _run_equipment_capture(
     history: list[dict[str, str]] | None,
     active_context: dict | None,
 ) -> ActionResult:
-    parse_text = _contextual_brew_text(message, history=history, active_recipe=(active_context or {}).get("recipe"))
-    draft = await parse_brew_with_model(parse_text, model=model, gateway=gateway)
+    # 只看「本轮消息」抽器具：历史里聊过的器具不该被当成"现在要存"——否则一句回忆问话
+    # 也会把早先提过的 V60 / ZP6S 翻出来拼成草稿（history 参数保留以兼容调用方，但不参与抽取）。
+    draft = await parse_brew_with_model(message, model=model, gateway=gateway)
     source = "model"
     if draft is None:
-        draft, _, _, _ = parse_brew_input(parse_text)
+        draft, _, _, _ = parse_brew_input(message)
         source = "local"
-    items = _equipment_items_from_draft(draft, parse_text)
+    items = _equipment_items_from_draft(draft, message)
     known = _known_equipment_set(active_context)
     new_items = [
         item for item in items
@@ -993,11 +1007,10 @@ async def ensure_equipment_capture_result(
     if any(r.type == "equipment_capture" and isinstance(r.output, dict) and r.output.get("items") for r in results):
         return
 
-    has_brew_draft = any(
-        r.type == "brew_record_parse" and isinstance(r.output, dict) and r.output.get("draft")
-        for r in results
-    )
-    if not (_contains_equipment_capture_hint(message) or has_brew_draft):
+    # 站立式补器具草稿：必须「本轮消息既有保存意图、又确实点到了具体器具」才触发。
+    # 冲煮记录涉及的器具已由上面的 ensure_equipment_capture_for_brew 从本轮草稿里处理，
+    # 所以这里不再凭「有冲煮草稿」或光秃秃的「存 / 记录」触发——那正是凭空冒器具草稿的根源。
+    if not (_contains_equipment_capture_hint(message) and _message_mentions_equipment(message)):
         return
 
     candidate = await _run_equipment_capture(
@@ -1026,12 +1039,15 @@ async def _run_coach(
     gateway: ModelGateway | None,
 ) -> ActionResult:
     # active 实体（端点层按 active_*_id 从库里水合好）分别喂冲煮教练；不可用即本地保守兜底。
+    # entity_inventory：用户全部豆卡/近期冲煮记录/器具的紧凑清单，供模型回溯对话后对照识别
+    # TA 用名字或代词提到的是哪一个，避免默认就是 active 豆而张冠李戴。
     ctx = active_context or {}
     text = await coach_with_model(
         message=message,
         active_bean=ctx.get("bean"),
         active_equipment=ctx.get("equipment"),
         active_recipe=ctx.get("recipe"),
+        entity_inventory=ctx.get("inventory"),
         image_urls=image_urls,
         taste_feedback=(session_state or {}).get("taste_feedback"),
         history=history,

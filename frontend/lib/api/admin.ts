@@ -48,6 +48,25 @@ export interface AdminAuditEvent {
   reason?: string | null
 }
 
+export interface AdminPaymentOrder {
+  id: string
+  user_id: string
+  user_email?: string | null
+  provider: string
+  plan: string
+  interval: string
+  amount: number
+  currency: string
+  status: string
+  external_order_id?: string | null
+  external_transaction_id?: string | null
+  external_subscription_id?: string | null
+  period_end?: string | null
+  expires_at?: string | null
+  paid_at?: string | null
+  created_at: string
+}
+
 export interface ProposalAuditEntry {
   action: string
   actor_id: string
@@ -176,6 +195,10 @@ export function updateAdminUserQuota(
 
 export function getAdminUserAudit(userId: string, page = 1, pageSize = 50): Promise<AdminAuditEvent[]> {
   return apiFetch(`/admin/users/${encodeURIComponent(userId)}/audit?page=${page}&page_size=${pageSize}`)
+}
+
+export function listAdminPayments(page = 1, pageSize = 50): Promise<AdminPaymentOrder[]> {
+  return apiFetch(`/admin/payments?page=${page}&page_size=${pageSize}`)
 }
 
 // ── Review: proposals / candidates / entities ──────────────────────────────

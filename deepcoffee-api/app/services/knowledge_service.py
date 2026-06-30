@@ -159,6 +159,8 @@ CATEGORY_LABELS = {
     "figures": "人物",
 }
 
+MODEL_NOTE_SUFFIX = "_model_notes.md"
+
 
 def normalize_slug(value: str) -> str:
     value = unicodedata.normalize("NFKC", value).strip().lower()
@@ -287,6 +289,9 @@ class ArticleDocument:
     aliases: list[str]
     visibility: str
     indexable: bool
+    audience: str | None = None
+    target_slug: str | None = None
+    is_model_note: bool = False
 
 
 def _meta_bool(value: object, *, default: bool) -> bool:
@@ -299,6 +304,17 @@ def _meta_bool(value: object, *, default: bool) -> bool:
         if normalized in {"0", "false", "no", "n", "off"}:
             return False
     return default
+
+
+def _model_note_target_slug(rel: Path, meta: dict) -> str | None:
+    target = _meta_str(meta.get("target"))
+    if target:
+        target_rel = rel.parent / target
+    elif rel.name.endswith(MODEL_NOTE_SUFFIX):
+        target_rel = rel.parent / f"{rel.name[: -len(MODEL_NOTE_SUFFIX)]}.md"
+    else:
+        return None
+    return normalize_slug("__".join(target_rel.with_suffix("").parts))
 
 
 class KnowledgeService:
@@ -346,8 +362,15 @@ class KnowledgeService:
             summary = extract_summary(markdown)
             aliases = _meta_list(meta.get("aliases"))
             visibility = (_meta_str(meta.get("visibility")) or "public").lower()
+            audience = (_meta_str(meta.get("audience")) or "").lower() or None
+            is_model_note = rel.name.endswith(MODEL_NOTE_SUFFIX) or visibility == "model" or audience == "model"
+            if is_model_note:
+                visibility = "model"
             # visibility=support 的页面不出现在用户文章列表，但仍可作为 AI grounding 和来源页打开。
             indexable = _meta_bool(meta.get("indexable"), default=visibility in {"public", "support"})
+            if is_model_note:
+                indexable = False
+            target_slug = _model_note_target_slug(rel, meta) if is_model_note else None
 
             article_summary = ArticleSummary(
                 slug=slug,
@@ -370,6 +393,9 @@ class KnowledgeService:
                 aliases=aliases,
                 visibility=visibility,
                 indexable=indexable,
+                audience=audience,
+                target_slug=target_slug,
+                is_model_note=is_model_note,
             )
         return documents
 
@@ -378,6 +404,16 @@ class KnowledgeService:
 
     def _indexable_documents(self) -> list[ArticleDocument]:
         return [document for document in self.articles.values() if document.indexable]
+
+    def _model_notes_for(self, slug: str) -> list[ArticleDocument]:
+        return sorted(
+            (
+                document
+                for document in self.articles.values()
+                if document.is_model_note and document.target_slug == slug
+            ),
+            key=lambda document: document.summary.path,
+        )
 
     def list_categories(self) -> list[KnowledgeCategory]:
         by_category: dict[str, list[ArticleSummary]] = {}
@@ -505,7 +541,19 @@ class KnowledgeService:
                 content = content[:remaining].rstrip()
             if not content:
                 continue
-            docs.append(GroundingDoc(slug=slug, title=document.summary.title, content=content))
+            model_notes = [
+                note.markdown.strip()
+                for note in self._model_notes_for(slug)
+                if note.markdown.strip()
+            ]
+            docs.append(
+                GroundingDoc(
+                    slug=slug,
+                    title=document.summary.title,
+                    content=content,
+                    model_notes=model_notes,
+                )
+            )
             total += len(content)
         return docs
 

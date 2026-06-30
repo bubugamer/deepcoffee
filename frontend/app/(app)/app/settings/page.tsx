@@ -1,22 +1,39 @@
 'use client'
-import { FormEvent, Suspense, useEffect, useState } from 'react'
+import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Check, KeyRound, Loader2, LogOut, X } from 'lucide-react'
+import QRCode from 'qrcode'
+import { Check, CreditCard, KeyRound, Loader2, LogOut, QrCode, X } from 'lucide-react'
+import { createAlipayOrder, createStripeCheckout, getBillingStatus, queryAlipayOrder } from '@/lib/api/billing'
 import { getBillingPlans, getUserProfile, getUserQuota, maxPlanFeatures, proPlanFeatures, updateUserProfile } from '@/lib/api/user'
 import { getToken, removeToken, setToken } from '@/lib/auth'
 import { planLabel as displayPlanLabel, quotaPercent as calcQuotaPercent } from '@/lib/entitlements'
 import { supabase } from '@/lib/supabase'
-import type { BillingPlan, UserProfile, UserQuota } from '@/types'
+import type { AlipayOrderResponse, BillingInterval, BillingOrderStatus, BillingPlan, BillingStatus, PaidPlan, UserProfile, UserQuota } from '@/types'
 
 type Tab = 'profile' | 'plan'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 type PasswordState = 'idle' | 'saving' | 'saved' | 'error'
+type PaymentAction = 'alipay' | 'stripe'
 
 const TABS: Tab[] = ['profile', 'plan']
 const planCardFeatures = {
   basic: ['基础 AI 用量', '可使用 AI 知识库问答', '可打开 AI 引用文章'],
   pro: proPlanFeatures,
   max: maxPlanFeatures,
+}
+
+function mergeAlipayOrder(current: AlipayOrderResponse, order: Partial<BillingOrderStatus>): AlipayOrderResponse {
+  return {
+    ...current,
+    provider: 'alipay',
+    plan: current.plan,
+    interval: current.interval,
+    amount: typeof order.amount === 'number' ? order.amount : current.amount,
+    currency: order.currency ?? current.currency,
+    status: order.status ?? current.status,
+    qr_code: order.qr_code ?? current.qr_code,
+    expires_at: order.expires_at ?? current.expires_at,
+  }
 }
 
 function SettingsContent() {
@@ -28,6 +45,8 @@ function SettingsContent() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [quota, setQuota] = useState<UserQuota | null>(null)
   const [plans, setPlans] = useState<BillingPlan[]>([])
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null)
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly')
   const [displayName, setDisplayName] = useState('')
   const [timezone, setTimezone] = useState('Asia/Shanghai')
   const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric')
@@ -41,6 +60,10 @@ function SettingsContent() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
   const [passwordState, setPasswordState] = useState<PasswordState>('idle')
   const [passwordMessage, setPasswordMessage] = useState('')
+  const [paying, setPaying] = useState<string | null>(null)
+  const [paymentError, setPaymentError] = useState('')
+  const [alipayOrder, setAlipayOrder] = useState<AlipayOrderResponse | null>(null)
+  const [alipayQrDataUrl, setAlipayQrDataUrl] = useState('')
 
   useEffect(() => {
     const nextTab = searchParams.get('tab') as Tab | null
@@ -84,8 +107,50 @@ function SettingsContent() {
         if (!cancelled) setPlans(plans)
       })
       .catch(() => {})
+    getBillingStatus()
+      .then((status) => {
+        if (!cancelled) setBillingStatus(status)
+      })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (!alipayOrder?.qr_code) {
+      setAlipayQrDataUrl('')
+      return
+    }
+    let cancelled = false
+    QRCode.toDataURL(alipayOrder.qr_code, { width: 220, margin: 1 })
+      .then((url) => { if (!cancelled) setAlipayQrDataUrl(url) })
+      .catch(() => { if (!cancelled) setAlipayQrDataUrl('') })
+    return () => { cancelled = true }
+  }, [alipayOrder?.qr_code])
+
+  useEffect(() => {
+    if (!alipayOrder || alipayOrder.status !== 'pending') return
+    let cancelled = false
+    const timer = window.setInterval(() => {
+      queryAlipayOrder(alipayOrder.id)
+        .then((order) => {
+          if (cancelled) return
+          setAlipayOrder((current) => current && current.id === order.id ? mergeAlipayOrder(current, order) : current)
+          if (order.status === 'paid') {
+            Promise.allSettled([getUserProfile(), getUserQuota(), getBillingStatus()]).then(([profileRes, quotaRes, billingRes]) => {
+              if (cancelled) return
+              if (profileRes.status === 'fulfilled') setProfile(profileRes.value)
+              if (quotaRes.status === 'fulfilled') setQuota(quotaRes.value)
+              if (billingRes.status === 'fulfilled') setBillingStatus(billingRes.value)
+            })
+          }
+        })
+        .catch(() => {})
+    }, 3000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [alipayOrder])
 
   async function saveProfile(event?: FormEvent) {
     event?.preventDefault()
@@ -191,6 +256,35 @@ function SettingsContent() {
     }
   }
 
+  async function refreshBillingState() {
+    const [profileRes, quotaRes, billingRes] = await Promise.allSettled([
+      getUserProfile(),
+      getUserQuota(),
+      getBillingStatus(),
+    ])
+    if (profileRes.status === 'fulfilled') setProfile(profileRes.value)
+    if (quotaRes.status === 'fulfilled') setQuota(quotaRes.value)
+    if (billingRes.status === 'fulfilled') setBillingStatus(billingRes.value)
+  }
+
+  async function startPayment(plan: PaidPlan, action: PaymentAction) {
+    setPaymentError('')
+    setPaying(`${action}:${plan}`)
+    try {
+      if (action === 'alipay') {
+        const order = await createAlipayOrder({ plan, interval: billingInterval })
+        setAlipayOrder(order)
+        return
+      }
+      const checkout = await createStripeCheckout({ plan, interval: billingInterval })
+      window.location.href = checkout.checkout_url
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : '支付暂时不可用，请稍后重试。')
+    } finally {
+      setPaying(null)
+    }
+  }
+
   const initial = (displayName || profile?.email || '?').charAt(0)
   const planLabel = displayPlanLabel(profile)
   const joinedAt = profile?.created_at ? profile.created_at.slice(0, 7) : '--'
@@ -198,6 +292,21 @@ function SettingsContent() {
   const resetDate = quota?.reset_at
     ? new Date(quota.reset_at).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
     : ''
+  const planExpiresAt = billingStatus?.plan_expires_at ?? profile?.plan_expires_at
+  const planExpiryLabel = planExpiresAt
+    ? new Date(planExpiresAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+    : ''
+  const currentPlan = (profile?.plan === 'pro' || profile?.plan === 'max') ? profile.plan : 'basic'
+  const activeSourceLabel = billingStatus?.plan_source === 'stripe'
+    ? '银行卡订阅'
+    : billingStatus?.plan_source === 'alipay'
+      ? '支付宝购买'
+      : '手动开通'
+  const selectedIntervalLabel = billingInterval === 'monthly' ? '月付' : '年付'
+  const paidPlans = useMemo(() => ([
+    { id: 'pro' as const, title: 'Pro', fallbackMonthly: 59, fallbackYearly: 568, features: planCardFeatures.pro },
+    { id: 'max' as const, title: 'Max', fallbackMonthly: 99, fallbackYearly: 938, features: planCardFeatures.max },
+  ]), [])
 
   return (
     <div className="p-4 sm:p-8 max-w-content mx-auto">
@@ -400,10 +509,19 @@ function SettingsContent() {
 
           {/* Plan & Quota */}
           {tab === 'plan' && (
-            <div className="space-y-5 max-w-xl">
+            <div className="space-y-5 max-w-2xl">
               {/* Quota card */}
               <div className="dc-card p-6">
-                <h2 className="section-title mb-4">本月用量</h2>
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h2 className="section-title">本月用量</h2>
+                    <p className="text-xs text-dc-text-3 mt-1">
+                      当前套餐：{planLabel}
+                      {planExpiryLabel ? ` · ${activeSourceLabel} · 有效期至 ${planExpiryLabel}` : ''}
+                    </p>
+                  </div>
+                  {currentPlan !== 'basic' && <span className="dc-tag-accent">{planLabel}</span>}
+                </div>
                 {quota ? (
                   <div className="space-y-4">
                     <div>
@@ -432,14 +550,51 @@ function SettingsContent() {
                 )}
               </div>
 
-              <div className="grid gap-4">
-                {[
-                  { id: 'basic', title: 'Basic', fallbackPrice: 0, features: planCardFeatures.basic },
-                  { id: 'pro', title: 'Pro', fallbackPrice: 59, features: planCardFeatures.pro },
-                  { id: 'max', title: 'Max', fallbackPrice: 99, features: planCardFeatures.max },
-                ].map((plan) => {
+              <div className="dc-card p-1 flex w-fit">
+                {(['monthly', 'yearly'] as BillingInterval[]).map(interval => (
+                  <button
+                    key={interval}
+                    type="button"
+                    onClick={() => setBillingInterval(interval)}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                      billingInterval === interval ? 'bg-white text-dc-text-1 shadow-sm' : 'text-dc-text-3 hover:text-dc-text-1'
+                    }`}
+                  >
+                    {interval === 'monthly' ? '月付' : '年付'}
+                  </button>
+                ))}
+              </div>
+
+              {paymentError && (
+                <div className="dc-card p-4 text-sm text-dc-red">{paymentError}</div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className={`dc-card p-6 ${currentPlan === 'basic' ? 'border-dc-accent ring-1 ring-dc-accent/20' : ''}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="section-title">Basic</h2>
+                    {currentPlan === 'basic' && <span className="dc-tag-accent">当前套餐</span>}
+                  </div>
+                  <div className="text-3xl font-extrabold text-dc-text-1 mb-1">¥0</div>
+                  <p className="text-xs text-dc-text-3 mb-5">免费使用</p>
+                  <ul className="space-y-2.5 mb-5">
+                    {planCardFeatures.basic.map(f => (
+                      <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
+                        <Check size={13} className="text-dc-green flex-shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {paidPlans.map((plan) => {
                   const apiPlan = plans.find((item) => item.id === plan.id)
-                  const active = profile.plan === plan.id
+                  const price = apiPlan?.prices?.[billingInterval]?.amount
+                    ?? (billingInterval === 'monthly' ? plan.fallbackMonthly : plan.fallbackYearly)
+                  const monthlyEquivalent = billingInterval === 'yearly' ? Math.round((price / 12) * 10) / 10 : price
+                  const active = currentPlan === plan.id
+                  const maxAccount = currentPlan === 'max'
+                  const canBuy = !active && !(maxAccount && plan.id === 'pro')
                   return (
                     <div key={plan.id} className={`dc-card p-6 ${active ? 'border-dc-accent ring-1 ring-dc-accent/20' : ''}`}>
                       <div className="flex items-center justify-between mb-4">
@@ -447,9 +602,14 @@ function SettingsContent() {
                         {active && <span className="dc-tag-accent">当前套餐</span>}
                       </div>
                       <div className="text-3xl font-extrabold text-dc-text-1 mb-1">
-                        ¥{apiPlan?.price ?? plan.fallbackPrice} <span className="text-sm font-normal text-dc-text-3">/ 月</span>
+                        ¥{price}
+                        <span className="text-sm font-normal text-dc-text-3">
+                          {billingInterval === 'monthly' ? ' / 月' : ' / 年'}
+                        </span>
                       </div>
-                      <p className="text-xs text-dc-text-3 mb-5">{plan.id === 'basic' ? '免费使用' : '支付暂未开放，可联系管理员开通'}</p>
+                      <p className="text-xs text-dc-text-3 mb-5">
+                        {billingInterval === 'yearly' ? `约 ¥${monthlyEquivalent}/月` : `${selectedIntervalLabel}，可随时升级`}
+                      </p>
                       <ul className="space-y-2.5 mb-5">
                         {plan.features.map(f => (
                           <li key={f} className="flex items-center gap-2 text-sm text-dc-text-2">
@@ -458,7 +618,32 @@ function SettingsContent() {
                           </li>
                         ))}
                       </ul>
-                      {plan.id !== 'basic' && <button className="btn-primary w-full py-3 text-sm opacity-70 cursor-not-allowed" disabled>支付暂未开放</button>}
+                      {canBuy ? (
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => startPayment(plan.id, 'alipay')}
+                            disabled={paying !== null}
+                            className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+                          >
+                            {paying === `alipay:${plan.id}` ? <Loader2 size={15} className="animate-spin" /> : <QrCode size={15} />}
+                            国内支付宝扫码
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startPayment(plan.id, 'stripe')}
+                            disabled={paying !== null}
+                            className="btn-secondary w-full py-3 text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+                          >
+                            {paying === `stripe:${plan.id}` ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
+                            国际银行卡订阅
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dc-border bg-dc-subtle px-3 py-3 text-xs text-dc-text-3">
+                          {active ? '当前套餐已生效。' : 'Max 已包含该套餐权益。'}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -466,6 +651,79 @@ function SettingsContent() {
             </div>
           )}
         </>
+      )}
+
+      {alipayOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onClick={() => setAlipayOrder(null)}>
+          <div className="dc-card w-full max-w-md p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-base font-bold text-dc-text-1">支付宝扫码支付</h2>
+                <p className="text-xs text-dc-text-3 mt-1">
+                  {alipayOrder.plan === 'pro' ? 'Pro' : 'Max'} · {alipayOrder.interval === 'monthly' ? '月付' : '年付'} · ¥{alipayOrder.amount}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAlipayOrder(null)}
+                className="p-1.5 rounded-lg text-dc-text-3 hover:bg-dc-subtle hover:text-dc-text-1"
+                aria-label="关闭"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex flex-col items-center">
+              <div className="w-60 h-60 rounded-xl border border-dc-border bg-white flex items-center justify-center">
+                {alipayQrDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={alipayQrDataUrl} alt="支付宝付款二维码" className="w-56 h-56" />
+                ) : (
+                  <Loader2 size={24} className="animate-spin text-dc-text-3" />
+                )}
+              </div>
+              <div className="mt-4 text-center">
+                <div className={`text-sm font-semibold ${alipayOrder.status === 'paid' ? 'text-dc-green' : alipayOrder.status === 'expired' ? 'text-dc-red' : 'text-dc-text-1'}`}>
+                  {alipayOrder.status === 'paid' ? '支付成功，会员已开通' : alipayOrder.status === 'expired' ? '订单已过期' : '等待付款'}
+                </div>
+                <p className="text-xs text-dc-text-3 mt-1">
+                  订单号：<span className="font-mono">{alipayOrder.id}</span>
+                </p>
+                {alipayOrder.status === 'pending' && (
+                  <p className="text-xs text-dc-text-3 mt-1">
+                    请在 {new Date(alipayOrder.expires_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} 前完成付款。
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              {alipayOrder.status === 'paid' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAlipayOrder(null)
+                    refreshBillingState()
+                  }}
+                  className="btn-primary text-sm px-5 py-2"
+                >
+                  返回会员页
+                </button>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setAlipayOrder(null)} className="btn-secondary text-sm px-4 py-2">
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => queryAlipayOrder(alipayOrder.id).then((order) => setAlipayOrder(current => current && current.id === order.id ? mergeAlipayOrder(current, order) : current)).catch(() => {})}
+                    className="btn-primary text-sm px-5 py-2"
+                  >
+                    刷新状态
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

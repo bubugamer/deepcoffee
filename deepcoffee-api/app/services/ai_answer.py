@@ -45,6 +45,11 @@ async def answer_with_model(
     if not grounding and not use_images:
         return None
     docs = "\n\n".join(f"【{d.title}】\n{d.content}" for d in grounding)
+    model_notes = "\n\n".join(
+        f"【{d.title}】\n" + "\n\n".join(d.model_notes)
+        for d in grounding
+        if d.model_notes
+    )
     image_note = (
         "本轮用户附带了图片。请结合图片判断用户问题是否引用了图片；如果图片与问题无关、"
         "看不清或不能提供知识库依据，就明确说明不依赖图片，不要编造图片内容。"
@@ -52,6 +57,13 @@ async def answer_with_model(
         else image_unavailable_note(image_urls, vision_model)
     )
     docs_text = docs or "（知识库没有命中足够相关的文章。本轮问题依赖图片时，可以结合图片中看得见的信息和通用咖啡经验回答。）"
+    if model_notes:
+        docs_text = (
+            f"{docs_text}\n\n"
+            "内部模型注释（只用于识别、归一化和边界判断；不要把它们列为来源，"
+            "也不要向用户提及“模型注释”或“内部注释”）：\n"
+            f"{model_notes}"
+        )
     user_text = f"知识库文章内容：\n{docs_text}\n\n本轮图片说明：\n{image_note}\n\n用户问题：{question}"
     model_to_use = select_model_for_images(text_model=model, vision_model=vision_model if use_images else None, image_urls=image_urls)
     messages = [{"role": "system", "content": _SYSTEM_PROMPT}]

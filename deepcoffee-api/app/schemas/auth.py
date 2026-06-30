@@ -47,6 +47,8 @@ class UserProfile(BaseModel):
     email: str | None = None
     display_name: str | None = None
     plan: str = "basic"
+    plan_source: str = "manual"
+    plan_expires_at: datetime | None = None
     role: str = "user"
     status: str = "active"
     # 是否已绑定邀请码（或被门禁豁免）。False 时前端弹「补填邀请码」。
@@ -79,6 +81,8 @@ class AdminUserInfo(BaseModel):
     email: str | None = None
     display_name: str | None = None
     plan: str
+    plan_source: str = "manual"
+    plan_expires_at: datetime | None = None
     role: str = "user"
     status: str = "active"
     created_at: datetime

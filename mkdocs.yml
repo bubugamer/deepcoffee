@@ -1,6 +1,8 @@
 site_name: Deep Coffee 知识库
 site_description: 精品咖啡知识库 —— 豆袋阅读、冲煮建议、器具选择、参数调整与公共咖啡知识
 docs_dir: knowledge
+exclude_docs: |
+  **/*_model_notes.md
 
 theme:
   name: material
@@ -72,6 +74,12 @@ nav:
     - 处理法概览: processing/处理法概览.md
   - 冲煮与器具:
     - V60 手冲冲煮指南: brewing/V60手冲冲煮指南.md
+    - 冰手冲咖啡指南: brewing/冰手冲咖啡指南.md
+    - 冷萃咖啡指南: brewing/冷萃咖啡指南.md
+    - 摩卡壶冲煮指南: brewing/摩卡壶冲煮指南.md
+    - 法压壶冲煮指南: brewing/法压壶冲煮指南.md
+    - 挂耳咖啡冲泡指南: brewing/挂耳咖啡冲泡指南.md
+    - 意式饮品基础: brewing/意式饮品基础.md
     - 爱乐压冲煮指南: brewing/爱乐压冲煮指南.md
     - 虹吸壶冲煮指南: brewing/虹吸壶冲煮指南.md
     - 意式浓缩均匀萃取: brewing/意式浓缩均匀萃取.md
@@ -97,3 +105,4 @@ nav:
     - Best of Panama（BOP）: competitions/best-of-panama.md
     - 精品咖啡运动史: brewing/精品咖啡运动史.md
     - 烘焙风格地域对比: brewing/烘焙风格对比-地域.md
+    - 咖啡烘焙反应基础: brewing/咖啡烘焙反应基础.md

@@ -72,8 +72,34 @@ export async function getBillingPlans(): Promise<BillingPlan[]> {
   }
   return [
     { id: 'basic', name: 'Basic', price: 0, currency: 'CNY', token_limit: 0, request_limit: 99, period: 'month', features: fallbackQuota.features },
-    { id: 'pro', name: 'Pro', price: 59, currency: 'CNY', token_limit: null, request_limit: 500, period: 'month', features: proPlanFeatures },
-    { id: 'max', name: 'Max', price: 99, currency: 'CNY', token_limit: null, request_limit: 1000, period: 'month', features: maxPlanFeatures },
+    {
+      id: 'pro',
+      name: 'Pro',
+      price: 59,
+      currency: 'CNY',
+      token_limit: null,
+      request_limit: 500,
+      period: 'month',
+      features: proPlanFeatures,
+      prices: {
+        monthly: { amount: 59, currency: 'CNY', interval: 'monthly', display: '59 元/月' },
+        yearly: { amount: 568, currency: 'CNY', interval: 'yearly', display: '568 元/年' },
+      },
+    },
+    {
+      id: 'max',
+      name: 'Max',
+      price: 99,
+      currency: 'CNY',
+      token_limit: null,
+      request_limit: 1000,
+      period: 'month',
+      features: maxPlanFeatures,
+      prices: {
+        monthly: { amount: 99, currency: 'CNY', interval: 'monthly', display: '99 元/月' },
+        yearly: { amount: 938, currency: 'CNY', interval: 'yearly', display: '938 元/年' },
+      },
+    },
   ]
 }
 

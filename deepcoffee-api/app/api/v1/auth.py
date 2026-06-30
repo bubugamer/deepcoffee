@@ -13,6 +13,7 @@ from app.core.security import AuthenticatedUser, get_current_user
 from app.repositories.invites import InviteRepository
 from app.repositories.profiles import profile_repository
 from app.services.bootstrap import normalized_bootstrap_code
+from app.services.billing_service import billing_service
 from app.schemas.auth import (
     InviteRedeemRequest,
     InviteRedeemResponse,
@@ -67,6 +68,7 @@ async def get_me(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> UserProfile:
+    await billing_service.sync_expired_membership(session, user.id)
     profile = await profile_repository.get_or_create(session, user.id, user.email)
     # 禁用账号在入口处拦截，前端据此展示「账号已禁用」而非正常应用。
     if profile.status == "disabled":
@@ -104,4 +106,5 @@ async def get_my_quota(
     settings: Settings = Depends(get_settings),
 ) -> UserQuota:
     await profile_repository.get_or_create(session, user.id, user.email)
+    await billing_service.sync_expired_membership(session, user.id)
     return await profile_repository.quota_for(session, user.id, settings)

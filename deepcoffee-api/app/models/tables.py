@@ -16,6 +16,8 @@ class UserProfile(Base):
     email: Mapped[str | None] = mapped_column(String, unique=True)
     display_name: Mapped[str | None] = mapped_column(String)
     plan: Mapped[str] = mapped_column(String, default="basic", server_default="basic", nullable=False)
+    plan_source: Mapped[str] = mapped_column(String, default="manual", server_default="manual", nullable=False)
+    plan_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 管理员身份持久化在 DB（user / admin）。环境变量 DEEPCOFFEE_ADMIN_USER_IDS 仍可作兜底名单。
     # 注意：user_profiles 在 Supabase 已存在，create_all 不会补列；新库用 schema baseline，存量库用后续迁移补列。
     role: Mapped[str] = mapped_column(String, default="user", server_default="user", nullable=False)
@@ -27,6 +29,75 @@ class UserProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class BillingPaymentOrder(Base):
+    __tablename__ = "billing_payment_orders"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_order_id", name="billing_payment_orders_provider_external_uq"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    plan: Mapped[str] = mapped_column(String, nullable=False)
+    interval: Mapped[str] = mapped_column(String, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending", server_default="pending", nullable=False, index=True)
+    external_order_id: Mapped[str | None] = mapped_column(String, index=True)
+    external_transaction_id: Mapped[str | None] = mapped_column(String, index=True)
+    external_subscription_id: Mapped[str | None] = mapped_column(String, index=True)
+    checkout_url: Mapped[str | None] = mapped_column(Text)
+    qr_code: Mapped[str | None] = mapped_column(Text)
+    provider_payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class BillingSubscription(Base):
+    __tablename__ = "billing_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_subscription_id", name="billing_subscriptions_provider_external_uq"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    plan: Mapped[str] = mapped_column(String, nullable=False)
+    interval: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    external_customer_id: Mapped[str | None] = mapped_column(String, index=True)
+    external_subscription_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    external_price_id: Mapped[str | None] = mapped_column(String)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    provider_payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class BillingProviderEvent(Base):
+    __tablename__ = "billing_provider_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_event_id", name="billing_provider_events_provider_event_uq"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    provider_event_id: Mapped[str] = mapped_column(String, nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class InviteCode(Base):

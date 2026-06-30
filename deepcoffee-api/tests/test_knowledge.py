@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import update
@@ -8,6 +10,7 @@ from sqlalchemy import update
 from app.core.db import get_sessionmaker
 from app.main import create_app
 from app.models.tables import UserProfile
+from app.services.knowledge_service import KnowledgeService
 
 
 def _headers(user_id: str, email: str | None = None) -> dict[str, str]:
@@ -178,3 +181,45 @@ def test_related_section_links_are_real_markdown_links() -> None:
     assert detail.status_code == 200, detail.text
     md = detail.json()["markdown"]
     assert "[手冲用水科学](brewing/手冲用水科学.md)" in md
+
+
+def test_model_notes_hidden_from_user_surfaces_but_added_to_grounding() -> None:
+    client = TestClient(create_app())
+    max_headers = _max_headers(client, "knowledge-model-notes-max")
+    headers = _headers("knowledge-model-notes-user", "knowledge-model-notes@example.com")
+    note_slug = "varietals__sl9_model_notes"
+
+    articles = client.get("/v1/knowledge/articles", headers=max_headers, params={"q": "SL9"}).json()
+    assert not any(item["path"].endswith("_model_notes.md") for item in articles)
+
+    detail = client.get(f"/v1/knowledge/articles/{note_slug}", headers=max_headers)
+    assert detail.status_code == 404
+
+    selected = client.post(
+        "/v1/knowledge/select-files",
+        headers=max_headers,
+        json={"question": "SL9 和 Gesha Inca 是 Geisha 吗"},
+    )
+    assert selected.status_code == 200
+    selected_payload = selected.json()
+    assert selected_payload
+    assert not any(item["path"].endswith("_model_notes.md") for item in selected_payload)
+
+    answer = client.post(
+        "/v1/knowledge/ask",
+        headers=headers,
+        json={"question": "SL9 和 Gesha Inca 是 Geisha 吗"},
+    )
+    assert answer.status_code == 200
+    answer_payload = answer.json()
+    assert not any(source["path"].endswith("_model_notes.md") for source in answer_payload["sources"])
+    assert not any(item["path"].endswith("_model_notes.md") for item in answer_payload["selected_files"])
+
+    service = KnowledgeService(Path(__file__).resolve().parents[2] / "knowledge")
+    grounding = service.build_grounding(
+        ["varietals__sl9"],
+        SimpleNamespace(kb_grounding_docs=3, kb_max_chars_per_doc=20000, kb_max_context_chars=50000),
+    )
+    assert grounding
+    assert grounding[0].model_notes
+    assert "Gesha Inca" in "\n".join(grounding[0].model_notes)
