@@ -148,7 +148,11 @@ def test_admin_users_lists_invite_binding() -> None:
     admin_headers = {"Authorization": "Bearer dev:admin-1:admin@example.com"}
     user_headers = {"Authorization": "Bearer dev:user-42:user42@example.com"}
 
-    created = client.post("/v1/admin/invites", headers=admin_headers, json={"count": 1, "note": "beta"})
+    created = client.post(
+        "/v1/admin/invites",
+        headers=admin_headers,
+        json={"count": 1, "note": "beta", "gift_plan": "pro", "gift_duration_months": 1},
+    )
     assert created.status_code == 200
     code = created.json()[0]["code"]
 
@@ -159,12 +163,13 @@ def test_admin_users_lists_invite_binding() -> None:
     assert users.status_code == 200
     row = next(item for item in users.json() if item["id"] == "user-42")
     assert row["email"] == "user42@example.com"
-    assert row["plan"] == "basic"
+    # 兑换赠送码后会员升级为该码赠送的等级（这里 pro），配额随之走 pro。
+    assert row["plan"] == "pro"
     assert row["invite_code"] == code
     assert row["invited_at"] is not None
     assert row["ai_used"] == 0
-    assert row["ai_total"] == get_settings().ai_quota_basic
-    assert row["ai_remaining"] == get_settings().ai_quota_basic
+    assert row["ai_total"] == get_settings().ai_quota_pro
+    assert row["ai_remaining"] == get_settings().ai_quota_pro
     assert row["quota_custom"] is False
 
 
