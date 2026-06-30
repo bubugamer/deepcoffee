@@ -212,7 +212,7 @@ function AuthInner() {
   )
 
   return (
-    <div className="min-h-screen bg-dc-bg flex flex-col items-center justify-center px-4">
+    <div className="min-h-dvh bg-dc-bg flex flex-col items-center justify-center px-4">
 
       {/* Logo */}
       <Link href="/" className="mb-8 text-xl font-extrabold tracking-tight">

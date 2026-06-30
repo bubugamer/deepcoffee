@@ -233,7 +233,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <ProfileContext.Provider value={{ profile, loading: accountLoading }}>
-    <div className="flex h-screen bg-dc-bg overflow-hidden">
+    <div className="flex h-dvh bg-dc-bg overflow-hidden">
       {needsInvite && (
         <InviteGateModal onBound={() => {
           const token = getToken()
