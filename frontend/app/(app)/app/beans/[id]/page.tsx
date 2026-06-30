@@ -1,17 +1,18 @@
 'use client'
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, ClipboardList, Loader2, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, ClipboardList, Loader2, MessageSquare, Pencil } from 'lucide-react'
 import { getBean, updateBean, setManualRecommendParams, type BeanUpdateInput, type ManualRecommendParams } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
-import { flavorEmoji, formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
+import { beanFieldSuggestions, flavorEmoji, formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
+import { BeanForm } from '@/components/BeanForm'
 import { RecommendParamsChat } from '@/components/RecommendParamsChat'
 import { BREW_METHODS, EquipmentSelect, TextField as BrewTextField, TimeField, maskTime, ratioText } from '@/components/BrewRecordForm'
 import { listEquipment, getEquipmentCatalog, type EquipmentCatalogItem, type EquipmentProfile } from '@/lib/api/equipment'
 import type { Bean, BeanComponent, BeanDraft, BrewEvaluation, BrewEvaluationItem, FlavorAxis } from '@/types'
-import { softValidate, type FieldKind } from '@/lib/validate'
+import { type FieldKind } from '@/lib/validate'
 
 // 产品级字段（顶层）。豆子相关信息（产地/庄园/生豆商/处理法/品种/海拔/采收期）在「豆源」里逐条编辑。
 const FIELD_DEFS: { draftKey: keyof BeanDraft & string; beanKey: keyof Bean & string; label: string; required?: boolean; unit?: string; kind?: FieldKind; placeholder?: string }[] = [
@@ -234,32 +235,6 @@ function FieldView({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
-function FieldInput({ label, value, onChange, required, placeholder, unit, kind }: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  required?: boolean
-  placeholder?: string
-  unit?: string
-  kind?: FieldKind
-}) {
-  const warning = softValidate(kind, value)
-  return (
-    <label className="block">
-      <span className="text-xs text-dc-text-3 mb-1 block">
-        {label}{unit && `（${unit}）`}{required && <span className="text-dc-red"> *</span>}
-      </span>
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder ?? '未填写'}
-        className={`dc-input text-sm py-1.5 ${warning ? 'border-dc-yellow' : ''}`}
-      />
-      {warning && <p className="text-xs text-dc-yellow mt-1">{warning}</p>}
-    </label>
-  )
-}
-
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="dc-card p-5">
@@ -302,6 +277,8 @@ export default function BeanDetailPage() {
     return () => { cancelled = true }
   }, [])
 
+  const suggestions = useMemo(() => beanFieldSuggestions(bean ? [bean] : []), [bean])
+
   function enterEdit() {
     if (!bean) return
     const next = beanToEdit(bean)
@@ -315,19 +292,6 @@ export default function BeanDetailPage() {
     setEditing(false)
     setEdit(null)
     setSaveError('')
-  }
-
-  function setField(key: string, value: string) {
-    if (!edit) return
-    setEdit({ ...edit, fields: { ...edit.fields, [key]: value } })
-  }
-
-  function setComponent(index: number, patch: Partial<ComponentDraft>) {
-    if (!edit) return
-    setEdit({
-      ...edit,
-      components: edit.components.map((component, i) => i === index ? { ...component, ...patch } : component),
-    })
   }
 
   async function save() {
@@ -495,118 +459,11 @@ export default function BeanDetailPage() {
 
       {editing && edit ? (
         <div className="max-w-3xl space-y-5">
-          <Section title="豆卡信息">
-            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
-              {FIELD_DEFS.map(({ draftKey, label, required, unit, kind, placeholder }) => (
-                <FieldInput
-                  key={draftKey}
-                  label={label}
-                  required={required}
-                  unit={unit}
-                  kind={kind}
-                  placeholder={placeholder}
-                  value={edit.fields[draftKey]}
-                  onChange={value => setField(draftKey, value)}
-                />
-              ))}
-            </div>
-          </Section>
-
-          <Section title="豆源（单豆 1 条，拼配可加多条）">
-            {edit.components.length === 0 ? (
-              <p className="text-sm text-dc-text-3 mb-3">点「添加豆源」填写产地、处理法、品种等信息。</p>
-            ) : (
-              <div className="space-y-4 mb-4">
-                {edit.components.map((component, index) => (
-                  <div key={index} className="border border-dc-border rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-sm font-medium text-dc-text-1">豆源 {index + 1}</div>
-                      {edit.components.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setEdit({ ...edit, components: edit.components.filter((_, i) => i !== index) })}
-                          className="text-dc-red hover:bg-dc-red/5 rounded-md p-1"
-                          aria-label="删除豆源"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid sm:grid-cols-2 gap-3">
-                      <FieldInput label="产地" required value={component.origin_name} onChange={value => setComponent(index, { origin_name: value })} />
-                      <FieldInput label="生产者 / 庄园 / 处理站" value={component.coffee_source_name} onChange={value => setComponent(index, { coffee_source_name: value })} />
-                      <FieldInput label="处理法" required value={component.process_name} onChange={value => setComponent(index, { process_name: value })} />
-                      <FieldInput label="品种" value={component.varietalsText} onChange={value => setComponent(index, { varietalsText: value })} />
-                      <FieldInput label="生豆商 / 进口商" value={component.green_bean_merchant_name} onChange={value => setComponent(index, { green_bean_merchant_name: value })} />
-                      <FieldInput label="生豆商产品" value={component.green_bean_product_name} onChange={value => setComponent(index, { green_bean_product_name: value })} />
-                      <FieldInput label="海拔" unit="米" kind="number" placeholder="如 1800" value={component.altitude_text} onChange={value => setComponent(index, { altitude_text: value })} />
-                      <FieldInput label="采收期" unit="年" kind="year" placeholder="如 2024 或 2023-2024" value={component.harvest_date_text} onChange={value => setComponent(index, { harvest_date_text: value })} />
-                      <FieldInput label="占比 / 说明" value={component.share_text} onChange={value => setComponent(index, { share_text: value })} />
-                    </div>
-                    <label className="block mt-3">
-                      <span className="text-xs text-dc-text-3 mb-1 block">备注</span>
-                      <textarea
-                        value={component.notes}
-                        onChange={event => setComponent(index, { notes: event.target.value })}
-                        className="dc-input text-sm min-h-[64px] resize-none leading-relaxed"
-                      />
-                    </label>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setEdit({ ...edit, components: [...edit.components, { ...EMPTY_COMPONENT_DRAFT }] })}
-              className="btn-secondary text-sm px-3 py-2 inline-flex items-center gap-1.5"
-            >
-              <Plus size={14} />
-              添加豆源
-            </button>
-          </Section>
-
-          <Section title="风味信息">
-            <div className="mb-4">
-              <FieldInput
-                label="风味标签"
-                value={edit.flavorNotesText}
-                onChange={value => setEdit({ ...edit, flavorNotesText: value })}
-                placeholder="例如：花香，荔枝，红酒"
-              />
-            </div>
-            <div className="space-y-3">
-              {edit.axes.map((axis, index) => (
-                <div key={index} className="grid sm:grid-cols-[1fr_auto_auto] gap-3 items-center">
-                  <input
-                    value={axis.label}
-                    onChange={event => setEdit({ ...edit, axes: edit.axes.map((item, i) => i === index ? { ...item, label: event.target.value } : item) })}
-                    placeholder="维度名称，例如 酸"
-                    className="dc-input text-sm py-1.5"
-                  />
-                  <Dots
-                    value={axis.value}
-                    onSelect={value => setEdit({ ...edit, axes: edit.axes.map((item, i) => i === index ? { ...item, value } : item) })}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setEdit({ ...edit, axes: edit.axes.filter((_, i) => i !== index) })}
-                    className="text-dc-red hover:bg-dc-red/5 rounded-md p-1 justify-self-start sm:justify-self-auto"
-                    aria-label="删除风味维度"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setEdit({ ...edit, axes: [...edit.axes, { label: '', value: null }] })}
-              className="btn-secondary text-sm px-3 py-2 inline-flex items-center gap-1.5 mt-4"
-            >
-              <Plus size={14} />
-              添加维度
-            </button>
-          </Section>
+          <BeanForm
+            value={{ fields: edit.fields, components: edit.components, flavorNotesText: edit.flavorNotesText, axes: edit.axes }}
+            onChange={value => setEdit({ ...edit, fields: value.fields, components: value.components, flavorNotesText: value.flavorNotesText, axes: value.axes })}
+            suggestions={suggestions}
+          />
 
           <Section title="评分">
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
