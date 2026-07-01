@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Loader2, MessageSquare } from 'lucide-react'
 import { BeanForm, emptyBeanFormValue, type BeanFormValue } from '@/components/BeanForm'
-import { confirmBean, getBeans } from '@/lib/api/beans'
+import { confirmBean, getBeans, getBeanEntityCatalog, type BeanEntityCatalog } from '@/lib/api/beans'
 import { beanFieldSuggestions, draftToComponent, normalizedComponentsForSave, validateComponentsForSave } from '@/lib/beans'
 import { getToken } from '@/lib/auth'
 import type { Bean, BeanDraft } from '@/types'
+
+const EMPTY_CATALOG: BeanEntityCatalog = { roaster: [], process: [], origin: [], varietal: [] }
 
 function splitNotes(text: string): string[] {
   return text.split(/[，,]/).map((s) => s.trim()).filter(Boolean)
@@ -17,19 +19,24 @@ function splitNotes(text: string): string[] {
 export default function NewBeanPage() {
   const router = useRouter()
   const [beans, setBeans] = useState<Bean[]>([])
+  const [catalog, setCatalog] = useState<BeanEntityCatalog>(EMPTY_CATALOG)
   const [value, setValue] = useState<BeanFormValue>(() => emptyBeanFormValue())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    getBeans({}, getToken())
+    const token = getToken()
+    getBeans({}, token)
       .then((items) => { if (!cancelled) setBeans(items) })
+      .catch(() => {})
+    getBeanEntityCatalog(token)
+      .then((c) => { if (!cancelled) setCatalog(c) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
 
-  const suggestions = useMemo(() => beanFieldSuggestions(beans), [beans])
+  const suggestions = useMemo(() => beanFieldSuggestions(beans, catalog), [beans, catalog])
 
   async function save() {
     if (!value.fields.roaster_name?.trim()) {

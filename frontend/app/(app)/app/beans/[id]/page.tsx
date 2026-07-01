@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useParams } from 'next/navigation'
 import { ArrowLeft, ClipboardList, Loader2, MessageSquare, Pencil } from 'lucide-react'
-import { getBean, updateBean, setManualRecommendParams, type BeanUpdateInput, type ManualRecommendParams } from '@/lib/api/beans'
+import { getBean, updateBean, setManualRecommendParams, getBeanEntityCatalog, type BeanEntityCatalog, type BeanUpdateInput, type ManualRecommendParams } from '@/lib/api/beans'
 import { getToken } from '@/lib/auth'
 import { beanFieldSuggestions, flavorEmoji, formatBrewSeconds, recommendedParamRows } from '@/lib/beans'
 import { BeanForm } from '@/components/BeanForm'
@@ -258,6 +258,7 @@ export default function BeanDetailPage() {
   // 建议参数表单与「冲煮记录」对齐：器具下拉同样吃公共目录 + 我的器具。
   const [catalog, setCatalog] = useState<Record<string, EquipmentCatalogItem[]>>({})
   const [equipment, setEquipment] = useState<EquipmentProfile[]>([])
+  const [beanCatalog, setBeanCatalog] = useState<BeanEntityCatalog>({ roaster: [], process: [], origin: [], varietal: [] })
 
   useEffect(() => {
     let cancelled = false
@@ -274,10 +275,11 @@ export default function BeanDetailPage() {
     let cancelled = false
     getEquipmentCatalog().then(c => { if (!cancelled) setCatalog(c) }).catch(() => {})
     listEquipment().then(e => { if (!cancelled) setEquipment(e) }).catch(() => {})
+    getBeanEntityCatalog(getToken()).then(c => { if (!cancelled) setBeanCatalog(c) }).catch(() => {})
     return () => { cancelled = true }
   }, [])
 
-  const suggestions = useMemo(() => beanFieldSuggestions(bean ? [bean] : []), [bean])
+  const suggestions = useMemo(() => beanFieldSuggestions(bean ? [bean] : [], beanCatalog), [bean, beanCatalog])
 
   function enterEdit() {
     if (!bean) return

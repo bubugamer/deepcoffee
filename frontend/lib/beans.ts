@@ -1,5 +1,6 @@
 import type { Bean, BeanComponent, BeanRecommendedParams, BrewEvaluation } from '@/types'
 import type { ComboOption } from '@/components/Combobox'
+import type { BeanEntityCatalog, EntityCatalogItem } from '@/lib/api/beans'
 
 export function formatBrewSeconds(seconds?: number): string | undefined {
   if (seconds === undefined || seconds === null) return undefined
@@ -225,63 +226,15 @@ export function validateComponentsForSave(components: ComponentDraft[]): string 
   return null
 }
 
-// ── 处理法 / 烘焙商目录（规范名 + 别名）+ 从已有豆卡抽下拉建议 ─────────────
+// ── 豆卡录入下拉：实体驱动（公共实体目录 + 别名）∪ 用户已有豆卡值 ───────────
+// 目录来自后端 /beans/entity-catalog（getBeanEntityCatalog），即生产库真实、已审核的实体。
 // 别名（含英文/简称）只用于「搜索匹配」与「去重」，下拉里只展示规范名，绝不把英文变体单列。
-export const PROCESS_CATALOG: { name: string; aliases: string[] }[] = [
-  { name: '水洗', aliases: ['Washed', 'Wash', 'Fully Washed', '水洗处理', '湿处理'] },
-  { name: '日晒', aliases: ['Natural', 'Sun-dried', 'Dry Process', 'Dry', '日晒处理', '自然处理', '自然'] },
-  { name: '蜜处理', aliases: ['Honey', 'Honey Process', '蜜处理法'] },
-  { name: '红蜜', aliases: ['Red Honey'] },
-  { name: '黄蜜', aliases: ['Yellow Honey'] },
-  { name: '白蜜', aliases: ['White Honey'] },
-  { name: '黑蜜', aliases: ['Black Honey'] },
-  { name: '半水洗', aliases: ['Semi-washed', 'Semi Washed', 'Pulped Natural', '半日晒'] },
-  { name: '湿刨', aliases: ['Wet-hulled', 'Wet Hulled', 'Giling Basah', '湿刨法'] },
-  { name: '厌氧日晒', aliases: ['Anaerobic Natural'] },
-  { name: '厌氧水洗', aliases: ['Anaerobic Washed'] },
-  { name: '厌氧蜜处理', aliases: ['Anaerobic Honey'] },
-  { name: '二氧化碳浸渍', aliases: ['Carbonic Maceration', 'CM', '碳浸', '二氧化碳浸渍法'] },
-  { name: '热冲击', aliases: ['Thermal Shock'] },
-  { name: '酒香处理', aliases: [] },
-  { name: '双重发酵', aliases: ['Double Fermentation', 'Double Ferment'] },
-]
-
-// 常见烘焙商：国内 10 + 海外 10，含中英/简称别名。仅作下拉建议，可自由输入新增。
-export const ROASTER_CATALOG: { name: string; aliases: string[] }[] = [
-  // 国内
-  { name: 'Seesaw', aliases: ['西索', '西索咖啡', 'Seesaw Coffee'] },
-  { name: '鱼眼咖啡', aliases: ['Fisheye', 'Fisheye Coffee', '鱼眼'] },
-  { name: '明谦咖啡', aliases: ['明谦', 'Mingqian'] },
-  { name: 'Metal Hands', aliases: ['铁手咖啡', '铁手', 'Metal Hands Coffee'] },
-  { name: 'Berry Beans', aliases: ['贝瑞咖啡', '贝瑞', 'Berry Beans Coffee'] },
-  { name: '质馆咖啡', aliases: ['质馆'] },
-  { name: '治光社', aliases: [] },
-  { name: 'Greybox', aliases: ['灰盒子', '灰盒子咖啡', 'Greybox Coffee'] },
-  { name: 'O.P.S. Coffee', aliases: ['OPS', 'O.P.S.'] },
-  { name: 'Torch', aliases: ['炬点', '炬点咖啡', 'Torch Coffee'] },
-  // 海外
-  { name: 'Blue Bottle Coffee', aliases: ['Blue Bottle', '蓝瓶', '蓝瓶咖啡'] },
-  { name: 'Stumptown Coffee Roasters', aliases: ['Stumptown', '树墩城'] },
-  { name: 'Intelligentsia Coffee', aliases: ['Intelligentsia', '知识分子'] },
-  { name: 'Counter Culture Coffee', aliases: ['Counter Culture'] },
-  { name: 'Onyx Coffee Lab', aliases: ['Onyx'] },
-  { name: 'Square Mile Coffee Roasters', aliases: ['Square Mile'] },
-  { name: 'Tim Wendelboe', aliases: [] },
-  { name: 'The Barn', aliases: ['The Barn Coffee Roasters'] },
-  { name: 'The Coffee Collective', aliases: ['Coffee Collective'] },
-  { name: 'Verve Coffee Roasters', aliases: ['Verve'] },
-]
-
-function catalogToOptions(catalog: { name: string; aliases: string[] }[]): ComboOption[] {
-  return catalog.map((c) => ({ value: c.name, label: c.name, aliases: c.aliases }))
-}
-
-export const PROCESS_OPTIONS: ComboOption[] = catalogToOptions(PROCESS_CATALOG)
-export const ROASTER_OPTIONS: ComboOption[] = catalogToOptions(ROASTER_CATALOG)
-// 兼容旧引用（纯规范名列表）
-export const COMMON_PROCESSES = PROCESS_CATALOG.map((c) => c.name)
-
 const normSuggest = (s: string) => s.toLowerCase().replace(/\s+/g, '').trim()
+
+// 实体目录项 → combobox 选项（value/label = 规范名，aliases 仅用于搜索/去重）。
+export function entityCatalogOptions(items: EntityCatalogItem[]): ComboOption[] {
+  return items.map((i) => ({ value: i.name, label: i.name, aliases: i.aliases ?? [] }))
+}
 
 // 目录选项 ∪ 用户已有值：已有值若命中目录规范名或其任一别名（忽略大小写/空格），视作同一别名、不再单列。
 function mergeWithCatalog(base: ComboOption[], existing: Iterable<string>): ComboOption[] {
@@ -308,8 +261,8 @@ export interface BeanFieldSuggestions {
   roasters: ComboOption[]
 }
 
-// 下拉/输入建议：处理法 / 烘焙商 = 目录（带别名）∪ 已有值（去重）；产地 / 品种 = 已有值。
-export function beanFieldSuggestions(beans: Bean[]): BeanFieldSuggestions {
+// 下拉/输入建议：烘焙商 / 处理法 / 产地 / 品种 = 公共实体目录（带别名）∪ 已有值（去重）。
+export function beanFieldSuggestions(beans: Bean[], catalog: BeanEntityCatalog): BeanFieldSuggestions {
   const processes = new Set<string>()
   const origins = new Set<string>()
   const varietals = new Set<string>()
@@ -325,12 +278,11 @@ export function beanFieldSuggestions(beans: Bean[]): BeanFieldSuggestions {
     for (const v of bean.varietal ?? []) if (v) varietals.add(v)
     if (bean.roaster) roasters.add(bean.roaster)
   }
-  const plain = (s: Set<string>): ComboOption[] => [...s].map((v) => ({ value: v, label: v }))
   return {
-    processes: mergeWithCatalog(PROCESS_OPTIONS, processes),
-    roasters: mergeWithCatalog(ROASTER_OPTIONS, roasters),
-    origins: plain(origins),
-    varietals: plain(varietals),
+    processes: mergeWithCatalog(entityCatalogOptions(catalog.process), processes),
+    roasters: mergeWithCatalog(entityCatalogOptions(catalog.roaster), roasters),
+    origins: mergeWithCatalog(entityCatalogOptions(catalog.origin), origins),
+    varietals: mergeWithCatalog(entityCatalogOptions(catalog.varietal), varietals),
   }
 }
 
