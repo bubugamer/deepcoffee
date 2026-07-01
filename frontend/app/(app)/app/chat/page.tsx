@@ -16,7 +16,7 @@ import {
   type EquipmentProfile,
 } from '@/lib/api/equipment'
 import { Combobox, type ComboOption } from '@/components/Combobox'
-import { COMMON_PROCESSES } from '@/lib/beans'
+import { PROCESS_OPTIONS } from '@/lib/beans'
 import { softValidate, type FieldKind } from '@/lib/validate'
 import { confirmBrew } from '@/lib/api/records'
 import {
@@ -659,7 +659,7 @@ function ChatBrewDraft({
               <div className="block">
                 <span className="text-xs text-dc-text-3 mb-1 block">处理法 <span className="text-dc-red">*</span></span>
                 <Combobox
-                  options={COMMON_PROCESSES.map(p => ({ value: p, label: p }))}
+                  options={PROCESS_OPTIONS}
                   value={newBean.process}
                   placeholder="输入或选择处理法"
                   onInput={v => setNewBean(c => ({ ...c, process: v }))}
