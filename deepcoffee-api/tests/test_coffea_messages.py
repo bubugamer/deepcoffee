@@ -28,6 +28,22 @@ def test_message_creates_session_and_routes_local() -> None:
     assert kb_results[0]["message"]
 
 
+def test_bean_create_mode_forces_bean_draft() -> None:
+    # 「AI 新增豆卡」向导：mode=bean_create 短路调度器，确定性把文字解析成豆卡草稿。
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/coffea/messages",
+        headers=HEADERS,
+        json={"message": "光合烘焙 翡翠庄园瑰夏 水洗 处理 巴拿马", "mode": "bean_create"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["primary_intent"] == "create_or_update_bean_card"
+    bean_results = [r for r in body["results"] if r["type"] == "create_or_update_bean_card"]
+    assert bean_results and bean_results[0]["status"] == "done"
+    assert bean_results[0]["output"]["draft"]
+
+
 def test_image_message_degrades_without_vision_channel() -> None:
     client = TestClient(create_app())
     resp = client.post(

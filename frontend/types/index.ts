@@ -520,6 +520,8 @@ export interface CoffeaMessageRequest {
   message: string
   session_id?: string | null
   attachments?: CoffeaAttachment[]
+  // 向导模式提示：'bean_create' 时后端确定性走文字建豆卡（供「AI 新增豆卡」向导用）
+  mode?: 'bean_create'
 }
 
 export interface CoffeaMessageResponse {

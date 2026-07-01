@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { MessageSquare, PenLine, Search, Filter, X } from 'lucide-react'
+import { Search, Filter, X } from 'lucide-react'
 import { ApiError } from '@/lib/api/client'
 import { getPeerRecords, getRecords } from '@/lib/api/records'
 import { getToken } from '@/lib/auth'
@@ -75,7 +75,6 @@ export default function RecordsPage() {
   const [range, setRange] = useState<'all' | 'month'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [showCreateChoice, setShowCreateChoice] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -160,9 +159,9 @@ export default function RecordsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-dc-text-1">冲煮记录</h1>
-        <button onClick={() => setShowCreateChoice(true)} className="btn-primary text-sm flex items-center gap-1.5">
+        <Link href="/app/records/new" className="btn-primary text-sm flex items-center gap-1.5">
           + 新建记录
-        </button>
+        </Link>
       </div>
 
       {/* Stats — single line */}
@@ -332,42 +331,6 @@ export default function RecordsPage() {
             </div>
           )}
         </section>
-      )}
-
-      {showCreateChoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setShowCreateChoice(false)}>
-          <div className="dc-card w-full max-w-sm p-4" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-sm font-semibold text-dc-text-1">新建冲煮记录</h2>
-                <p className="text-xs text-dc-text-3 mt-1">选择一种录入方式</p>
-              </div>
-              <button onClick={() => setShowCreateChoice(false)} className="p-1 text-dc-text-3 hover:text-dc-text-1">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="space-y-2">
-              <Link href="/app/chat?new=1" className="dc-card p-3 flex items-center gap-3 hover:border-dc-accent-hi transition-colors">
-                <span className="w-9 h-9 rounded-full bg-dc-accent flex items-center justify-center text-white">
-                  <MessageSquare size={16} />
-                </span>
-                <span>
-                  <span className="block text-sm font-medium text-dc-text-1">通过 AI 对话新增</span>
-                  <span className="block text-xs text-dc-text-3">描述冲煮，让 Coffea 整理草稿</span>
-                </span>
-              </Link>
-              <Link href="/app/records/new" className="dc-card p-3 flex items-center gap-3 hover:border-dc-accent-hi transition-colors">
-                <span className="w-9 h-9 rounded-full bg-dc-accent-light flex items-center justify-center text-dc-accent">
-                  <PenLine size={16} />
-                </span>
-                <span>
-                  <span className="block text-sm font-medium text-dc-text-1">通过表单直接新增</span>
-                  <span className="block text-xs text-dc-text-3">不消耗 AI 次数，手动填写参数</span>
-                </span>
-              </Link>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )

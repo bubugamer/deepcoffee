@@ -73,6 +73,7 @@ export async function sendCoffeaMessage(
         message: req.message,
         session_id: req.session_id ?? null,
         attachments: req.attachments ?? [],
+        ...(req.mode ? { mode: req.mode } : {}),
       }),
     })
   }
