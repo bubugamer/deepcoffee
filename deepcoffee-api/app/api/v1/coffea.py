@@ -38,6 +38,7 @@ from app.schemas.coffea import (
     CoffeaSessionHistory,
     CoffeaSessionState,
     CoffeaSessionTurn,
+    DispatchPlan,
     UserMemoryItem,
     UserMemoryList,
     UserMemoryUpdate,
@@ -103,7 +104,9 @@ _PATCH_OUTPUT_KEYS = frozenset(
         "dismissed",
     }
 )
-_INTERACTIVE_RESULT_TYPES = frozenset({"read_bean_card_image", "brew_record_parse", "equipment_capture"})
+_INTERACTIVE_RESULT_TYPES = frozenset(
+    {"read_bean_card_image", "create_or_update_bean_card", "brew_record_parse", "equipment_capture"}
+)
 _SAVE_HINTS = ("要存", "保存", "帮我存", "记录这次", "记录这杯", "帮我记录", "存这杯")
 _FORCE_NEW_HINTS = ("仍然新建", "还是新建", "再新建", "再保存", "存一份新的", "新建一条")
 
@@ -457,6 +460,14 @@ async def post_message(
         recent_dialog=mc.history_text,
         model=settings.model_default_model,
     )
+
+    # 「AI 新增豆卡」向导：意图明确，短路调度器、确定性只跑文字建豆卡，避免误判为问答。
+    if payload.mode == "bean_create":
+        plan = DispatchPlan(
+            primary_intent="create_or_update_bean_card",
+            actions=[{"type": "create_or_update_bean_card"}],
+            source=plan.source,
+        )
 
     # 按计划执行能现在执行的动作（knowledge / 图片 / 教练 / 联网核实）；其余标 pending。
     results = await execute_plan(

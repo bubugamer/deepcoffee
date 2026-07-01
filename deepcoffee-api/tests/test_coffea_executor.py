@@ -228,13 +228,27 @@ def test_web_verify_degrades_to_local_knowledge() -> None:
     assert "非联网" in results[0].message or "联网" in results[0].message
 
 
-def test_write_capability_is_pending() -> None:
-    # 文字建/改豆卡仍是「待确认」动作（不在聊天单轮自动写库），走 pending 引导语。
+def test_bean_create_from_text_produces_draft() -> None:
+    # 文字描述一支豆 → 解析成豆卡草稿（落库仍由用户在草稿卡确认）。
     plan = DispatchPlan(
         primary_intent="create_or_update_bean_card",
         actions=[{"type": "create_or_update_bean_card"}],
     )
-    results = _run(plan)
+    results = _run(plan, message="光合烘焙 翡翠庄园瑰夏 水洗 处理 巴拿马")  # gateway=None → 本地解析
+    r = results[0]
+    assert r.type == "create_or_update_bean_card"
+    assert r.status == "done"
+    assert isinstance(r.output, dict) and r.output.get("draft")
+    assert r.output.get("raw_input") == "光合烘焙 翡翠庄园瑰夏 水洗 处理 巴拿马"
+
+
+def test_bean_create_pure_intent_is_pending() -> None:
+    # 纯意图消息（没有实打实的豆卡信息）不抱着垃圾草稿出卡，仍回通用引导语。
+    plan = DispatchPlan(
+        primary_intent="create_or_update_bean_card",
+        actions=[{"type": "create_or_update_bean_card"}],
+    )
+    results = _run(plan, message="我想建一张豆卡")
     assert results[0].status == "pending"
     assert results[0].message
 
@@ -283,7 +297,7 @@ def test_pending_guidance_surfaces_as_reply() -> None:
         primary_intent="create_or_update_bean_card",
         actions=[{"type": "create_or_update_bean_card"}],
     )
-    results = _run(plan, message="帮我新建一张耶加雪菲豆卡")
+    results = _run(plan, message="我想建一张豆卡")  # 纯意图、无实质豆卡信息 → pending 引导语
     reply = assemble_reply(plan, results)
     assert reply is not None and "豆仓" in reply
 
@@ -540,11 +554,16 @@ def test_knowledge_action_receives_original_images() -> None:
 
 
 def test_pending_writeback_actions_give_guidance() -> None:
-    # 写库类动作在聊天里仍 pending（不自动落库），但 message 应是明确引导语，而非"后续阶段接入"的桩。
+    # 写库类动作在纯意图（没有实质参数/豆卡信息）时仍 pending（不自动落库），
+    # 但 message 应是明确引导语，而非"后续阶段接入"的桩。
     # recommend_brew_params 不在此列：它已改走冲煮教练，在聊天里直接出方案（见 test_recommend_brew_params_runs_coach_inline）。
-    for intent in ("brew_record_parse", "create_or_update_bean_card"):
+    cases = [
+        ("brew_record_parse", "瑰夏为什么有花香"),        # 无冲煮参数 → pending
+        ("create_or_update_bean_card", "我想建一张豆卡"),  # 无实质豆卡信息 → pending
+    ]
+    for intent, message in cases:
         plan = DispatchPlan(primary_intent=intent, actions=[{"type": intent}])
-        results = _run(plan)
+        results = _run(plan, message=message)
         assert results[0].status == "pending"
         assert results[0].message and "后续阶段接入" not in results[0].message
 

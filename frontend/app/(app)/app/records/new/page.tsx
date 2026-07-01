@@ -57,19 +57,16 @@ export default function NewBrewRecordPage() {
   }
 
   return (
-    <div className="p-4 sm:p-8 max-w-content mx-auto">
+    <div className="p-4 sm:p-8 max-w-3xl mx-auto">
       <Link href="/app/records" className="flex items-center gap-1.5 text-sm text-dc-text-3 hover:text-dc-accent mb-6 w-fit">
         <ArrowLeft size={15} />
         返回记录
       </Link>
 
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-dc-text-1 mb-1">新建冲煮记录</h1>
-          <p className="text-sm text-dc-text-3">通过表单新增不会消耗 AI 额度。</p>
-        </div>
-        <Link href="/app/chat?new=1" className="btn-secondary text-sm py-2 flex items-center gap-1.5">
-          <MessageSquare size={14} />
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <h1 className="text-xl font-bold text-dc-text-1">新建冲煮记录</h1>
+        <Link href="/app/chat?new=1" className="text-sm py-2 px-3.5 flex items-center gap-1.5 rounded-lg border border-dc-accent text-dc-accent font-medium hover:bg-dc-accent-light transition-colors">
+          <MessageSquare size={16} />
           AI 对话新增
         </Link>
       </div>

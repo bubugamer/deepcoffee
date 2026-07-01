@@ -37,6 +37,10 @@ class CoffeaMessageRequest(BaseModel):
     message: str = Field(min_length=1, description="本轮用户自然语言消息")
     session_id: str | None = Field(default=None, description="续接已有会话；为空则后端新建")
     attachments: list[CoffeaAttachment] = Field(default_factory=list)
+    mode: str | None = Field(
+        default=None,
+        description="向导模式提示：'bean_create' 时后端确定性走文字建豆卡（短路调度器），供「AI 新增豆卡」向导使用",
+    )
 
 
 class CoffeaSessionState(BaseModel):

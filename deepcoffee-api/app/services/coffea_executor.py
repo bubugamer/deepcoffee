@@ -16,10 +16,13 @@ import re
 from typing import Any
 
 from app.core.config import Settings
+from app.schemas.bean import BeanDraft
 from app.schemas.brew import BrewDraft
 from app.schemas.coffea import ActionResult, DispatchPlan
 from app.services import bean_card_intake
 from app.services.ai_answer import answer_with_model
+from app.services.bean_parse_ai import parse_bean_with_model
+from app.services.bean_parser import assess_bean_draft, parse_bean_input
 from app.services.brew_coach import LOCAL_COACH_FALLBACK, coach_with_model
 from app.services.brew_parse_ai import parse_brew_with_model
 from app.services.entity_resolver import _bean_id, _bean_name, resolve_equipment, resolve_user_bean
@@ -239,6 +242,10 @@ async def execute_plan(
                         history=history,
                         active_recipe=(active_context or {}).get("recipe"),
                     )
+                )
+            elif action_type == "create_or_update_bean_card":
+                results.append(
+                    await _run_bean_parse(message, model=model, gateway=gateway)
                 )
             elif action_type == "equipment_capture":
                 results.append(
@@ -571,6 +578,58 @@ async def _run_brew_parse(
             "raw_input": message,
         },
         message=msg,
+    )
+
+
+def _has_bean_substance(draft: BeanDraft) -> bool:
+    """解析结果是否含真正的豆卡信息，避免纯意图消息（"我想建豆卡"）抱着空/垃圾草稿出卡。
+
+    刻意不看 draft.name：本地启发式几乎任何句子都能抽出个"豆名"（常是整句），
+    与 _has_brew_substance 排除 bean_name 同理——只认烘焙商 / 豆源结构信息这类实打实的字段。
+    """
+    if draft.roaster_name or draft.roaster_product_name:
+        return True
+    return any(
+        c.origin_name or c.process_name or c.coffee_source_name or c.varietal_names
+        for c in (draft.bean_components or [])
+    )
+
+
+async def _run_bean_parse(
+    message: str,
+    *,
+    model: str,
+    gateway: ModelGateway | None,
+) -> ActionResult:
+    """聊天里建豆卡：把文字描述解析成豆卡草稿（缺什么由用户在草稿卡补），落库由用户在草稿卡确认。
+
+    完全没解析出豆卡信息（纯意图，如「我想建豆卡」）才回通用引导语。
+    """
+    draft = await parse_bean_with_model(message, model=model, gateway=gateway)
+    source = "model"
+    if draft is None:
+        draft, _, _, _ = parse_bean_input(message)
+        source = "local"
+    if not _has_bean_substance(draft):
+        return ActionResult(
+            type="create_or_update_bean_card",
+            status="pending",
+            source=source,
+            message=_PENDING_GUIDANCE["create_or_update_bean_card"],
+        )
+    confidence, low_confidence_fields, _ = assess_bean_draft(draft)
+    summary = bean_card_intake.summarize_draft(draft)
+    return ActionResult(
+        type="create_or_update_bean_card",
+        status="done",
+        source=source,
+        output={
+            "draft": draft.model_dump(exclude_none=True),
+            "confidence": confidence,
+            "low_confidence_fields": low_confidence_fields,
+            "raw_input": message,
+        },
+        message=f"我把你的描述整理成了豆卡草稿：{summary}。请在下面的草稿卡确认后保存。",
     )
 
 
