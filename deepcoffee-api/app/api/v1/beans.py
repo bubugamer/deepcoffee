@@ -4,6 +4,7 @@ import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_ai_quota, require_member
@@ -11,10 +12,11 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.core.security import AuthenticatedUser, get_current_user
-from app.models.tables import UserProfile
+from app.models.tables import EntityAlias, UserProfile
 from app.repositories.beans import bean_repository
 from app.repositories.brews import brew_record_repository
 from app.repositories.coffea_sessions import coffea_session_repository
+from app.repositories.entities import entity_repository
 from app.repositories.equipment import equipment_repository
 from app.repositories.profiles import profile_repository
 from app.repositories.usage import ai_usage_repository
@@ -49,6 +51,46 @@ from app.services.entitlements import is_admin_user, require_bean_square
 from app.services.langfuse_client import langfuse_tracer
 
 router = APIRouter(prefix="/beans", tags=["beans"], dependencies=[Depends(require_member)])
+
+# 豆卡录入下拉的实体驱动目录：前端键 → 公共实体类型。
+_BEAN_CATALOG_TYPES: dict[str, str] = {
+    "roaster": "roaster",
+    "process": "process_method",
+    "origin": "origin",
+    "varietal": "varietal",
+}
+# 可作下拉建议的实体状态（排除 merged / archived / rejected 等）。
+_BEAN_CATALOG_STATUSES = frozenset({"active", "needs_verification"})
+
+
+@router.get("/entity-catalog")
+async def bean_entity_catalog(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, list[dict[str, object]]]:
+    """豆卡录入下拉的公共实体目录（烘焙商/处理法/产地/品种：规范名 + 别名）。
+
+    与用户已有豆卡值合并展示（目录 ∪ 用户已存），前端按 name + aliases 模糊匹配，
+    输入别名/英文（如 Washed、鱼眼）也能搜到规范名。仿器具目录 /equipment/catalog。
+    """
+    out: dict[str, list[dict[str, object]]] = {}
+    for key, etype in _BEAN_CATALOG_TYPES.items():
+        items = await entity_repository.list(session, entity_type=etype, status=None)
+        entities = [e for e in items if e.canonical_name and e.status in _BEAN_CATALOG_STATUSES]
+        aliases_by_entity: dict[str, list[str]] = {}
+        ids = [e.id for e in entities]
+        if ids:
+            rows = await session.execute(
+                select(EntityAlias.entity_id, EntityAlias.alias).where(EntityAlias.entity_id.in_(ids))
+            )
+            for entity_id, alias in rows.all():
+                if alias:
+                    aliases_by_entity.setdefault(entity_id, []).append(alias)
+        out[key] = [
+            {"name": e.canonical_name, "aliases": sorted(set(aliases_by_entity.get(e.id, [])))}
+            for e in sorted(entities, key=lambda x: x.canonical_name or "")
+        ]
+    return out
+
 
 _COMPONENT_TEXT_FIELDS = (
     "origin_name",

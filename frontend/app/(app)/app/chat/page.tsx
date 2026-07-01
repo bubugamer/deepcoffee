@@ -6,7 +6,7 @@ import {
   Send, AlertTriangle, AlertCircle, CheckCircle2, Clock,
   ImagePlus, X, Globe, Square, Plus, Trash2,
 } from 'lucide-react'
-import { confirmBean, getBeans } from '@/lib/api/beans'
+import { confirmBean, getBeans, getBeanEntityCatalog } from '@/lib/api/beans'
 import {
   createEquipment,
   getEquipmentCatalog,
@@ -16,7 +16,7 @@ import {
   type EquipmentProfile,
 } from '@/lib/api/equipment'
 import { Combobox, type ComboOption } from '@/components/Combobox'
-import { PROCESS_OPTIONS } from '@/lib/beans'
+import { entityCatalogOptions } from '@/lib/beans'
 import { softValidate, type FieldKind } from '@/lib/validate'
 import { confirmBrew } from '@/lib/api/records'
 import {
@@ -395,6 +395,8 @@ function ChatBrewDraft({
   const [beans, setBeans] = useState<Bean[] | null>(null)
   const [equipment, setEquipment] = useState<EquipmentProfile[] | null>(null)
   const [catalog, setCatalog] = useState<Record<string, EquipmentCatalogItem[]> | null>(null)
+  // 补齐新豆的处理法下拉：吃公共实体目录（规范名 + 别名），拉取失败回退纯手输。
+  const [processOptions, setProcessOptions] = useState<ComboOption[]>([])
   const resolvedBeanId = typeof output.resolved_bean_id === 'string' ? output.resolved_bean_id : null
   const [beanChoice, setBeanChoice] = useState(parsedBeanName ? CUSTOM : '')
   const [beanCustom, setBeanCustom] = useState(parsedBeanName)
@@ -439,6 +441,9 @@ function ChatBrewDraft({
     getEquipmentCatalog()
       .then(c => { if (!cancelled) setCatalog(c) })
       .catch(() => { if (!cancelled) setCatalog({}) })
+    getBeanEntityCatalog(getToken())
+      .then(c => { if (!cancelled) setProcessOptions(entityCatalogOptions(c.process)) })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [])
 
@@ -659,7 +664,7 @@ function ChatBrewDraft({
               <div className="block">
                 <span className="text-xs text-dc-text-3 mb-1 block">处理法 <span className="text-dc-red">*</span></span>
                 <Combobox
-                  options={PROCESS_OPTIONS}
+                  options={processOptions}
                   value={newBean.process}
                   placeholder="输入或选择处理法"
                   onInput={v => setNewBean(c => ({ ...c, process: v }))}

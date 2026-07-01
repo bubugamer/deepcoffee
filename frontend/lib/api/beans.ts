@@ -208,6 +208,32 @@ export async function getBeans(filters: BeanFilters = {}, token?: string | null)
   return filterFallbackBeans(filters)
 }
 
+export interface EntityCatalogItem {
+  name: string
+  aliases: string[]
+}
+export interface BeanEntityCatalog {
+  roaster: EntityCatalogItem[]
+  process: EntityCatalogItem[]
+  origin: EntityCatalogItem[]
+  varietal: EntityCatalogItem[]
+}
+
+const EMPTY_BEAN_ENTITY_CATALOG: BeanEntityCatalog = { roaster: [], process: [], origin: [], varietal: [] }
+
+// GET /v1/beans/entity-catalog —— 豆卡录入下拉的公共实体目录（规范名 + 别名）。
+export async function getBeanEntityCatalog(token?: string | null): Promise<BeanEntityCatalog> {
+  if (isApiEnabled) {
+    try {
+      const res = await apiFetch<Partial<BeanEntityCatalog>>('/beans/entity-catalog', { token })
+      return { ...EMPTY_BEAN_ENTITY_CATALOG, ...res }
+    } catch {
+      return EMPTY_BEAN_ENTITY_CATALOG
+    }
+  }
+  return EMPTY_BEAN_ENTITY_CATALOG
+}
+
 // GET /v1/beans/:id
 export async function getBean(beanId: string, token?: string | null): Promise<Bean | null> {
   if (isApiEnabled) {
