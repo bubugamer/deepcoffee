@@ -16,7 +16,9 @@ import {
   type EquipmentProfile,
 } from '@/lib/api/equipment'
 import { Combobox, type ComboOption } from '@/components/Combobox'
-import { entityCatalogOptions } from '@/lib/beans'
+import { entityCatalogOptions, beanFieldSuggestions, type BeanFieldSuggestions } from '@/lib/beans'
+
+const EMPTY_BEAN_SUGGESTIONS: BeanFieldSuggestions = { processes: [], origins: [], varietals: [], roasters: [] }
 import { softValidate, type FieldKind } from '@/lib/validate'
 import { confirmBrew } from '@/lib/api/records'
 import {
@@ -250,6 +252,16 @@ function ChatBeanDraft({
   const [draft, setDraft] = useState<BeanDraft>(() => (output.draft as BeanDraft) ?? {})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // 烘焙商/产地/处理法/品种下拉：吃公共实体目录 ∪ 用户已有值，和表单一致。
+  const [suggestions, setSuggestions] = useState<BeanFieldSuggestions>(EMPTY_BEAN_SUGGESTIONS)
+  useEffect(() => {
+    let cancelled = false
+    const token = getToken()
+    Promise.all([getBeans({}, token).catch(() => []), getBeanEntityCatalog(token)])
+      .then(([beans, catalog]) => { if (!cancelled) setSuggestions(beanFieldSuggestions(beans, catalog)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   if (output.dismissed === true) {
     return (
@@ -296,6 +308,7 @@ function ChatBeanDraft({
       clarification={null}
       error={error}
       saving={saving}
+      suggestions={suggestions}
       onChange={setDraft}
       onConfirm={confirm}
       onRetry={() => void onPatch({ dismissed: true }, '已忽略这张豆卡草稿。')}
@@ -1464,8 +1477,30 @@ function DraftInput({
   )
 }
 
+// 可搜索下拉 + 自由输入/新增（吃公共实体目录 ∪ 用户已有值），和表单 BeanForm 的 ComboField 一致；lowConf 复用 Combobox.highlight。
+function DraftCombo({
+  label, value, options, lowConf, placeholder, onInput, onSelect,
+}: {
+  label: string; value: string; options: ComboOption[]; lowConf?: boolean
+  placeholder?: string; onInput: (value: string) => void; onSelect: (value: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs text-dc-text-3 mb-1 block">{label}</span>
+      <Combobox
+        options={options}
+        value={value}
+        placeholder={placeholder ?? `输入或选择${label}`}
+        highlight={lowConf}
+        onInput={onInput}
+        onSelect={onSelect}
+      />
+    </label>
+  )
+}
+
 function BeanDraftCard({
-  draft, confidence, lowConfidenceFields, clarification, error, saving, onChange, onConfirm, onRetry,
+  draft, confidence, lowConfidenceFields, clarification, error, saving, suggestions, onChange, onConfirm, onRetry,
   retryLabel = '重新描述',
 }: {
   draft: BeanDraft | null
@@ -1474,6 +1509,7 @@ function BeanDraftCard({
   clarification?: string | null
   error: string
   saving: boolean
+  suggestions: BeanFieldSuggestions
   onChange: (draft: BeanDraft) => void
   onConfirm: () => void
   onRetry: () => void
@@ -1539,7 +1575,7 @@ function BeanDraftCard({
           placeholder="例如：翡翠庄园 瑰夏 水洗"
         />
         <div className="grid sm:grid-cols-2 gap-3">
-          <DraftInput label="烘焙商" value={draft.roaster_name ?? ''} lowConf={isLow('roaster_name')} onChange={(value) => setField('roaster_name', value)} />
+          <DraftCombo label="烘焙商" value={draft.roaster_name ?? ''} options={suggestions.roasters} lowConf={isLow('roaster_name')} onInput={(value) => setField('roaster_name', value)} onSelect={(value) => setField('roaster_name', value)} />
           <DraftInput label="烘焙商产品 / 批次名" value={draft.roaster_product_name ?? ''} lowConf={isLow('roaster_product_name')} onChange={(value) => setField('roaster_product_name', value)} />
           <DraftInput label="烘焙日期" value={draft.roast_date_text ?? ''} lowConf={isLow('roast_date_text')} onChange={(value) => setField('roast_date_text', value)} />
           <DraftInput label="净含量" value={draft.net_weight_text ?? ''} lowConf={isLow('net_weight_text')} onChange={(value) => setField('net_weight_text', value)} />
@@ -1572,13 +1608,19 @@ function BeanDraftCard({
                     )}
                   </div>
                   <div className="grid sm:grid-cols-2 gap-2">
-                    <DraftInput label="产地" value={component.origin_name ?? ''} onChange={(value) => setComponent(index, { origin_name: value })} />
+                    <DraftCombo label="产地" value={component.origin_name ?? ''} options={suggestions.origins} onInput={(value) => setComponent(index, { origin_name: value })} onSelect={(value) => setComponent(index, { origin_name: value })} />
                     <DraftInput label="生产者/庄园/处理站" value={component.coffee_source_name ?? ''} onChange={(value) => setComponent(index, { coffee_source_name: value })} />
-                    <DraftInput label="处理法" value={component.process_name ?? ''} onChange={(value) => setComponent(index, { process_name: value })} />
-                    <DraftInput
+                    <DraftCombo label="处理法" value={component.process_name ?? ''} options={suggestions.processes} onInput={(value) => setComponent(index, { process_name: value })} onSelect={(value) => setComponent(index, { process_name: value })} />
+                    <DraftCombo
                       label="品种"
                       value={(component.varietal_names ?? []).join('，')}
-                      onChange={(value) => setComponent(index, { varietal_names: value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })}
+                      options={suggestions.varietals}
+                      placeholder="输入或选择品种，多个用逗号分隔"
+                      onInput={(value) => setComponent(index, { varietal_names: value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })}
+                      onSelect={(value) => {
+                        const cur = component.varietal_names ?? []
+                        if (!cur.includes(value)) setComponent(index, { varietal_names: [...cur, value] })
+                      }}
                     />
                     <DraftInput label="生豆商/进口商" value={component.green_bean_merchant_name ?? ''} onChange={(value) => setComponent(index, { green_bean_merchant_name: value })} />
                     <DraftInput label="生豆商产品" value={component.green_bean_product_name ?? ''} onChange={(value) => setComponent(index, { green_bean_product_name: value })} />

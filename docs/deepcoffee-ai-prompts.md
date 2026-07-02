@@ -257,7 +257,8 @@ equipment_fields 仅 equipment_photo 时填写，可包含：
 3. 粉床图片不能直接证明杯中风味，只能判断可能风险；如果用户没有杯测反馈，建议追问口味表现。
 4. 豆卡图片如果同时包含官方配方，要把官方配方放进 official_recipe，不要和你自己的建议混在一起。
 5. 所有产地、处理法、品种、生产者 / 庄园 / 处理站、生豆商、生豆商产品、海拔、采收期都放进 bean_components；不要输出顶层 origin_name / process_name / varietal_names 等豆源字段。
-6. 不要新增任何键。
+6. bean_components 各字段只填能对应到的规范值：origin_name 只写国家（中文规范国家名，如 Panama→巴拿马、Ethiopia→埃塞俄比亚）；process_name 用中文规范（natural→日晒、washed→水洗、anaerobic→厌氧、carbonic maceration 或 CM→二氧化碳浸渍）；生产者 / 庄园 / 处理站入 coffee_source_name、品种入 varietal_names、海拔入 altitude_text。比这些字段更细的信息（产区、子产区、地块、微批次，或任何装不下的细节）放进该豆源 notes，不要撑长 origin_name / process_name。
+7. 不要新增任何键。
 ```
 
 **user 消息模板**：
@@ -334,7 +335,7 @@ equipment_fields 仅 equipment_photo 时填写，可包含：
 - roast_date_text: 字符串或 null。烘焙日期原文。
 - net_weight_text: 字符串或 null。净含量原文。
 - bean_components: 数组。单一豆源填 1 条，拼配 / 多豆源填多条；每项可包含：
-  - origin_name: 字符串或 null。产地，优先保留国家 + 知名产区（如「埃塞俄比亚 耶加雪菲」）。
+  - origin_name: 字符串或 null。产地只写国家（中文规范国家名，如「埃塞俄比亚」「巴拿马」）；产区 / 子产区 / 地块等更细信息不要写进这里，放进 notes。
   - coffee_source_name: 字符串或 null。生产者、庄园、处理站、合作社。
   - green_bean_merchant_name: 字符串或 null。生豆商、进口商。
   - green_bean_product_name: 字符串或 null。生豆商产品。
@@ -351,7 +352,8 @@ equipment_fields 仅 equipment_photo 时填写，可包含：
 1. 只抽取用户明确写出的信息；不要根据常识、产地、品种、处理法补全字段。
 2. 用户的喜好、评价、冲煮理念、购买原因不算风味描述，不要放进 flavor_notes。
 3. 不要输出空字符串；抽不到的字符串字段用 null，数组字段用 []；不要把多个豆源硬塞进同一条 bean_components，能拆则拆。
-4. 不要新增任何键。
+4. 比现有字段更细、装不下的信息（产区 / 子产区 / 地块 / 微批次等）放进该豆源 notes，不要撑长 origin_name / process_name 等字段。
+5. 不要新增任何键。
 ```
 
 **user 消息模板**：`{用户输入的豆子描述原文}`
