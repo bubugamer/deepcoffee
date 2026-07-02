@@ -234,6 +234,54 @@ def test_bean_links_roaster_and_search_aggregates() -> None:
     asyncio.run(_run())
 
 
+def test_link_entities_normalizes_display_to_canonical() -> None:
+    """录入即归一：4 个封闭下拉目录命中实体时，显示名改写成规范 canonical（别名/大小写/英文/去重）。"""
+    from app.repositories.beans import bean_repository
+    from app.repositories.profiles import profile_repository
+    from app.schemas.bean import BeanComponent, BeanDraft
+
+    async def _run() -> None:
+        async with get_sessionmaker()() as session:
+            await profile_repository.get_or_create(session, "u-norm", "n@x.com")
+            await entity_repository.upsert(session, entity_type="roaster", canonical_name="Coffee Buff")
+            await entity_repository.upsert(session, entity_type="origin", canonical_name="巴拿马")
+            await entity_repository.upsert(
+                session, entity_type="process", canonical_name="水洗处理", payload={"aliases": ["水洗"]}
+            )
+            await entity_repository.upsert(
+                session, entity_type="varietal", canonical_name="瑰夏", payload={"aliases": ["Geisha"]}
+            )
+            bid = await bean_repository.create(
+                session,
+                user_id="u-norm",
+                draft=BeanDraft(
+                    name="豆",
+                    roaster_name="coffee buff",  # 大小写别名
+                    bean_components=[
+                        BeanComponent(
+                            origin_name="巴拿马",
+                            process_name="水洗",  # 别名 → 水洗处理
+                            varietal_names=["Geisha", "瑰夏"],  # 英文别名 + 重复 → 去重成规范名
+                        )
+                    ],
+                ),
+                source_type="text",
+                raw_input=None,
+                trace_id="t",
+            )
+            b = await bean_repository.get(session, user_id="u-norm", bean_id=bid)
+            assert b.roaster == "Coffee Buff"  # 顶层烘焙商归一
+            comp = b.bean_components[0]
+            assert comp.process_name == "水洗处理"  # 处理法归一
+            assert comp.origin_name == "巴拿马"
+            assert comp.varietal_names == ["瑰夏"]  # 英文别名归一 + 去重
+            assert comp.process_entity_id and comp.origin_entity_id
+            assert b.roaster_entity_id is not None
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
 # ---------- 阶段 4：合并 / 规范主名 / 扫描重复 ----------
 
 

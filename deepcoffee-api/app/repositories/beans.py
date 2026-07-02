@@ -176,20 +176,40 @@ class BeanRepository:
         await session.flush()
         return card.id
 
-    async def _resolve_id(self, session: AsyncSession, etype: str, name: str | None) -> str | None:
+    async def _resolve_entity_active(
+        self, session: AsyncSession, etype: str, name: str | None
+    ) -> tuple[str | None, str | None]:
+        """解析到 active 公共实体则返回 (entity_id, canonical_name),否则 (None, None)。
+
+        用于「录入即归一」:命中封闭下拉目录时回填 entity_id 的同时把显示名改写成规范名
+        (与器具 equipment_repository.upsert 一致,防脏数据)。解析失败不阻断建档/编辑。
+        """
         if not name or not str(name).strip():
-            return None
+            return None, None
         try:
             ent = await entity_repository.resolve_entity(session, etype, str(name).strip())
         except Exception:  # noqa: BLE001 — 关联失败不阻断建档/编辑
-            return None
-        return ent.id if (ent is not None and ent.status == "active") else None
+            return None, None
+        if ent is not None and ent.status == "active":
+            return ent.id, ent.canonical_name
+        return None, None
+
+    async def _resolve_id(self, session: AsyncSession, etype: str, name: str | None) -> str | None:
+        return (await self._resolve_entity_active(session, etype, name))[0]
 
     async def _link_entities(self, session: AsyncSession, card: UserBeanCardORM) -> None:
-        """把豆卡名称解析到公共实体并回填:顶层 roaster/roaster_product,每条豆源 origin/process/coffee_source/
-        green_bean_merchant/varietal。同时按豆源条数写 bean_product_type。解析失败不阻断建档/编辑。"""
-        card.roaster_entity_id = await self._resolve_id(session, "roaster", card.roaster_name)
-        # 产品实体(roaster_product)按「烘焙商作用域」解析:只连已审核通过的 active,绝不自动建。
+        """把豆卡名称解析到公共实体并回填,并对封闭下拉目录「录入即归一」。
+
+        4 个封闭下拉目录(烘焙商/产地/处理法/品种)命中 active 实体时:回填 entity_id 且把显示名
+        改写成规范 canonical_name——今后表单/AI 草稿/识图任何路径存进来的别名/大小写/英文,一保存
+        就自动收敛成规范名,显示名与 entity_id 不再分叉,规范名搜索/筛选也能命中。开放字段(庄园/
+        生豆商/产品名等自由输入)只回填 id、不改写。同时按豆源条数写 bean_product_type。
+        解析失败不阻断建档/编辑。"""
+        rid, rcanon = await self._resolve_entity_active(session, "roaster", card.roaster_name)
+        card.roaster_entity_id = rid
+        if rcanon:
+            card.roaster_name = rcanon
+        # 产品实体(roaster_product)按「烘焙商作用域」解析:只连已审核通过的 active,绝不自动建;产品名不改写。
         card.roaster_product_entity_id = None
         if card.roaster_product_name and card.roaster_entity_id:
             try:
@@ -206,17 +226,29 @@ class BeanRepository:
             if not isinstance(comp, dict):
                 continue
             comp = dict(comp)
-            comp["origin_entity_id"] = await self._resolve_id(session, "origin", comp.get("origin_name"))
-            comp["process_entity_id"] = await self._resolve_id(session, "process_method", comp.get("process_name"))
+            oid, ocanon = await self._resolve_entity_active(session, "origin", comp.get("origin_name"))
+            comp["origin_entity_id"] = oid
+            if ocanon:
+                comp["origin_name"] = ocanon
+            pid, pcanon = await self._resolve_entity_active(session, "process_method", comp.get("process_name"))
+            comp["process_entity_id"] = pid
+            if pcanon:
+                comp["process_name"] = pcanon
             comp["coffee_source_entity_id"] = await self._resolve_id(session, "coffee_source", comp.get("coffee_source_name"))
             comp["green_bean_merchant_entity_id"] = await self._resolve_id(
                 session, "green_bean_merchant", comp.get("green_bean_merchant_name")
             )
+            # 品种:逐个归一到规范名 + 去重,并收集实体 id。
+            vnames: list[str] = []
             vids: list[str] = []
             for v in comp.get("varietal_names") or []:
-                vid = await self._resolve_id(session, "varietal", v)
-                if vid:
+                vid, vcanon = await self._resolve_entity_active(session, "varietal", v)
+                nm = vcanon or (v.strip() if isinstance(v, str) and v.strip() else None)
+                if nm and nm not in vnames:
+                    vnames.append(nm)
+                if vid and vid not in vids:
                     vids.append(vid)
+            comp["varietal_names"] = vnames
             comp["varietal_entity_ids"] = vids
             new_components.append(comp)
         card.bean_components = new_components  # 重新赋值以触发 JSONB 变更跟踪
